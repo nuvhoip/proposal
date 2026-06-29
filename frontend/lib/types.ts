@@ -112,12 +112,15 @@ export interface ProposalDraft {
 }
 
 export interface DashboardStats {
-  totalProposals: number
-  sentThisMonth: number
-  signedThisMonth: number
-  conversionRate: number
+  totalProposals:      number
+  sentThisMonth:       number
+  signedThisMonth:     number
+  conversionRate:      number
   totalMonthlyRevenue: number
-  pendingFollowups: number
+  pendingFollowups:    number
+  avgResponseDays:     number
+  pendingSignature:    number
+  totalRevenuePending: number
 }
 
 export interface ApiResponse<T = unknown> {
