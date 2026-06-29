@@ -210,7 +210,7 @@ export default function ProposalDetailPage() {
               </h2>
               <p style={{ color: 'var(--nv-text-body)', lineHeight: 1.6, margin: 0,
                           fontStyle: 'italic', fontSize: 15 }}>
-                "{proposal.sender_message}"
+                &ldquo;{proposal.sender_message}&rdquo;
               </p>
               {proposal.sender && (
                 <p style={{ margin: '10px 0 0', fontSize: 13, color: 'var(--nv-text-muted)' }}>

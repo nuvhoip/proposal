@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { NuvhoLogo, NuvhoIconMark } from '@/components/ui/NuvhoLogo'
@@ -20,27 +21,27 @@ const navItems: NavItem[] = [
   {
     href: '/dashboard',
     label: 'Dashboard',
-    icon: <img src="/icons/gauge-simple.svg" width="18" height="18" alt="" style={{ filter: WHITE_ICON }} />,
+    icon: <Image src="/icons/gauge-simple.svg" width={18} height={18} alt="" style={{ filter: WHITE_ICON }} />,
   },
   {
     href: '/proposals',
     label: 'Proposals',
-    icon: <img src="/icons/file-contract.svg" width="18" height="18" alt="" style={{ filter: WHITE_ICON }} />,
+    icon: <Image src="/icons/file-contract.svg" width={18} height={18} alt="" style={{ filter: WHITE_ICON }} />,
   },
   {
     href: '/proposals/new',
     label: 'New Proposal',
-    icon: <img src="/icons/rocket.svg" width="18" height="18" alt="" style={{ filter: WHITE_ICON }} />,
+    icon: <Image src="/icons/rocket.svg" width={18} height={18} alt="" style={{ filter: WHITE_ICON }} />,
   },
   {
     href: '/engagements',
     label: 'Engagements',
-    icon: <img src="/icons/handshake.svg" width="18" height="18" alt="" style={{ filter: WHITE_ICON }} />,
+    icon: <Image src="/icons/handshake.svg" width={18} height={18} alt="" style={{ filter: WHITE_ICON }} />,
   },
   {
     href: '/settings',
     label: 'Settings',
-    icon: <img src="/icons/gears.svg" width="18" height="18" alt="" style={{ filter: WHITE_ICON }} />,
+    icon: <Image src="/icons/gears.svg" width={18} height={18} alt="" style={{ filter: WHITE_ICON }} />,
   },
 ]
 
