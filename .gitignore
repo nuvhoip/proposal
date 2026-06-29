@@ -1,0 +1,73 @@
+# ── Dependencies ──────────────────────────────────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+
+# ── Next.js ───────────────────────────────────────────────────────────────────
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/node_modules/
+
+
+# ── TypeScript ────────────────────────────────────────────────────────────────
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+frontend/tsconfig.tsbuildinfo
+
+# ── Environment / secrets ─────────────────────────────────────────────────────
+# Commit .env.example or .env.local.example instead — never the real files
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+frontend/.env
+frontend/.env.local
+frontend/.env.development
+frontend/.env.development.local
+frontend/.env.production
+frontend/.env.production.local
+
+# ── Wrangler / Cloudflare ─────────────────────────────────────────────────────
+.wrangler/
+worker/.wrangler/
+worker/node_modules/
+# Wrangler secrets stored locally (not wrangler.toml itself — that's safe to commit)
+.dev.vars
+
+# ── Backup files (created during edits) ──────────────────────────────────────
+*.bak
+*.bak2
+
+# ── OS / editor ───────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+.vercel
+.turbo
+coverage/
+.nyc_output/
+dist/
