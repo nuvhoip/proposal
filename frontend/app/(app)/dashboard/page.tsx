@@ -6,13 +6,15 @@ import type { DashboardStats, ProposalSummary } from '@/lib/types'
 
 // ── Mock data (replaced by Worker API fetch) ──────────────────────────────
 const MOCK_STATS: DashboardStats = {
-  totalProposals:     42,
-  sentThisMonth:       8,
-  signedThisMonth:     5,
-  conversionRate:     62.5,
-  avgResponseDays:     3.2,
-  pendingSignature:    3,
-  totalRevenuePending: 148500,
+  totalProposals:      42,
+  sentThisMonth:        8,
+  signedThisMonth:      5,
+  conversionRate:      62.5,
+  totalMonthlyRevenue: 210000,
+  pendingFollowups:     4,
+  avgResponseDays:      3.2,
+  pendingSignature:     3,
+  totalRevenuePending:  148500,
 }
 
 const MOCK_PROPOSALS: ProposalSummary[] = [
