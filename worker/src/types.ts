@@ -19,6 +19,7 @@ export interface Env {
   XERO_CLIENT_SECRET:  string
   JWT_SECRET:          string
   RESEND_API_KEY:      string
+  ANTHROPIC_API_KEY:   string
 }
 
 export interface Session {

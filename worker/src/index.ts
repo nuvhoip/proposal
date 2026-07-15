@@ -15,6 +15,7 @@ import {
   getDashboardStats,
   getPublicProposal,
   signProposal,
+  generateEmailTemplate,
 } from './routes/proposals'
 
 /* ── Rate limiter ────────────────────────────────────────────── */
@@ -173,6 +174,11 @@ async function route(
     return createProposal(request, env, session)
   }
 
+  // Generate email template (Claude API)
+  if (path === '/proposals/generate-email-template' && method === 'POST') {
+    return generateEmailTemplate(request, env, session)
+  }
+
   // Single proposal
   const proposalMatch = path.match(/^\/proposals\/([A-Z0-9]+)$/)
   if (proposalMatch) {
@@ -204,7 +210,8 @@ async function route(
 /* ── Staff list helper ───────────────────────────────────────── */
 async function listStaff(env: Env): Promise<Response> {
   const { results } = await env.DB.prepare(
-    'SELECT id, name, email, role, role_type FROM staff ORDER BY name'
+    `SELECT id, name, email, role, role_type, m365_upn
+     FROM staff WHERE bd_facing = 1 ORDER BY name`
   ).all()
   return new Response(JSON.stringify({ ok: true, data: results }), {
     headers: { 'Content-Type': 'application/json' },

@@ -252,6 +252,67 @@ export async function signProposal(token: string, request: Request, env: Env): P
   return ok({ signed: true, message: 'Proposal accepted. Our team will be in touch shortly.' })
 }
 
+/* ─── Generate email template (Claude API) ─────────────────── */
+export async function generateEmailTemplate(request: Request, env: Env, session: Session): Promise<Response> {
+  const body = await request.json() as {
+    staffId?:      string
+    contactName?:  string
+    contactTitle?: string
+    hotelName?:    string
+    serviceCodes?: string[]
+  }
+
+  if (!body.contactName) return err('Contact name required')
+  if (!env.ANTHROPIC_API_KEY) return err('Email generation is not configured', 500)
+
+  let senderName = 'the Nuvho team'
+  if (body.staffId) {
+    const staff = await env.DB.prepare('SELECT name, role FROM staff WHERE id = ?')
+      .bind(body.staffId).first<{ name: string; role: string }>()
+    if (staff) senderName = staff.name
+  }
+
+  const serviceNames: Record<string, string> = {
+    RM: 'Revenue Management', SM: 'Sales Management',
+    MK: 'Marketing',          CR: 'Concierge Revenue',
+  }
+  const services = (body.serviceCodes || []).map(c => serviceNames[c] || c).join(', ')
+
+  const prompt = `Write a short, warm, professional email opening message (3-5 sentences, no subject line, no sign-off) `
+    + `from ${senderName} at Nuvho (a hospitality technology company, "Smart Hoteliers") to ${body.contactName}`
+    + `${body.contactTitle ? `, ${body.contactTitle}` : ''}${body.hotelName ? ` at ${body.hotelName}` : ''}. `
+    + `The email introduces a proposal covering: ${services || 'Nuvho\'s services'}. `
+    + `Tone should be friendly and consultative, not salesy. Do not invent specific numbers, dates, or promises. `
+    + `Return only the message body text, nothing else.`
+
+  const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type':      'application/json',
+      'x-api-key':          env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model:      'claude-sonnet-5',
+      max_tokens: 300,
+      messages:   [{ role: 'user', content: prompt }],
+    }),
+  })
+
+  if (!aiRes.ok) {
+    const detail = await aiRes.text().catch(() => '')
+    console.error('[Claude API error]', aiRes.status, detail)
+    return err('Failed to generate email template', 502)
+  }
+
+  const aiData = await aiRes.json() as { content?: { type: string; text: string }[] }
+  const message = aiData.content?.find(c => c.type === 'text')?.text?.trim() || ''
+
+  await auditLog(env, 'n/a', 'email_template_generated', session.email, { contactName: body.contactName })
+
+  return ok({ message })
+}
+
 /* ─── Helpers ─────────────────────────────────────────────── */
 async function auditLog(
   env: Env, proposalId: string, event: string, actor: string, meta?: object

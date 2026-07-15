@@ -29,9 +29,34 @@ export default function NewProposalPage() {
   const router = useRouter()
   const [draft, setDraft]       = useState<ProposalDraft>(EMPTY_DRAFT)
   const [saving, setSaving]     = useState(false)
+  const [savingDraft, setSavingDraft] = useState(false)
   const [errors, setErrors]     = useState<Record<string, string>>({})
+  const [staff, setStaff]       = useState<M365Staff[]>([])
+  const [staffLoading, setStaffLoading] = useState(true)
+  const [staffError, setStaffError]     = useState('')
 
   const step = draft.step
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadStaff() {
+      setStaffLoading(true)
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/staff`, {
+          credentials: 'include',
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Failed to load Microsoft 365 users')
+        if (!cancelled) setStaff(data.data || [])
+      } catch (e: any) {
+        if (!cancelled) setStaffError(e.message || 'Failed to load Microsoft 365 users')
+      } finally {
+        if (!cancelled) setStaffLoading(false)
+      }
+    }
+    loadStaff()
+    return () => { cancelled = true }
+  }, [])
 
   function goNext() {
     const errs = validateStep(draft)
@@ -44,18 +69,42 @@ export default function NewProposalPage() {
     setDraft(d => ({ ...d, step: Math.max(1, d.step - 1) }))
   }
 
+  async function createDraftProposal(): Promise<string> {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/proposals`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(draft),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Failed to create proposal')
+    return data.data.id as string
+  }
+
+  async function handleSaveDraft() {
+    setSavingDraft(true)
+    try {
+      const id = await createDraftProposal()
+      router.push(`/proposals/${id}`)
+    } catch (err: any) {
+      setErrors({ submit: err.message })
+    } finally {
+      setSavingDraft(false)
+    }
+  }
+
   async function handleSubmit() {
     setSaving(true)
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/proposals`, {
+      const id = await createDraftProposal()
+      const sendRes = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/proposals/${id}/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(draft),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to create proposal')
-      router.push(`/proposals/${data.data.id}`)
+      const sendData = await sendRes.json()
+      if (!sendRes.ok) throw new Error(sendData.error || 'Proposal created but failed to send')
+      router.push(`/proposals/${id}`)
     } catch (err: any) {
       setErrors({ submit: err.message })
     } finally {
@@ -99,7 +148,10 @@ export default function NewProposalPage() {
             <Step2Services draft={draft} setDraft={setDraft} errors={errors} />
           )}
           {step === 3 && (
-            <Step3Sender draft={draft} setDraft={setDraft} errors={errors} />
+            <Step3Sender
+              draft={draft} setDraft={setDraft} errors={errors}
+              staff={staff} staffLoading={staffLoading} staffError={staffError}
+            />
           )}
           {step === 4 && (
             <Step4Cover draft={draft} setDraft={setDraft} errors={errors} />
@@ -123,14 +175,24 @@ export default function NewProposalPage() {
               ? <button className="nv-btn nv-btn--solid nv-btn--md" onClick={goNext}>
                   Continue →
                 </button>
-              : <button
-                  className="nv-btn nv-btn--solid nv-btn--md"
-                  onClick={handleSubmit}
-                  disabled={saving}
-                  aria-busy={saving}
-                >
-                  {saving ? 'Generating…' : 'Generate & Send Proposal'}
-                </button>}
+              : <div style={{ display: 'flex', gap: 12 }}>
+                  <button
+                    className="nv-btn nv-btn--outlined nv-btn--md"
+                    onClick={handleSaveDraft}
+                    disabled={saving || savingDraft}
+                    aria-busy={savingDraft}
+                  >
+                    {savingDraft ? 'Saving…' : 'Save as Draft'}
+                  </button>
+                  <button
+                    className="nv-btn nv-btn--solid nv-btn--md"
+                    onClick={handleSubmit}
+                    disabled={saving || savingDraft}
+                    aria-busy={saving}
+                  >
+                    {saving ? 'Generating…' : 'Generate & Send Proposal'}
+                  </button>
+                </div>}
           </div>
         </div>
       </div>
@@ -395,25 +457,54 @@ function Step2Services({ draft, setDraft, errors }: StepProps) {
 }
 
 /* ─── Step 3: Sender ─── */
-function Step3Sender({ draft, setDraft, errors }: StepProps) {
-  const MOCK_STAFF = [
-    { id: 's1', name: 'Jude Bolger',   role: 'Director' },
-    { id: 's2', name: 'Emma Clarke',   role: 'BD Manager' },
-    { id: 's3', name: 'Ryan Nguyen',   role: 'Revenue Manager' },
-  ]
+function Step3Sender({ draft, setDraft, errors, staff = [], staffLoading, staffError }: StepProps) {
+  const [generating, setGenerating] = useState(false)
+  const [genError, setGenError]     = useState('')
+
+  async function handleGenerateEmail() {
+    setGenerating(true)
+    setGenError('')
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/proposals/generate-email-template`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          staffId:      draft.sender.staffId,
+          contactName:  draft.hotel.contactName,
+          contactTitle: draft.hotel.contactTitle,
+          hotelName:    draft.hotel.name,
+          serviceCodes: draft.services.map(s => s.code),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to generate email template')
+      setDraft(d => ({ ...d, sender: { ...d.sender, message: data.data.message } }))
+    } catch (e: any) {
+      setGenError(e.message || 'Failed to generate email template')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
   return (
     <div className="step-content">
       <h2 className="step-title">Sender</h2>
       <p className="step-desc">Choose who this proposal is sent from and add a personal message.</p>
 
       <div className="form-grid">
-        <FormField label="Sending on behalf of *" error={errors.staffId} span={2}>
+        <FormField label="Sending on behalf of *" error={errors.staffId || staffError} span={2}>
           <select className="nv-input"
+            disabled={staffLoading}
             value={draft.sender.staffId}
             onChange={e => setDraft(d => ({ ...d, sender: { ...d.sender, staffId: e.target.value } }))}>
-            <option value="">Select team member…</option>
-            {MOCK_STAFF.map(s => (
-              <option key={s.id} value={s.id}>{s.name} — {s.role}</option>
+            <option value="">
+              {staffLoading ? 'Loading Microsoft 365 users…' : 'Select team member…'}
+            </option>
+            {staff.map(s => (
+              <option key={s.id} value={s.id}>
+                {s.name} — {s.role_type}{s.m365_upn ? ` (${s.m365_upn})` : ''}
+              </option>
             ))}
           </select>
         </FormField>
@@ -423,6 +514,19 @@ function Step3Sender({ draft, setDraft, errors }: StepProps) {
             placeholder="e.g. Hi Sarah, it was great speaking with you today…"
             value={draft.sender.message}
             onChange={e => setDraft(d => ({ ...d, sender: { ...d.sender, message: e.target.value } }))} />
+          <div style={{ marginTop: 8 }}>
+            <button
+              type="button"
+              className="nv-btn nv-btn--outlined nv-btn--sm"
+              onClick={handleGenerateEmail}
+              disabled={generating || !draft.hotel.contactName}
+              aria-busy={generating}
+              title={!draft.hotel.contactName ? 'Enter a contact name in Hotel Details first' : undefined}
+            >
+              {generating ? 'Generating…' : '✦ Generate Email Template'}
+            </button>
+            {genError && <span style={{ color: 'var(--nv-error)', fontSize: 12, marginLeft: 10 }}>{genError}</span>}
+          </div>
         </FormField>
       </div>
     </div>
@@ -577,10 +681,22 @@ function SummaryRow({ label, value, bold }: { label: string; value: string; bold
 }
 
 /* ─── Shared form helpers ─── */
+interface M365Staff {
+  id:         string
+  name:       string
+  email:      string
+  role:       string
+  role_type:  string
+  m365_upn?:  string
+}
+
 interface StepProps {
   draft: ProposalDraft
   setDraft: React.Dispatch<React.SetStateAction<ProposalDraft>>
   errors: Record<string, string>
+  staff?: M365Staff[]
+  staffLoading?: boolean
+  staffError?: string
 }
 
 function FormField({ label, error, children, span }: {
