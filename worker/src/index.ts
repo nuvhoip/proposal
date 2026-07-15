@@ -211,7 +211,7 @@ async function route(
 async function listStaff(env: Env): Promise<Response> {
   const { results } = await env.DB.prepare(
     `SELECT id, name, email, role, role_type, m365_upn
-     FROM staff WHERE bd_facing = 1 ORDER BY name`
+     FROM staff ORDER BY name`
   ).all()
   return new Response(JSON.stringify({ ok: true, data: results }), {
     headers: { 'Content-Type': 'application/json' },
