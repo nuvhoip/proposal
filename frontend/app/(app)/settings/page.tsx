@@ -1,98 +1,105 @@
 'use client'
 
-import Link from 'next/link'
+import { useState } from 'react'
 
 export default function SettingsPage() {
+  const [syncing, setSyncing] = useState(false)
+  const [syncResult, setSyncResult] = useState<{ total: number; created: number; updated: number } | null>(null)
+  const [syncError, setSyncError] = useState('')
+
+  async function handleSync() {
+    setSyncing(true)
+    setSyncError('')
+    setSyncResult(null)
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/staff/sync-m365`, {
+        method: 'POST',
+        credentials: 'include',
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Sync failed')
+      setSyncResult(data.data)
+    } catch (e: any) {
+      setSyncError(e.message || 'Sync failed')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   return (
     <div className="page-content">
-      <div className="coming-soon">
-        <div className="coming-soon__icon-wrap">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/icons/gears.svg"
-            width="52"
-            height="52"
-            alt=""
-            className="coming-soon__icon"
-          />
-        </div>
-
-        <h1 className="coming-soon__heading">Settings</h1>
-
-        <div className="coming-soon__badge">Coming Soon</div>
-
-        <p className="coming-soon__body">
-          Manage your organisation profile, team members, service packages, proposal
-          templates, and integrations — all configurable from one central hub.
+      <div className="nv-card sync-card">
+        <h2 className="sync-card__title">Microsoft 365 Sync</h2>
+        <p className="sync-card__desc">
+          Pull every active @nuvho.com account from Microsoft 365 into the staff roster,
+          so they show up in the proposal wizard&rsquo;s &ldquo;Sending on behalf of&rdquo; list.
+          Existing staff members are matched by email and updated (name, M365 IDs) — their
+          role, BD-facing flag, and signatory status are left untouched. New accounts are
+          added with default settings.
         </p>
 
-        <Link href="/dashboard" className="nv-btn nv-btn--outlined nv-btn--md">
-          ← Back to Dashboard
-        </Link>
+        <button
+          className="nv-btn nv-btn--solid nv-btn--md"
+          onClick={handleSync}
+          disabled={syncing}
+          aria-busy={syncing}
+        >
+          {syncing ? 'Syncing…' : 'Sync Microsoft 365 Users'}
+        </button>
+
+        {syncResult && (
+          <div className="sync-card__result sync-card__result--ok">
+            Synced {syncResult.total} users — {syncResult.created} added, {syncResult.updated} updated.
+          </div>
+        )}
+        {syncError && (
+          <div className="sync-card__result sync-card__result--error">{syncError}</div>
+        )}
       </div>
 
       <style jsx>{`
         .page-content {
           display: flex;
-          align-items: center;
-          justify-content: center;
+          flex-direction: column;
+          align-items: flex-start;
+          justify-content: flex-start;
           min-height: 100vh;
           padding: 40px 24px;
         }
 
-        .coming-soon {
+        .sync-card {
+          max-width: 560px;
+          margin: 0;
+          padding: 28px;
           display: flex;
           flex-direction: column;
-          align-items: center;
-          text-align: center;
-          max-width: 440px;
-          gap: 20px;
+          gap: 14px;
         }
-
-        .coming-soon__icon-wrap {
-          width: 96px;
-          height: 96px;
-          border-radius: 24px;
-          background: rgba(40, 104, 127, 0.08);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border: 1px solid rgba(40, 104, 127, 0.12);
-        }
-
-        .coming-soon__icon {
-          opacity: 0.7;
-        }
-
-        .coming-soon__heading {
+        .sync-card__title {
           font-family: var(--font-comfortaa);
-          font-size: 32px;
+          font-size: 18px;
           font-weight: 700;
           color: var(--nv-text-heading);
           margin: 0;
-          line-height: 1.1;
         }
-
-        .coming-soon__badge {
-          display: inline-flex;
-          align-items: center;
-          padding: 4px 16px;
-          border-radius: 999px;
-          background: rgba(128, 185, 191, 0.15);
-          border: 1px solid rgba(128, 185, 191, 0.3);
-          color: var(--nv-blue-slate);
-          font-size: 12px;
-          font-weight: 700;
-          letter-spacing: 0.1em;
-          text-transform: uppercase;
-        }
-
-        .coming-soon__body {
-          font-family: var(--font-raleway), system-ui, sans-serif;
-          font-size: 15px;
-          line-height: 1.65;
+        .sync-card__desc {
+          font-size: 13px;
+          line-height: 1.6;
           color: var(--nv-text-muted);
           margin: 0;
+        }
+        .sync-card__result {
+          border-radius: 10px;
+          padding: 10px 14px;
+          font-size: 13px;
+        }
+        .sync-card__result--ok {
+          background: rgba(40,104,127,0.06);
+          color: var(--nv-blue-slate);
+        }
+        .sync-card__result--error {
+          background: rgba(152,38,73,0.07);
+          color: var(--nv-error);
         }
       `}</style>
     </div>

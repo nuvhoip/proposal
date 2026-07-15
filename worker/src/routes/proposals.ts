@@ -308,7 +308,9 @@ export async function generateEmailTemplate(request: Request, env: Env, session:
   const aiData = await aiRes.json() as { content?: { type: string; text: string }[] }
   const message = aiData.content?.find(c => c.type === 'text')?.text?.trim() || ''
 
-  await auditLog(env, 'n/a', 'email_template_generated', session.email, { contactName: body.contactName })
+  // Note: no audit_log entry here — audit_log.proposal_id is NOT NULL with a
+  // foreign key to proposals(id), and no proposal exists yet at this point in
+  // the wizard (this runs during Sender step, before the proposal is created).
 
   return ok({ message })
 }

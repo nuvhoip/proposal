@@ -347,8 +347,10 @@ function Step2Services({ draft, setDraft, errors }: StepProps) {
             >
               <div className="service-card__header">
                 <span className="service-card__badge">{svc.code}</span>
-                <input type="checkbox" checked={!!selected} readOnly
-                  className="service-card__check" onClick={e => e.stopPropagation()} />
+                <input type="checkbox" checked={!!selected}
+                  className="service-card__check"
+                  onClick={e => e.stopPropagation()}
+                  onChange={() => toggle(svc.code)} />
               </div>
               <div className="service-card__name">{svc.name}</div>
               <div className="service-card__desc">{svc.desc}</div>

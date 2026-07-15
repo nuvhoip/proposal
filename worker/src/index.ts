@@ -17,6 +17,7 @@ import {
   signProposal,
   generateEmailTemplate,
 } from './routes/proposals'
+import { syncM365Staff } from './routes/staff'
 
 /* ── Rate limiter ────────────────────────────────────────────── */
 async function checkRateLimit(request: Request, env: Env): Promise<boolean> {
@@ -162,6 +163,11 @@ async function route(
   // Staff list
   if (path === '/staff' && method === 'GET') {
     return listStaff(env)
+  }
+
+  // Sync all Nuvho users from Microsoft 365 (Graph) into the staff table
+  if (path === '/staff/sync-m365' && method === 'POST') {
+    return syncM365Staff(request, env, session)
   }
 
   // Proposals list
