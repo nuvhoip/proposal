@@ -41,7 +41,11 @@ export function AuthGuard({ children }: { children: ReactNode }) {
     fetch(`${workerUrl}/auth/me`, { credentials: 'include' })
       .then(async res => {
         if (!res.ok) throw new Error('Unauthorised')
-        const data = await res.json() as any
+        // Worker responses are wrapped as { success, data } (see lib/response.ts's
+        // ok() helper) — unwrap .data to get { email, name, staffId, staff }.
+        const body = await res.json() as any
+        if (!body.success || !body.data) throw new Error('Unauthorised')
+        const data = body.data
         setUser({ email: data.email, name: data.name, staffId: data.staffId })
         setReady(true)
       })

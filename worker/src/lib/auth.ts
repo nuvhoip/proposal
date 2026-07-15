@@ -1,7 +1,8 @@
 import type { Env, Session } from '../types'
 import { err } from './response'
 
-const SESSION_TTL = 60 * 60 * 8  // 8 hours
+const SESSION_TTL          = 60 * 60 * 8       // 8 hours (default)
+const SESSION_TTL_REMEMBER = 60 * 60 * 24 * 30 // 30 days ("Remember me")
 
 /**
  * Validate the session cookie and return the Session,
@@ -75,10 +76,11 @@ export async function exchangeCode(
  * Secure is required when SameSite=None.
  */
 export async function createSession(
-  email:  string,
-  name:   string,
-  userId: string,
-  env:    Env
+  email:      string,
+  name:       string,
+  userId:     string,
+  env:        Env,
+  rememberMe: boolean = false
 ): Promise<string> {
   const token  = Array.from(crypto.getRandomValues(new Uint8Array(32)),
     b => b.toString(16).padStart(2, '0')).join('')
@@ -87,15 +89,19 @@ export async function createSession(
     'SELECT id FROM staff WHERE email = ?'
   ).bind(email).first<{ id: string }>()
 
+  const ttl = rememberMe ? SESSION_TTL_REMEMBER : SESSION_TTL
+
   const session: Session = {
     userId,
     email,
     name,
     staffId: staff?.id,
-    expiresAt: Date.now() + SESSION_TTL * 1000,
+    expiresAt: Date.now() + ttl * 1000,
   }
-  await env.SESSIONS.put(`session:${token}`, JSON.stringify(session), { expirationTtl: SESSION_TTL })
+  await env.SESSIONS.put(`session:${token}`, JSON.stringify(session), { expirationTtl: ttl })
 
-  const maxAge   = `; Max-Age=${SESSION_TTL}`
+  // Persistent cookie (Max-Age set) when "remember me" is checked, otherwise a
+  // session cookie that still expires server-side via SESSION_TTL/KV TTL.
+  const maxAge = `; Max-Age=${ttl}`
   return `nuvho_session=${token}; HttpOnly; Secure; SameSite=None${maxAge}; Path=/`
 }

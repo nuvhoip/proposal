@@ -3,7 +3,7 @@ import { ok, err } from '../lib/response'
 import { exchangeCode, createSession } from '../lib/auth'
 
 export async function handleAuthCallback(request: Request, env: Env): Promise<Response> {
-  const body = await request.json() as { code?: string; state?: string }
+  const body = await request.json() as { code?: string; state?: string; rememberMe?: boolean }
   if (!body.code) return err('Missing auth code')
 
   // Use the request Origin so local dev (localhost:3000) and production
@@ -14,7 +14,7 @@ export async function handleAuthCallback(request: Request, env: Env): Promise<Re
 
   try {
     const { email, name, userId } = await exchangeCode(body.code, redirectUri, env)
-    const cookie = await createSession(email, name, userId, env)
+    const cookie = await createSession(email, name, userId, env, body.rememberMe === true)
     return new Response(JSON.stringify({ success: true, data: { email, name } }), {
       status: 200,
       headers: {

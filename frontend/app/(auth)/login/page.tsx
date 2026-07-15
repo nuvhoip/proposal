@@ -4,8 +4,9 @@ import React, { useState } from 'react'
 import { NuvhoLogo } from '@/components/ui/NuvhoLogo'
 
 export default function LoginPage() {
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError]         = useState<string | null>(null)
+  const [isLoading, setIsLoading]   = useState(false)
+  const [error, setError]           = useState<string | null>(null)
+  const [rememberMe, setRememberMe] = useState(false)
 
   const handleMicrosoftLogin = async () => {
     setIsLoading(true)
@@ -17,7 +18,14 @@ export default function LoginPage() {
       const appUrl    = process.env.NEXT_PUBLIC_APP_URL || window.location.origin
       const redirectUri = encodeURIComponent(`${appUrl}/auth/callback`)
       const scope       = encodeURIComponent('openid profile email User.Read')
-      const state       = encodeURIComponent(btoa(JSON.stringify({ nonce: crypto.randomUUID(), returnTo: '/dashboard' })))
+      // "Remember me" travels through the OAuth round-trip in `state` (along with
+      // the nonce and returnTo) since the callback page has no other memory of
+      // the login form's checkbox state.
+      const state       = encodeURIComponent(btoa(JSON.stringify({
+        nonce: crypto.randomUUID(),
+        returnTo: '/dashboard',
+        rememberMe,
+      })))
 
       const authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize` +
         `?client_id=${clientId}` +
@@ -50,10 +58,10 @@ export default function LoginPage() {
           </div>
 
           <div className="login-brand__features">
-            <FeatureItem icon="📄" text="Multi-service proposals in minutes" />
-            <FeatureItem icon="✍️" text="Digital signing with audit trail" />
-            <FeatureItem icon="🔄" text="Auto-triggers HubSpot, Asana & Xero" />
-            <FeatureItem icon="📊" text="Live view tracking & buying signals" />
+            <FeatureItem iconSrc="/icons/file-contract.svg" text="Multi-service proposals in minutes" />
+            <FeatureItem iconSrc="/icons/pen-to-square.svg" text="Digital signing with audit trail" />
+            <FeatureItem iconSrc="/icons/gears.svg" text="Auto-triggers HubSpot, Asana & Xero" />
+            <FeatureItem iconSrc="/icons/chart-line-up.svg" text="Live view tracking & buying signals" />
           </div>
 
           <div className="login-brand__footer">
@@ -108,6 +116,16 @@ export default function LoginPage() {
               </>
             )}
           </button>
+
+          <label className="login-remember">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={e => setRememberMe(e.target.checked)}
+              disabled={isLoading}
+            />
+            Remember me for 30 days
+          </label>
 
           <p className="login-form-card__note">
             Only <strong>@nuvho.com</strong> accounts are authorised.
@@ -262,6 +280,25 @@ export default function LoginPage() {
           font-weight: 500;
         }
 
+        .login-remember {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          font-size: 13px;
+          color: var(--nv-text-muted);
+          cursor: pointer;
+          user-select: none;
+          margin-top: -12px;
+        }
+        .login-remember input[type='checkbox'] {
+          width: 15px;
+          height: 15px;
+          accent-color: var(--nv-blue-slate);
+          cursor: pointer;
+        }
+        .login-remember input[type='checkbox']:disabled { cursor: not-allowed; }
+
         .login-ms-btn {
           width: 100%;
           justify-content: center;
@@ -313,7 +350,7 @@ export default function LoginPage() {
   )
 }
 
-function FeatureItem({ icon, text }: { icon: string; text: string }) {
+function FeatureItem({ iconSrc, text }: { iconSrc: string; text: string }) {
   return (
     <div style={{
       display: 'flex',
@@ -324,7 +361,13 @@ function FeatureItem({ icon, text }: { icon: string; text: string }) {
       borderRadius: '10px',
       border: '1px solid rgba(255,255,255,0.1)',
     }}>
-      <span style={{ fontSize: '18px', lineHeight: 1, flexShrink: 0 }}>{icon}</span>
+      <img
+        src={iconSrc}
+        width={18}
+        height={18}
+        alt=""
+        style={{ flexShrink: 0, filter: 'brightness(0) invert(1)' }}
+      />
       <span style={{
         fontFamily: 'var(--font-raleway)',
         fontSize: '14px',

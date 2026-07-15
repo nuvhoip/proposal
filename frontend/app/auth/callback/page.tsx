@@ -25,23 +25,28 @@ function CallbackHandler() {
       return
     }
 
+    // Decode the "remember me" flag (and returnTo) that the login page packed
+    // into `state` before the Azure AD redirect.
+    let returnTo   = '/dashboard'
+    let rememberMe = false
+    try {
+      const stateObj = JSON.parse(atob(decodeURIComponent(state || '')))
+      returnTo   = stateObj.returnTo || '/dashboard'
+      rememberMe = stateObj.rememberMe === true
+    } catch { /* use defaults */ }
+
     // Exchange code for session via Worker
     const workerUrl = process.env.NEXT_PUBLIC_WORKER_URL
     fetch(`${workerUrl}/auth/callback`, {
       method:      'POST',
       headers:     { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body:        JSON.stringify({ code, state }),
+      body:        JSON.stringify({ code, state, rememberMe }),
     })
       .then(res => res.json())
       .then((data: any) => {
         if (data.error) throw new Error(data.error)
-        // Worker sets httpOnly session cookie — redirect to returnTo
-        let returnTo = '/dashboard'
-        try {
-          const stateObj = JSON.parse(atob(decodeURIComponent(state || '')))
-          returnTo = stateObj.returnTo || '/dashboard'
-        } catch { /* use default */ }
+        // Worker sets httpOnly session cookie (long-lived if rememberMe) — redirect
         router.replace(returnTo)
       })
       .catch((e: Error) => {

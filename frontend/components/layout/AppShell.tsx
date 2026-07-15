@@ -86,12 +86,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             onClick={() => setCollapsed(c => !c)}
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path
-                d={collapsed
-                  ? 'M6 3l5 5-5 5'
-                  : 'M10 3L5 8l5 5'}
-                stroke="rgba(255,255,255,0.6)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            {/* nuvho-brand icon: chevron-left / chevron-right (duotone-thin) */}
+            <svg width="12" height="12" viewBox="0 0 320 512" fill="rgba(255,255,255,0.6)">
+              <path d={collapsed
+                ? 'M317.7 261.7c3.1-3.1 3.1-8.2 0-11.3l-216-216c-3.1-3.1-8.2-3.1-11.3 0s-3.1 8.2 0 11.3L300.7 256 90.3 466.3c-3.1 3.1-3.1 8.2 0 11.3s8.2 3.1 11.3 0l216-216z'
+                : 'M2.3 250.3c-3.1 3.1-3.1 8.2 0 11.3l216 216c3.1 3.1 8.2 3.1 11.3 0s3.1-8.2 0-11.3L19.3 256 229.7 45.7c3.1-3.1 3.1-8.2 0-11.3s-8.2-3.1-11.3 0l-216 216z'}
+              />
             </svg>
           </button>
         </div>
@@ -335,12 +335,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   )
 }
 
-/* ── Sign-out icon ── */
+/* ── Sign-out icon — nuvho-brand: right-from-bracket (duotone-thin) ── */
 function IconSignout() {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <path d="M6 2H3a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3M11 11l3-3-3-3M14 8H6"
-        stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    <svg width="16" height="16" viewBox="0 0 512 512" fill="currentColor">
+      <path d="M493.7 250.3c3.1 3.1 3.1 8.2 0 11.3l-144 144c-2.3 2.3-5.7 3-8.7 1.7l0 0c-3-1.2-4.9-4.2-4.9-7.4l0-88c0-4.4-3.6-8-8-8l-120 0c-17.7 0-32-14.3-32-32l0-32c0-17.7 14.3-32 32-32l120 0c4.4 0 8-3.6 8-8l0-88c0-3.2 1.9-6.2 4.9-7.4s6.4-.6 8.7 1.7l144 144zM361 417L505 273c9.4-9.4 9.4-24.6 0-33.9l0 0-144-144c-6.9-6.9-17.2-8.9-26.2-5.2S320 102.3 320 112l0 80-112 0c-26.5 0-48 21.5-48 48l0 32c0 26.5 21.5 48 48 48l112 0 0 80c0 9.7 5.8 18.5 14.8 22.2s19.3 1.7 26.2-5.2zM184 48c4.4 0 8-3.6 8-8s-3.6-8-8-8L96 32C43 32 0 75 0 128L0 384c0 53 43 96 96 96l88 0c4.4 0 8-3.6 8-8s-3.6-8-8-8l-88 0c-44.2 0-80-35.8-80-80l0-256c0-44.2 35.8-80 80-80l88 0z"/>
     </svg>
   )
 }
