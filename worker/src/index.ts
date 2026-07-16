@@ -18,6 +18,12 @@ import {
   generateEmailTemplate,
 } from './routes/proposals'
 import { syncM365Staff } from './routes/staff'
+import {
+  handleHotelGroupTypeahead,
+  handleGetHotelGroup,
+  handleCreateHotelGroup,
+  handleListEntities,
+} from './routes/registry'
 
 /* ── Rate limiter ────────────────────────────────────────────── */
 async function checkRateLimit(request: Request, env: Env): Promise<boolean> {
@@ -208,6 +214,27 @@ async function route(
   // Engagements list
   if (path === '/engagements' && method === 'GET') {
     return listEngagements(env, session)
+  }
+
+  // Registry — hotel group typeahead lookup (proxied; REGISTRY_API_KEY stays server-side)
+  if (path === '/registry/hotel-groups/typeahead' && method === 'GET') {
+    return handleHotelGroupTypeahead(request, env)
+  }
+
+  // Registry — full hotel group record (used to resolve entity_code after a typeahead pick)
+  const hgDetailMatch = path.match(/^\/registry\/hotel-groups\/([A-Za-z0-9_-]+)$/)
+  if (hgDetailMatch && method === 'GET') {
+    return handleGetHotelGroup(env, hgDetailMatch[1])
+  }
+
+  // Registry — create a new hotel group (Add Hotel Group flow when the wizard search finds no match)
+  if (path === '/registry/hotel-groups' && method === 'POST') {
+    return handleCreateHotelGroup(request, env)
+  }
+
+  // Registry — active legal entities (populates the Add Hotel Group "legal entity" choice)
+  if (path === '/registry/entities' && method === 'GET') {
+    return handleListEntities(env)
   }
 
   return err('Not found', 404)

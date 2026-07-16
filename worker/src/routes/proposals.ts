@@ -1,6 +1,10 @@
 import type { Env, ProposalRow, ServiceRow, Session } from '../types'
 import { ok, err } from '../lib/response'
 import { ulid, randomToken } from '../lib/ulid'
+import {
+  createRegistryProposal, updateRegistryProposal, RegistryError,
+  type RegistryServiceLine, type RegistryProposalStatus,
+} from '../lib/registry'
 
 /* ─── List proposals ───────────────────────────────────────── */
 export async function listProposals(request: Request, env: Env, session: Session): Promise<Response> {
@@ -49,6 +53,8 @@ export async function createProposal(request: Request, env: Env, session: Sessio
   if (!hotel?.contactEmail) return err('Contact email required')
   if (!services?.length)    return err('At least one service required')
   if (!sender?.staffId)     return err('Sender staff required')
+  if (!hotel?.hgid)         return err('Hotel group (select from registry lookup) required')
+  if (!hotel?.entityCode)   return err('Entity code (resolved from the selected hotel group) required')
 
   // Verify sender staff exists
   const staff = await env.DB.prepare('SELECT * FROM staff WHERE id = ?')
@@ -87,6 +93,39 @@ export async function createProposal(request: Request, env: Env, session: Sessio
     ).run()
   }
 
+  // Register each bundled service line as its own canonical proposal record
+  // in the Nuvho Master Registry (register.nuvho.com). Partial failures are
+  // recorded per-row in proposal_registry_links rather than blocking the
+  // local proposal — see syncRegistryStatus() for the retry-on-status-change path.
+  const geo = (hotel.region || 'au').toUpperCase()
+  for (const svc of services) {
+    let propId: string | null = null
+    let syncedAt: string | null = null
+    let syncError: string | null = null
+    try {
+      const record = await createRegistryProposal(env, {
+        hgid: hotel.hgid,
+        entity_code: hotel.entityCode,
+        service_line: svc.code as RegistryServiceLine,
+        geo,
+        status: 'draft',
+        hubspot_deal_id: hotel.hubspotDealId || null,
+      })
+      propId = record.prop_id
+      syncedAt = new Date().toISOString()
+    } catch (e) {
+      syncError = e instanceof RegistryError
+        ? `${e.code}: ${e.message}`
+        : (e instanceof Error ? e.message : 'Unknown registry error')
+      console.error('[Registry sync] proposal create failed:', svc.code, syncError)
+    }
+    await env.DB.prepare(`
+      INSERT INTO proposal_registry_links (
+        id, proposal_id, service_line, hgid, entity_code, geo, prop_id, status, sync_error, synced_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)
+    `).bind(ulid(), proposalId, svc.code, hotel.hgid, hotel.entityCode, geo, propId, syncError, syncedAt).run()
+  }
+
   // Audit log
   await auditLog(env, proposalId, 'created', session.email, { hotelName: hotel.name })
 
@@ -97,6 +136,41 @@ export async function createProposal(request: Request, env: Env, session: Sessio
   }
 
   return ok({ id: proposalId, signingToken }, 201)
+}
+
+/* ─── Registry sync helper ──────────────────────────────────── */
+/**
+ * Pushes a status transition to every linked registry proposal record
+ * (one per bundled service_line). Failures are recorded per-row in
+ * proposal_registry_links.sync_error and do not block the caller — a
+ * proposal can be sent/signed locally even if the registry is unreachable.
+ */
+async function syncRegistryStatus(
+  env: Env,
+  proposalId: string,
+  status: RegistryProposalStatus,
+  extra: { sent_at?: string; signed_at?: string } = {}
+): Promise<void> {
+  const { results: links } = await env.DB.prepare(
+    `SELECT id, prop_id FROM proposal_registry_links WHERE proposal_id = ? AND prop_id IS NOT NULL`
+  ).bind(proposalId).all<{ id: string; prop_id: string }>()
+
+  for (const link of links) {
+    try {
+      await updateRegistryProposal(env, link.prop_id, { status, ...extra })
+      await env.DB.prepare(
+        `UPDATE proposal_registry_links SET status = ?, synced_at = ?, sync_error = NULL WHERE id = ?`
+      ).bind(status, new Date().toISOString(), link.id).run()
+    } catch (e) {
+      const message = e instanceof RegistryError
+        ? `${e.code}: ${e.message}`
+        : (e instanceof Error ? e.message : 'Unknown registry error')
+      console.error('[Registry sync] status update failed:', link.prop_id, message)
+      await env.DB.prepare(
+        `UPDATE proposal_registry_links SET sync_error = ? WHERE id = ?`
+      ).bind(message, link.id).run()
+    }
+  }
 }
 
 /* ─── Send proposal ────────────────────────────────────────── */
@@ -119,6 +193,9 @@ export async function sendProposal(proposalId: string, env: Env, session: Sessio
   await sendProposalEmail(proposal, publicUrl, env)
 
   await auditLog(env, proposalId, 'sent', session.email, { to: proposal.contact_email })
+
+  // Sync status to every linked registry proposal record (best-effort)
+  await syncRegistryStatus(env, proposalId, 'sent', { sent_at: new Date().toISOString() })
 
   // Trigger A1/A2 automations
   const ctx = (globalThis as any).__executionContext
@@ -242,6 +319,9 @@ export async function signProposal(token: string, request: Request, env: Env): P
   `).bind(body.signerName.trim(), proposal.id).run()
 
   await auditLog(env, proposal.id, 'signed', proposal.contact_email, { signerName: body.signerName })
+
+  // Sync status to every linked registry proposal record (best-effort)
+  await syncRegistryStatus(env, proposal.id, 'signed', { signed_at: new Date().toISOString() })
 
   // Trigger A3–A9 automations
   const ctx = (globalThis as any).__executionContext

@@ -94,6 +94,8 @@ export interface ProposalDraft {
   hotel: {
     name:            string
     region:          Region
+    hgid:            string   // Nuvho Master Registry Hotel Group id (HG-{GEO}-{SEQ4}) — set via typeahead
+    entityCode:      string   // registry entity_code resolved from the selected hotel group
     contactName:     string
     contactEmail:    string
     contactPhone:    string

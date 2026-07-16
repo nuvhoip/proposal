@@ -98,6 +98,8 @@ wrangler secret put JWT_SECRET          # openssl rand -base64 48
 wrangler secret put RESEND_API_KEY
 wrangler secret put XERO_CLIENT_ID
 wrangler secret put XERO_CLIENT_SECRET
+wrangler secret put ANTHROPIC_API_KEY
+wrangler secret put REGISTRY_API_KEY    # Nuvho Master Registry X-Registry-Key (register.nuvho.com)
 ```
 
 #### Add DNS record
@@ -178,6 +180,7 @@ In [Azure Portal](https://portal.azure.com) → App Registrations → `f5f35997-
 | `AZURE_TENANT_ID` | var | Azure tenant |
 | `AZURE_CLIENT_ID` | var | Azure app client ID |
 | `ASANA_WORKSPACE_GID` | var | `1143618526084997` |
+| `REGISTRY_BASE_URL` | var | Nuvho Master Registry base URL — `https://register.nuvho.com` |
 | `AZURE_CLIENT_SECRET` | **secret** | Azure app secret |
 | `HUBSPOT_API_KEY` | **secret** | HubSpot private app token |
 | `ASANA_PAT` | **secret** | Asana personal access token |
@@ -185,6 +188,8 @@ In [Azure Portal](https://portal.azure.com) → App Registrations → `f5f35997-
 | `RESEND_API_KEY` | **secret** | Resend API key |
 | `XERO_CLIENT_ID` | **secret** | Xero OAuth client ID |
 | `XERO_CLIENT_SECRET` | **secret** | Xero OAuth client secret |
+| `ANTHROPIC_API_KEY` | **secret** | Claude API key — powers the wizard's "Generate Email Template" step |
+| `REGISTRY_API_KEY` | **secret** | Nuvho Master Registry `X-Registry-Key` (register.nuvho.com) — used when creating/updating proposals so each bundled service line gets a canonical `PROP-{GEO}-{YYYY}-{SEQ4}` record |
 
 ---
 

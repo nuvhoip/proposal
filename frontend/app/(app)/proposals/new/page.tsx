@@ -15,7 +15,7 @@ const STEPS = [
 const EMPTY_DRAFT: ProposalDraft = {
   step: 1,
   hotel: {
-    name: '', region: 'au', contactName: '', contactEmail: '',
+    name: '', region: 'au', hgid: '', entityCode: '', contactName: '', contactEmail: '',
     contactPhone: '', contactTitle: '', propertyAddress: '',
     hubspotDealId: '',
   },
@@ -246,17 +246,262 @@ export default function NewProposalPage() {
 }
 
 /* ─── Step 1: Hotel Details ─── */
+interface RegistryHotelGroupSummary {
+  hgid: string
+  group_name: string
+  trading_name: string | null
+  geo: string
+  status: string
+}
+
+interface RegistryEntity {
+  entity_code: string
+  legal_name: string
+  jurisdiction: string
+  is_data_controller: boolean
+  is_active: boolean
+}
+
+// Matches the Region type (lib/types.ts) and the wizard's own Region select.
+const REGION_OPTIONS: { value: Region; label: string }[] = [
+  { value: 'au', label: 'Australia (AU)' },
+  { value: 'uk', label: 'United Kingdom (UK)' },
+  { value: 'ie', label: 'Ireland (IE)' },
+]
+
+// registry.entity_codes.jurisdiction is a free-text string ("Australia (QLD)",
+// "United Kingdom", "Ireland") — not a 2-letter geo code — so entities are
+// matched to a Region by country-name prefix rather than an exact code match.
+const REGION_JURISDICTION_PREFIX: Record<Region, string> = {
+  au: 'australia',
+  uk: 'united kingdom',
+  ie: 'ireland',
+}
+
 function Step1HotelDetails({ draft, setDraft, errors }: StepProps) {
   const h = draft.hotel
   function update(key: string, val: string) {
     setDraft(d => ({ ...d, hotel: { ...d.hotel, [key]: val } }))
   }
+
+  const [hgQuery, setHgQuery]     = useState(h.hgid ? h.name : '')
+  const [hgResults, setHgResults] = useState<RegistryHotelGroupSummary[]>([])
+  const [hgLoading, setHgLoading] = useState(false)
+  const [hgOpen, setHgOpen]       = useState(false)
+  const [hgResolveError, setHgResolveError] = useState('')
+
+  // Add Hotel Group — used when a search turns up no existing match in the
+  // registry. Saves a new record to the Nuvho master registry (register.nuvho.com)
+  // via the worker proxy, then resolves it into the draft just like a normal pick.
+  const [hgAddOpen, setHgAddOpen]           = useState(false)
+  const [hgAddSaving, setHgAddSaving]       = useState(false)
+  const [hgAddError, setHgAddError]         = useState('')
+  const [hgAddEntityCode, setHgAddEntityCode]   = useState('')
+  const [hgAddGroupName, setHgAddGroupName]     = useState('')
+  const [hgAddTradingName, setHgAddTradingName] = useState('')
+  const [hgAddGeo, setHgAddGeo]         = useState<Region>('au')
+  const [hgAddStatus, setHgAddStatus]   = useState<'prospect' | 'onboarding'>('prospect')
+  const [hgEntities, setHgEntities] = useState<RegistryEntity[]>([])
+
+  React.useEffect(() => {
+    if (!hgAddOpen) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(
+          `${process.env.NEXT_PUBLIC_WORKER_URL}/registry/entities`,
+          { credentials: 'include' }
+        )
+        const data = await res.json()
+        if (!res.ok || data.success === false) {
+          throw new Error(data.error?.message || 'Could not load legal entities from the registry.')
+        }
+        if (!cancelled) setHgEntities(data.data?.entities || [])
+      } catch (e) {
+        if (!cancelled) {
+          setHgEntities([])
+          setHgAddError(e instanceof Error ? e.message : 'Could not load legal entities from the registry.')
+        }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [hgAddOpen])
+
+  // Active data-controller entities for the selected geo — the registry
+  // requires entity_code to be an active data controller. jurisdiction is
+  // free text ("Australia (QLD)") so match by country-name prefix, not
+  // an exact geo-code comparison.
+  const hgAddGeoEntities = hgEntities.filter(e => {
+    if (!e.is_data_controller || !e.is_active) return false
+    const prefix = REGION_JURISDICTION_PREFIX[hgAddGeo]
+    return e.jurisdiction.trim().toLowerCase().startsWith(prefix)
+  })
+
+  // Default the entity picker to the group's only data controller for a geo
+  // (matches the common case — most geos have exactly one).
+  React.useEffect(() => {
+    if (!hgAddOpen) return
+    if (hgAddGeoEntities.length === 1) setHgAddEntityCode(hgAddGeoEntities[0].entity_code)
+    else setHgAddEntityCode('')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hgAddOpen, hgAddGeo, hgEntities])
+
+  function openAddHotelGroup() {
+    setHgAddGroupName(hgQuery.trim())
+    setHgAddTradingName('')
+    setHgAddGeo(h.region)
+    setHgAddStatus('prospect')
+    setHgAddError('')
+    setHgAddOpen(true)
+    setHgOpen(false)
+  }
+
+  async function submitAddHotelGroup() {
+    if (!hgAddGroupName.trim()) { setHgAddError('Group name is required.'); return }
+    if (!hgAddEntityCode) { setHgAddError('Select the legal entity for this hotel group.'); return }
+    setHgAddSaving(true)
+    setHgAddError('')
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/registry/hotel-groups`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          group_name: hgAddGroupName.trim(),
+          trading_name: hgAddTradingName.trim() || undefined,
+          entity_code: hgAddEntityCode,
+          geo: hgAddGeo.toUpperCase(),
+          status: hgAddStatus,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.success === false) {
+        throw new Error(data.error?.message || 'Could not save this hotel group to the master registry.')
+      }
+      const hg = data.data?.hotelGroup
+      setDraft(d => ({
+        ...d,
+        hotel: {
+          ...d.hotel,
+          hgid: hg.hgid,
+          entityCode: hg.entity_code,
+          region: hgAddGeo,
+          name: d.hotel.name || hg.trading_name || hg.group_name,
+        },
+      }))
+      setHgQuery(hg.trading_name || hg.group_name)
+      setHgAddOpen(false)
+    } catch (e) {
+      setHgAddError(e instanceof Error ? e.message : 'Could not save this hotel group.')
+    } finally {
+      setHgAddSaving(false)
+    }
+  }
+
+  React.useEffect(() => {
+    if (h.hgid || hgQuery.trim().length < 2) { setHgResults([]); return }
+    let cancelled = false
+    const timer = setTimeout(async () => {
+      setHgLoading(true)
+      try {
+        const params = new URLSearchParams({ q: hgQuery.trim(), geo: h.region.toUpperCase() })
+        const res = await fetch(
+          `${process.env.NEXT_PUBLIC_WORKER_URL}/registry/hotel-groups/typeahead?${params}`,
+          { credentials: 'include' }
+        )
+        const data = await res.json()
+        if (!cancelled) setHgResults(data.data?.results || [])
+      } catch {
+        if (!cancelled) setHgResults([])
+      } finally {
+        if (!cancelled) setHgLoading(false)
+      }
+    }, 300)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [hgQuery, h.region, h.hgid])
+
+  async function selectHotelGroup(hg: RegistryHotelGroupSummary) {
+    setHgOpen(false)
+    setHgQuery(hg.trading_name || hg.group_name)
+    setHgResolveError('')
+    // Typeahead doesn't return entity_code — resolve the full record so the
+    // registry proposal sync (POST /v1/proposals) has what it requires.
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_WORKER_URL}/registry/hotel-groups/${hg.hgid}`,
+        { credentials: 'include' }
+      )
+      const data = await res.json()
+      const entityCode = data.data?.hotelGroup?.entity_code
+      if (!entityCode) throw new Error('No entity_code on this hotel group')
+      setDraft(d => ({
+        ...d,
+        hotel: {
+          ...d.hotel,
+          hgid: hg.hgid,
+          entityCode,
+          name: d.hotel.name || hg.trading_name || hg.group_name,
+        },
+      }))
+    } catch {
+      setHgResolveError('Could not resolve entity code for this hotel group — try again.')
+    }
+  }
+
+  function clearHotelGroup() {
+    setDraft(d => ({ ...d, hotel: { ...d.hotel, hgid: '', entityCode: '' } }))
+    setHgQuery('')
+    setHgResolveError('')
+  }
+
   return (
     <div className="step-content">
       <h2 className="step-title">Hotel Details</h2>
       <p className="step-desc">Enter the hotel and primary contact information.</p>
 
       <div className="form-grid">
+        <FormField label="Hotel Group *" error={errors.hgid || hgResolveError} span={2}>
+          {h.hgid ? (
+            <div className="hg-selected">
+              <span>{h.name || hgQuery} <code>{h.hgid}</code></span>
+              <button type="button" className="nv-btn nv-btn--ghost nv-btn--sm" onClick={clearHotelGroup}>
+                Change
+              </button>
+            </div>
+          ) : (
+            <div className="hg-search">
+              <input className="nv-input" placeholder="Search registered hotel groups…"
+                value={hgQuery}
+                onChange={e => { setHgQuery(e.target.value); setHgOpen(true) }}
+                onFocus={() => setHgOpen(true)}
+                onBlur={() => setTimeout(() => setHgOpen(false), 150)} />
+              {hgOpen && hgQuery.trim().length >= 2 && (
+                <div className="hg-dropdown">
+                  {hgLoading && <div className="hg-dropdown__item hg-dropdown__item--muted">Searching…</div>}
+                  {!hgLoading && hgResults.length === 0 && (
+                    <div className="hg-dropdown__item hg-dropdown__item--muted">
+                      No matching hotel group in the registry.
+                    </div>
+                  )}
+                  {hgResults.map(hg => (
+                    <button type="button" key={hg.hgid} className="hg-dropdown__item"
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => selectHotelGroup(hg)}>
+                      <strong>{hg.trading_name || hg.group_name}</strong>
+                      <span className="hg-dropdown__meta">{hg.hgid} · {hg.geo} · {hg.status}</span>
+                    </button>
+                  ))}
+                  <button type="button" className="hg-dropdown__item hg-dropdown__item--add"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={openAddHotelGroup}>
+                    + Add "{hgQuery.trim()}" as a new hotel group
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </FormField>
+
         <FormField label="Hotel name *" error={errors.hotelName}>
           <input className="nv-input" placeholder="e.g. The Langham Sydney"
             value={h.name} onChange={e => update('name', e.target.value)} />
@@ -301,6 +546,154 @@ function Step1HotelDetails({ draft, setDraft, errors }: StepProps) {
             value={h.hubspotDealId} onChange={e => update('hubspotDealId', e.target.value)} />
         </FormField>
       </div>
+
+      {hgAddOpen && (
+        <div className="hg-modal-overlay" onMouseDown={() => setHgAddOpen(false)}>
+          <div className="hg-modal" onMouseDown={e => e.stopPropagation()}>
+            <div className="hg-modal__header">
+              <h3>New Hotel Group</h3>
+              <button type="button" className="hg-modal__close" aria-label="Close"
+                onClick={() => setHgAddOpen(false)}>
+                ×
+              </button>
+            </div>
+
+            <div className="hg-modal__body">
+              <div className="hg-modal__field">
+                <label className="hg-modal__label">Entity Code</label>
+                <select className="nv-input" value={hgAddEntityCode}
+                  onChange={e => setHgAddEntityCode(e.target.value)}>
+                  <option value="">Select…</option>
+                  {hgAddGeoEntities.map(en => (
+                    <option key={en.entity_code} value={en.entity_code}>
+                      {en.legal_name} ({en.entity_code})
+                    </option>
+                  ))}
+                </select>
+                <p className="hg-modal__hint">
+                  The Nuvho legal entity responsible for this group's contracts and billing.
+                </p>
+              </div>
+
+              <div className="hg-modal__field">
+                <label className="hg-modal__label">Group Name *</label>
+                <input className="nv-input" placeholder="e.g. Aria Hotels & Resorts"
+                  value={hgAddGroupName} onChange={e => setHgAddGroupName(e.target.value)} />
+              </div>
+
+              <div className="hg-modal__field">
+                <label className="hg-modal__label">Trading Name</label>
+                <input className="nv-input" placeholder="e.g. Aria Hotels"
+                  value={hgAddTradingName} onChange={e => setHgAddTradingName(e.target.value)} />
+                <p className="hg-modal__hint">
+                  The name used in day-to-day operations. Leave blank if the same as the group name.
+                </p>
+              </div>
+
+              <div className="hg-modal__field">
+                <label className="hg-modal__label">Geo</label>
+                <select className="nv-input" value={hgAddGeo}
+                  onChange={e => setHgAddGeo(e.target.value as Region)}>
+                  {REGION_OPTIONS.map(r => (
+                    <option key={r.value} value={r.value}>{r.label}</option>
+                  ))}
+                </select>
+                <p className="hg-modal__hint">
+                  The primary geographic region. This cannot be changed after the group is created.
+                </p>
+              </div>
+
+              <div className="hg-modal__field">
+                <label className="hg-modal__label">Status</label>
+                <select className="nv-input" value={hgAddStatus}
+                  onChange={e => setHgAddStatus(e.target.value as 'prospect' | 'onboarding')}>
+                  <option value="prospect">prospect</option>
+                  <option value="onboarding">onboarding</option>
+                </select>
+                <p className="hg-modal__hint">
+                  New groups start as <strong>Prospect</strong>. Move to <strong>Onboarding</strong> once you've engaged the client.
+                </p>
+              </div>
+
+              {hgAddError && <div className="wizard-error">{hgAddError}</div>}
+            </div>
+
+            <div className="hg-modal__footer">
+              <button type="button" className="nv-btn nv-btn--outlined nv-btn--md"
+                onClick={() => setHgAddOpen(false)}>
+                Cancel
+              </button>
+              <button type="button" className="nv-btn nv-btn--solid nv-btn--md"
+                disabled={hgAddSaving}
+                onClick={submitAddHotelGroup}>
+                {hgAddSaving ? 'Creating…' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style jsx>{`
+        .hg-search { position: relative; }
+        .hg-dropdown {
+          position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20;
+          background: white; border: 1px solid var(--nv-border); border-radius: 10px;
+          max-height: 220px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+        }
+        .hg-dropdown__item {
+          display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
+          padding: 10px 14px; background: none; border: none; cursor: pointer; font-size: 13px;
+        }
+        .hg-dropdown__item:hover { background: var(--nv-platinum); }
+        .hg-dropdown__item--muted { color: var(--nv-text-muted); cursor: default; }
+        .hg-dropdown__item--muted:hover { background: none; }
+        .hg-dropdown__item--add {
+          color: var(--nv-error); font-weight: 600;
+          border-top: 1px solid var(--nv-border-hair);
+        }
+        .hg-dropdown__meta { font-size: 11px; color: var(--nv-text-muted); }
+        .hg-selected {
+          display: flex; align-items: center; justify-content: space-between;
+          padding: 10px 14px; border: 1.5px solid var(--nv-border); border-radius: var(--nv-radius-md);
+          font-size: 14px;
+        }
+        .hg-selected code { font-size: 11px; color: var(--nv-text-muted); margin-left: 6px; }
+        .hg-modal-overlay {
+          position: fixed; inset: 0; z-index: 100;
+          background: rgba(30,40,45,0.45);
+          display: flex; align-items: center; justify-content: center;
+          padding: 24px;
+        }
+        .hg-modal {
+          width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto;
+          background: var(--nv-surface-card); border-radius: var(--nv-radius-md);
+          box-shadow: var(--nv-shadow-md);
+        }
+        .hg-modal__header {
+          display: flex; align-items: center; justify-content: space-between;
+          padding: 24px 28px; border-bottom: 1px solid var(--nv-border-hair);
+        }
+        .hg-modal__header h3 {
+          margin: 0; font-family: var(--font-comfortaa); font-size: 22px;
+          font-weight: 700; color: var(--nv-text-heading);
+        }
+        .hg-modal__close {
+          background: none; border: none; cursor: pointer; font-size: 22px;
+          line-height: 1; color: var(--nv-text-muted); padding: 4px;
+        }
+        .hg-modal__close:hover { color: var(--nv-text-body); }
+        .hg-modal__body { padding: 24px 28px; display: flex; flex-direction: column; gap: 20px; }
+        .hg-modal__field { display: flex; flex-direction: column; gap: 8px; }
+        .hg-modal__label {
+          font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+          color: var(--nv-text-muted);
+        }
+        .hg-modal__hint { margin: 0; font-size: 12px; color: var(--nv-text-muted); line-height: 1.5; }
+        .hg-modal__footer {
+          display: flex; justify-content: flex-end; gap: 12px;
+          padding: 20px 28px; border-top: 1px solid var(--nv-border-hair);
+        }
+      `}</style>
     </div>
   )
 }
@@ -751,6 +1144,8 @@ if (typeof document !== 'undefined') {
 function validateStep(draft: ProposalDraft): Record<string, string> {
   const errs: Record<string, string> = {}
   if (draft.step === 1) {
+    if (!draft.hotel.hgid || !draft.hotel.entityCode)
+                                    errs.hgid         = 'Select a hotel group from the registry lookup'
     if (!draft.hotel.name)          errs.hotelName    = 'Hotel name is required'
     if (!draft.hotel.contactName)   errs.contactName  = 'Contact name is required'
     if (!draft.hotel.contactEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.hotel.contactEmail))

@@ -72,6 +72,29 @@ CREATE TABLE IF NOT EXISTS proposal_services (
 
 CREATE INDEX IF NOT EXISTS idx_services_proposal ON proposal_services(proposal_id);
 
+-- ── Registry Sync (Nuvho Master Registry — register.nuvho.com) ──
+-- One row per bundled service_line per proposal: the registry's proposal
+-- record (POST /v1/proposals) only accepts a single service_line, but a
+-- Nuvho proposal can bundle several (RM, SM, MK, CR…), so each service gets
+-- its own canonical PROP-{GEO}-{YYYY}-{SEQ4} record, linked back here.
+CREATE TABLE IF NOT EXISTS proposal_registry_links (
+  id            TEXT PRIMARY KEY,
+  proposal_id   TEXT NOT NULL REFERENCES proposals(id) ON DELETE CASCADE,
+  service_line  TEXT NOT NULL,
+  hgid          TEXT NOT NULL,
+  entity_code   TEXT NOT NULL,
+  geo           TEXT NOT NULL,
+  prop_id       TEXT,                  -- registry-assigned id; null until synced
+  status        TEXT NOT NULL DEFAULT 'draft',
+  sync_error    TEXT,
+  synced_at     TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_prl_proposal ON proposal_registry_links(proposal_id);
+CREATE INDEX IF NOT EXISTS idx_prl_prop_id  ON proposal_registry_links(prop_id);
+
 -- ── Engagements ───────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS engagements (
   id              TEXT PRIMARY KEY,

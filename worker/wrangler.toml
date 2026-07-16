@@ -25,6 +25,12 @@ FRONTEND_URL = "https://proposals.nuvho.com"
 AZURE_TENANT_ID = "15723413-cb5d-453c-bb72-3f481241aeff"
 AZURE_CLIENT_ID = "f5f35997-177f-4f24-9069-cc1f31113ae7"
 ASANA_WORKSPACE_GID = "1143618526084997"
+REGISTRY_BASE_URL = "https://register.nuvho.com"
+
+# Secrets — set via `wrangler secret put <NAME>`, never committed here:
+#   AZURE_CLIENT_SECRET, HUBSPOT_API_KEY, ASANA_PAT, JWT_SECRET,
+#   RESEND_API_KEY, XERO_CLIENT_ID, XERO_CLIENT_SECRET, ANTHROPIC_API_KEY,
+#   REGISTRY_API_KEY  — Nuvho Master Registry X-Registry-Key (register.nuvho.com)
 
 [[routes]]
 pattern = "proposals-api.nuvho.com/*"

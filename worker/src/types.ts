@@ -11,6 +11,7 @@ export interface Env {
   AZURE_TENANT_ID:     string
   AZURE_CLIENT_ID:     string
   ASANA_WORKSPACE_GID: string
+  REGISTRY_BASE_URL:   string   // e.g. https://register.nuvho.com
   // Secrets
   AZURE_CLIENT_SECRET: string
   HUBSPOT_API_KEY:     string
@@ -20,6 +21,7 @@ export interface Env {
   JWT_SECRET:          string
   RESEND_API_KEY:      string
   ANTHROPIC_API_KEY:   string
+  REGISTRY_API_KEY:    string   // Nuvho Master Registry X-Registry-Key (register.nuvho.com)
 }
 
 export interface Session {
