@@ -1,41 +1,33 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import type { DashboardStats } from '@/lib/types'
+import type { DashboardStats, ProposalSummary } from '@/lib/types'
 
-const WORKER = process.env.NEXT_PUBLIC_WORKER_URL
-
-const EMPTY_STATS: DashboardStats = {
-  totalProposals:      0,
-  sentThisMonth:       0,
-  signedThisMonth:     0,
-  conversionRate:      0,
-  totalMonthlyRevenue: 0,
-  pendingFollowups:    0,
-  avgResponseDays:     0,
-  pendingSignature:    0,
-  totalRevenuePending: 0,
+// ── Mock data (replaced by Worker API fetch) ──────────────────────────────
+const MOCK_STATS: DashboardStats = {
+  totalProposals:      42,
+  sentThisMonth:        8,
+  signedThisMonth:      5,
+  conversionRate:      62.5,
+  totalMonthlyRevenue: 210000,
+  pendingFollowups:     4,
+  avgResponseDays:      3.2,
+  pendingSignature:     3,
+  totalRevenuePending:  148500,
 }
 
-export default function DashboardPage() {
-  const router = useRouter()
-  const [stats,     setStats]     = useState<DashboardStats>(EMPTY_STATS)
-  const [proposals, setProposals] = useState<any[]>([])
-  const [loading,   setLoading]   = useState(true)
+const MOCK_PROPOSALS: ProposalSummary[] = [
+  { id: 'p1', hotelName: 'The Langham Sydney',   clientName: 'Sarah Mitchell',  clientEmail: 'sarah@langham.com',    status: 'sent',    regionId: 'au', totalMonthlyValue: 18500, servicesCount: 2, createdAt: '2026-06-25', expiryDate: '2026-07-25', viewCount: 3 },
+  { id: 'p2', hotelName: 'Park Hyatt Melbourne', clientName: "James O'Brien",   clientEmail: 'james@parkhyatt.com',  status: 'signed',  regionId: 'au', totalMonthlyValue: 32000, servicesCount: 3, createdAt: '2026-06-20', expiryDate: '2026-07-20', viewCount: 7 },
+  { id: 'p3', hotelName: 'QT Gold Coast',        clientName: 'Emma Thornton',   clientEmail: 'emma@qthotels.com',    status: 'draft',   regionId: 'au', totalMonthlyValue: 14200, servicesCount: 1, createdAt: '2026-06-28', expiryDate: '2026-07-28', viewCount: 0 },
+  { id: 'p4', hotelName: 'Ovolo Woolloomooloo',  clientName: 'Michael Chan',    clientEmail: 'michael@ovolo.com',    status: 'sent',    regionId: 'au', totalMonthlyValue: 9800,  servicesCount: 1, createdAt: '2026-06-22', expiryDate: '2026-07-22', viewCount: 2 },
+  { id: 'p5', hotelName: 'The Darling',          clientName: 'Priya Sharma',    clientEmail: 'priya@thedarling.com', status: 'expired', regionId: 'au', totalMonthlyValue: 21000, servicesCount: 2, createdAt: '2026-05-28', expiryDate: '2026-06-28', viewCount: 5 },
+]
 
-  useEffect(() => {
-    Promise.all([
-      fetch(`${WORKER}/dashboard/stats`, { credentials: 'include' }).then(r => r.json()),
-      fetch(`${WORKER}/proposals?limit=5`, { credentials: 'include' }).then(r => r.json()),
-    ])
-      .then(([statsJson, proposalsJson]) => {
-        if (statsJson.data) setStats((s) => ({ ...s, ...statsJson.data }))
-        setProposals(proposalsJson.data?.proposals || [])
-      })
-      .finally(() => setLoading(false))
-  }, [])
+export default function DashboardPage() {
+  const [stats]     = useState<DashboardStats>(MOCK_STATS)
+  const [proposals] = useState<ProposalSummary[]>(MOCK_PROPOSALS)
 
   return (
     <div className="page-content">
@@ -114,58 +106,42 @@ export default function DashboardPage() {
         </div>
 
         <div className="nv-card proposals-table-card">
-          {loading ? (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
-              <div className="nv-spinner" />
-            </div>
-          ) : proposals.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--nv-text-muted)' }}>
-              No proposals yet
-            </div>
-          ) : (
           <table className="proposals-table">
             <thead>
               <tr>
-                <th>ID</th>
                 <th>Hotel</th>
                 <th>Contact</th>
                 <th>Services</th>
                 <th>Value</th>
                 <th>Status</th>
-                <th>Created</th>
+                <th>Updated</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {proposals.map((p: any) => (
-                <tr key={p.id}
-                    className="proposals-table__row"
-                    onClick={() => router.push(`/proposals/${p.id}`)}
-                >
-                  <td className="proposals-table__id" title={p.id}>
-                    {p.id?.slice(-8)}
-                  </td>
+              {proposals.map(p => (
+                <tr key={p.id}>
                   <td className="proposals-table__hotel">
-                    <span>{p.hotel_name}</span>
+                    <span>{p.hotelName}</span>
                   </td>
-                  <td className="proposals-table__contact">{p.contact_name}</td>
+                  <td className="proposals-table__contact">{p.clientName}</td>
                   <td>
                     <div className="service-tags">
-                      {(p.service_codes || '').split(',').filter(Boolean).map((c: string) => (
-                        <span key={c} className="service-tag">{c}</span>
-                      ))}
+                      <span className="service-tag">{p.servicesCount} service{p.servicesCount !== 1 ? 's' : ''}</span>
                     </div>
                   </td>
-                  <td className="proposals-table__value">—</td>
+                  <td className="proposals-table__value">
+                    ${p.totalMonthlyValue.toLocaleString('en-AU')}
+                  </td>
                   <td>
                     <span className={`nv-badge nv-badge--${p.status}`}>
-                      {STATUS_LABELS[p.status] || p.status}
+                      {STATUS_LABELS[p.status]}
                     </span>
                   </td>
                   <td className="proposals-table__date">
-                    {formatDate(p.created_at)}
+                    {formatDate(p.createdAt)}
                   </td>
-                  <td onClick={e => e.stopPropagation()}>
+                  <td>
                     <Link href={`/proposals/${p.id}`} className="nv-btn nv-btn--ghost nv-btn--sm">
                       Open
                     </Link>
@@ -174,7 +150,6 @@ export default function DashboardPage() {
               ))}
             </tbody>
           </table>
-          )}
         </div>
       </section>
 
@@ -285,15 +260,8 @@ export default function DashboardPage() {
           vertical-align: middle;
         }
         .proposals-table tbody tr:last-child td { border-bottom: none; }
-        .proposals-table__row { cursor: pointer; }
-        .proposals-table__row:hover { background: var(--nv-surface-page); }
+        .proposals-table tbody tr:hover { background: var(--nv-surface-page); }
 
-        .proposals-table__id {
-          font-family: var(--font-mono, monospace);
-          font-size: 11px;
-          color: var(--nv-text-muted);
-          letter-spacing: 0.02em;
-        }
         .proposals-table__hotel span {
           font-weight: 500;
           color: var(--nv-text-heading);

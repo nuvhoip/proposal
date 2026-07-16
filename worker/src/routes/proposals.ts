@@ -119,11 +119,20 @@ export async function createProposal(request: Request, env: Env, session: Sessio
         : (e instanceof Error ? e.message : 'Unknown registry error')
       console.error('[Registry sync] proposal create failed:', svc.code, syncError)
     }
-    await env.DB.prepare(`
-      INSERT INTO proposal_registry_links (
-        id, proposal_id, service_line, hgid, entity_code, geo, prop_id, status, sync_error, synced_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)
-    `).bind(ulid(), proposalId, svc.code, hotel.hgid, hotel.entityCode, geo, propId, syncError, syncedAt).run()
+    // Not wrapping this write meant a missing/out-of-date proposal_registry_links
+    // table (e.g. a deploy that shipped before the matching D1 migration ran)
+    // took down the entire "save draft" request with a generic 500, even though
+    // the proposal row above had already been created successfully. Bookkeeping
+    // writes must never be able to fail the primary create.
+    try {
+      await env.DB.prepare(`
+        INSERT INTO proposal_registry_links (
+          id, proposal_id, service_line, hgid, entity_code, geo, prop_id, status, sync_error, synced_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)
+      `).bind(ulid(), proposalId, svc.code, hotel.hgid, hotel.entityCode, geo, propId, syncError, syncedAt).run()
+    } catch (e) {
+      console.error('[Registry sync] failed to write proposal_registry_links row:', svc.code, e)
+    }
   }
 
   // Audit log
