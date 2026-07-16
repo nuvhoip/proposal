@@ -34,6 +34,7 @@ export interface Session {
 
 export interface ProposalRow {
   id:                  string
+  np_id:               string | null
   hotel_name:          string
   contact_name:        string
   contact_email:       string

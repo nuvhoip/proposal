@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import type { ProposalDraft, ServiceCode, Region } from '@/lib/types'
 
 const STEPS = [
@@ -27,6 +27,8 @@ const EMPTY_DRAFT: ProposalDraft = {
 
 export default function NewProposalPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const editId = searchParams.get('edit')
   const [draft, setDraft]       = useState<ProposalDraft>(EMPTY_DRAFT)
   const [saving, setSaving]     = useState(false)
   const [savingDraft, setSavingDraft] = useState(false)
@@ -34,8 +36,51 @@ export default function NewProposalPage() {
   const [staff, setStaff]       = useState<M365Staff[]>([])
   const [staffLoading, setStaffLoading] = useState(true)
   const [staffError, setStaffError]     = useState('')
+  const [loadingExisting, setLoadingExisting] = useState(!!editId)
 
   const step = draft.step
+
+  // Edit mode — /proposals/new?edit={id} loads the existing proposal and
+  // pre-fills the wizard. Editing is only permitted while status === 'draft'
+  // (enforced server-side in updateProposal()); hgid/entity_code come from
+  // proposal_registry_links via getProposal() since they aren't columns on
+  // proposals itself.
+  React.useEffect(() => {
+    if (!editId) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/proposals/${editId}`, {
+          credentials: 'include',
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Failed to load proposal')
+        if (cancelled) return
+        const p = data.data
+        setDraft({
+          step: 1,
+          hotel: {
+            name: p.hotel_name || '', region: (p.region || 'au') as Region,
+            hgid: p.hgid || '', entityCode: p.entity_code || '',
+            contactName: p.contact_name || '', contactEmail: p.contact_email || '',
+            contactPhone: p.contact_phone || '', contactTitle: p.contact_title || '',
+            propertyAddress: p.property_address || '', hubspotDealId: p.hubspot_deal_id || '',
+          },
+          services: (p.services || []).map((s: any) => ({
+            code: s.code as ServiceCode, monthlyFee: s.monthly_fee, setupFee: s.setup_fee, term: s.term_months,
+          })),
+          sender:  { staffId: p.sender_staff_id || '', message: p.sender_message || '' },
+          cover:   { coverUrl: p.cover_url || '' },
+          preview: { recipientEmail: p.contact_email || '' },
+        })
+      } catch (e: any) {
+        if (!cancelled) setErrors({ submit: e.message || 'Failed to load proposal for editing' })
+      } finally {
+        if (!cancelled) setLoadingExisting(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [editId])
 
   React.useEffect(() => {
     let cancelled = false
@@ -70,6 +115,31 @@ export default function NewProposalPage() {
   }
 
   async function createDraftProposal(): Promise<string> {
+    if (editId) {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/proposals/${editId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          hotel_name:       draft.hotel.name,
+          contact_name:     draft.hotel.contactName,
+          contact_email:    draft.hotel.contactEmail,
+          contact_phone:    draft.hotel.contactPhone,
+          contact_title:    draft.hotel.contactTitle,
+          property_address: draft.hotel.propertyAddress,
+          region:           draft.hotel.region,
+          sender_staff_id:  draft.sender.staffId,
+          sender_message:   draft.sender.message,
+          cover_url:        draft.cover.coverUrl,
+          hubspot_deal_id:  draft.hotel.hubspotDealId,
+          services:         draft.services,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to update proposal')
+      return editId
+    }
+
     const res = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/proposals`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -112,8 +182,21 @@ export default function NewProposalPage() {
     }
   }
 
+  if (loadingExisting) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 64 }}>
+        <div className="nv-spinner" />
+      </div>
+    )
+  }
+
   return (
     <div className="wizard-page">
+      {editId && (
+        <div style={{ marginBottom: 16, fontSize: 13, color: 'var(--nv-text-muted)' }}>
+          Editing existing proposal
+        </div>
+      )}
       {/* Step indicator */}
       <div className="wizard-steps">
         {STEPS.map((s, i) => (

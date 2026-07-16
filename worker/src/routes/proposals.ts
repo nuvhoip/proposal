@@ -2,9 +2,10 @@ import type { Env, ProposalRow, ServiceRow, Session } from '../types'
 import { ok, err } from '../lib/response'
 import { ulid, randomToken } from '../lib/ulid'
 import {
-  createRegistryProposal, updateRegistryProposal, RegistryError,
+  createRegistryProposal, updateRegistryProposal, reserveNpId, RegistryError,
   type RegistryServiceLine, type RegistryProposalStatus,
 } from '../lib/registry'
+import { formatNpIdLocal } from '../lib/npId'
 
 /* ─── List proposals ───────────────────────────────────────── */
 export async function listProposals(request: Request, env: Env, session: Session): Promise<Response> {
@@ -41,7 +42,19 @@ export async function getProposal(proposalId: string, env: Env, session: Session
   const sender = await env.DB.prepare('SELECT * FROM staff WHERE id = ?')
     .bind(proposal.sender_staff_id).first()
 
-  return ok({ ...proposal, services, sender })
+  // hgid/entity_code aren't columns on `proposals` itself (they live per
+  // service-line in proposal_registry_links) — pull them from the first
+  // linked row so the edit wizard can pre-fill Step 1. All bundled service
+  // lines share the same hotel group, so any row's values are correct.
+  const registryLink = await env.DB.prepare(
+    'SELECT hgid, entity_code FROM proposal_registry_links WHERE proposal_id = ? LIMIT 1'
+  ).bind(proposalId).first<{ hgid: string; entity_code: string }>()
+
+  return ok({
+    ...proposal, services, sender,
+    hgid: registryLink?.hgid ?? null,
+    entity_code: registryLink?.entity_code ?? null,
+  })
 }
 
 /* ─── Create proposal ──────────────────────────────────────── */
@@ -64,16 +77,30 @@ export async function createProposal(request: Request, env: Env, session: Sessio
   const proposalId    = ulid()
   const signingToken  = randomToken(24)
   const expiresAt     = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()  // 30 days
+  const geo           = (hotel.region || 'au').toUpperCase()
+
+  // Reserve the client-facing "Proposal ID" (NP-{REGION}-{YYMMDD}-{6RAND}) from
+  // the Master Registry — one per bundled proposal, not per service line (see
+  // registry/routes/npIds.js). Never let registry downtime block a save: fall
+  // back to a locally-generated id in the exact same format.
+  let npId: string
+  try {
+    const reserved = await reserveNpId(env, geo, hotel.hgid)
+    npId = reserved.np_id
+  } catch (e) {
+    console.error('[NP-ID] registry reservation failed, falling back to local generation:', e)
+    npId = formatNpIdLocal(geo)
+  }
 
   // Insert proposal
   await env.DB.prepare(`
     INSERT INTO proposals (
-      id, hotel_name, contact_name, contact_email, contact_phone, contact_title,
+      id, np_id, hotel_name, contact_name, contact_email, contact_phone, contact_title,
       property_address, region, status, sender_staff_id, sender_message,
       cover_url, hubspot_deal_id, signing_token, expires_at, valid_until
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)
   `).bind(
-    proposalId,
+    proposalId, npId,
     hotel.name, hotel.contactName, hotel.contactEmail,
     hotel.contactPhone || null, hotel.contactTitle || null,
     hotel.propertyAddress || null, hotel.region || 'au',
@@ -97,7 +124,6 @@ export async function createProposal(request: Request, env: Env, session: Sessio
   // in the Nuvho Master Registry (register.nuvho.com). Partial failures are
   // recorded per-row in proposal_registry_links rather than blocking the
   // local proposal — see syncRegistryStatus() for the retry-on-status-change path.
-  const geo = (hotel.region || 'au').toUpperCase()
   for (const svc of services) {
     let propId: string | null = null
     let syncedAt: string | null = null
@@ -216,11 +242,34 @@ export async function sendProposal(proposalId: string, env: Env, session: Sessio
 }
 
 /* ─── Update proposal ──────────────────────────────────────── */
+// Full-edit fields (hotel/contact/sender/cover) are only ever sent by the
+// wizard in edit mode, and only while the proposal is still a draft — once
+// sent/signed, the document is the record of truth and must not silently
+// change under a live signing link or an already-delivered PDF. `status`
+// transitions themselves go through sendProposal()/signProposal(), not here.
+const FULL_EDIT_FIELDS = [
+  'hotel_name', 'contact_name', 'contact_email', 'contact_phone', 'contact_title',
+  'property_address', 'region', 'sender_staff_id', 'sender_message', 'cover_url',
+  'hubspot_deal_id',
+]
+const ALWAYS_ALLOWED_FIELDS = ['sender_message', 'cover_url', 'hubspot_deal_id']
+
 export async function updateProposal(
   proposalId: string, request: Request, env: Env, session: Session
 ): Promise<Response> {
-  const body = await request.json() as Partial<ProposalRow>
-  const allowed = ['status', 'sender_message', 'cover_url', 'hubspot_deal_id']
+  const body = await request.json() as Partial<ProposalRow> & { services?: ServiceRow[] }
+
+  const current = await env.DB.prepare('SELECT status FROM proposals WHERE id = ?')
+    .bind(proposalId).first<{ status: string }>()
+  if (!current) return err('Proposal not found', 404)
+
+  const editingFullFields = FULL_EDIT_FIELDS.some(f => f in body && !ALWAYS_ALLOWED_FIELDS.includes(f))
+    || Array.isArray(body.services)
+  if (editingFullFields && current.status !== 'draft') {
+    return err('This proposal has already been sent — hotel, contact, and service details can no longer be edited', 409)
+  }
+
+  const allowed = ['status', ...FULL_EDIT_FIELDS]
   const updates: string[] = []
   const values:  any[]    = []
 
@@ -230,14 +279,34 @@ export async function updateProposal(
       values.push((body as any)[key])
     }
   }
-  if (!updates.length) return err('No valid fields to update')
 
-  updates.push("updated_at = datetime('now')")
-  values.push(proposalId)
+  if (updates.length) {
+    updates.push("updated_at = datetime('now')")
+    values.push(proposalId)
+    await env.DB.prepare(
+      `UPDATE proposals SET ${updates.join(', ')} WHERE id = ?`
+    ).bind(...values).run()
+  }
 
-  await env.DB.prepare(
-    `UPDATE proposals SET ${updates.join(', ')} WHERE id = ?`
-  ).bind(...values).run()
+  // Replace service lines wholesale when provided — simplest correct
+  // behaviour for a wizard-driven edit (it always resubmits the full list).
+  if (Array.isArray(body.services)) {
+    await env.DB.prepare('DELETE FROM proposal_services WHERE proposal_id = ?')
+      .bind(proposalId).run()
+    for (const svc of body.services as any[]) {
+      await env.DB.prepare(`
+        INSERT INTO proposal_services (id, proposal_id, code, monthly_fee, setup_fee, term_months)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).bind(
+        ulid(), proposalId, svc.code,
+        svc.monthlyFee || 0, svc.setupFee || 0, svc.term || 12
+      ).run()
+    }
+  }
+
+  if (!updates.length && !Array.isArray(body.services)) return err('No valid fields to update')
+
+  await auditLog(env, proposalId, 'edited', session.email, { fields: Object.keys(body) })
 
   return ok({ updated: true })
 }

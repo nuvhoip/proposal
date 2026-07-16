@@ -172,3 +172,23 @@ export async function updateRegistryProposal(
     body: JSON.stringify(patch),
   })
 }
+
+/* ─── NP-ID (client-facing "Proposal ID", R1 ID Reference schema v1.3) ────── */
+
+export interface RegistryNpIdRecord {
+  np_id: string
+  region: string
+  issued_to: string | null
+  created_at: string
+}
+
+/** POST /v1/np-ids — reserves one NP-{REGION}-{YYMMDD}-{6RAND} per bundled
+ *  proposal (not per service line — see createProposal in routes/proposals.ts). */
+export async function reserveNpId(
+  env: Env, region: string, issuedTo?: string
+): Promise<RegistryNpIdRecord> {
+  return registryFetch<RegistryNpIdRecord>(env, '/v1/np-ids', {
+    method: 'POST',
+    body: JSON.stringify({ region, issued_to: issuedTo ?? null }),
+  })
+}

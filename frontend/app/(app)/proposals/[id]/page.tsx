@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import Link from 'next/link'
 import type { Proposal } from '@/lib/types'
 
 const WORKER = process.env.NEXT_PUBLIC_WORKER_URL
@@ -138,14 +139,14 @@ export default function ProposalDetailPage() {
             {proposal.region?.toUpperCase()} · Created {new Date(proposal.created_at).toLocaleDateString('en-AU')}
           </p>
           <button
-            onClick={() => copyToClipboard(proposal.id, 'id')}
-            title="Click to copy full proposal ID"
+            onClick={() => copyToClipboard(proposal.np_id || proposal.id, 'id')}
+            title="Click to copy the Proposal ID"
             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0,
                      marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}
           >
             <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--nv-text-muted)',
                            background: 'var(--nv-platinum)', borderRadius: 6, padding: '2px 8px' }}>
-              {proposal.id}
+              {proposal.np_id || proposal.id}
             </span>
             <span style={{ fontSize: 11, color: copied === 'id' ? 'var(--nv-success)' : 'var(--nv-blue-slate)',
                            fontWeight: copied === 'id' ? 700 : 400 }}>
@@ -157,6 +158,12 @@ export default function ProposalDetailPage() {
           <span className={`nv-badge ${STATUS_CLASSES[proposal.status] || ''}`}>
             {proposal.status}
           </span>
+          {canSend && (
+            <Link href={`/proposals/new?edit=${proposal.id}`}
+                  className="nv-btn nv-btn--outlined nv-btn--md">
+              ✎ Edit
+            </Link>
+          )}
           {canSend && (
             <button
               className="nv-btn nv-btn--solid nv-btn--md"

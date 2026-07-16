@@ -143,7 +143,7 @@ export default function DashboardPage() {
                     onClick={() => router.push(`/proposals/${p.id}`)}
                 >
                   <td className="proposals-table__id" title={p.id}>
-                    {p.id?.slice(-8)}
+                    {p.np_id || p.id?.slice(-8)}
                   </td>
                   <td className="proposals-table__hotel">
                     <span>{p.hotel_name}</span>

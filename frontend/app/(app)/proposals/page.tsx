@@ -102,7 +102,7 @@ export default function ProposalsPage() {
                   <td style={{ padding: '14px 16px', fontFamily: 'monospace', fontSize: 11,
                                color: 'var(--nv-text-muted)' }}
                       title={p.id}>
-                    {p.id?.slice(-8)}
+                    {p.np_id || p.id?.slice(-8)}
                   </td>
                   <td style={{ padding: '14px 16px', fontWeight: 600,
                                color: 'var(--nv-text-heading)' }}>

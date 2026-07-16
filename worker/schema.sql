@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS staff (
 -- ── Proposals ─────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS proposals (
   id                   TEXT PRIMARY KEY,
+  np_id                TEXT UNIQUE,  -- client-facing "Proposal ID" (NP-{REGION}-{YYMMDD}-{6RAND}),
+                                      -- reserved from register.nuvho.com POST /v1/np-ids at create time
   hotel_name           TEXT NOT NULL,
   contact_name         TEXT NOT NULL,
   contact_email        TEXT NOT NULL,
