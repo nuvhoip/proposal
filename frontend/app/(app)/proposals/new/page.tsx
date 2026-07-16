@@ -494,7 +494,7 @@ function Step1HotelDetails({ draft, setDraft, errors }: StepProps) {
                   <button type="button" className="hg-dropdown__item hg-dropdown__item--add"
                     onMouseDown={e => e.preventDefault()}
                     onClick={openAddHotelGroup}>
-                    + Add "{hgQuery.trim()}" as a new hotel group
+                    + Add &quot;{hgQuery.trim()}&quot; as a new hotel group
                   </button>
                 </div>
               )}
@@ -571,7 +571,7 @@ function Step1HotelDetails({ draft, setDraft, errors }: StepProps) {
                   ))}
                 </select>
                 <p className="hg-modal__hint">
-                  The Nuvho legal entity responsible for this group's contracts and billing.
+                  The Nuvho legal entity responsible for this group&apos;s contracts and billing.
                 </p>
               </div>
 
@@ -611,7 +611,7 @@ function Step1HotelDetails({ draft, setDraft, errors }: StepProps) {
                   <option value="onboarding">onboarding</option>
                 </select>
                 <p className="hg-modal__hint">
-                  New groups start as <strong>Prospect</strong>. Move to <strong>Onboarding</strong> once you've engaged the client.
+                  New groups start as <strong>Prospect</strong>. Move to <strong>Onboarding</strong> once you&apos;ve engaged the client.
                 </p>
               </div>
 
