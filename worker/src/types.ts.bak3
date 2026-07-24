@@ -44,7 +44,6 @@ export interface ProposalRow {
   region:              string
   status:              string
   sender_staff_id:     string
-  account_manager_stf_id: string | null
   sender_message:      string | null
   cover_url:           string | null
   pdf_url:             string | null

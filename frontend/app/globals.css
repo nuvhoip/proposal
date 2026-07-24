@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@300;400;500;600;700&family=Raleway:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@300;400;500;600;700&family=Raleway:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&family=Great+Vibes&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -53,6 +53,7 @@
 
   --font-comfortaa: 'Comfortaa', system-ui, sans-serif;
   --font-raleway:   'Raleway', system-ui, -apple-system, sans-serif;
+  --font-signature: 'Great Vibes', cursive;
 }
 
 * {
@@ -273,4 +274,35 @@ h1, h2, h3, h4, h5, h6 {
 }
 .animate-fade-in-up {
   animation: fade-in-up 0.35s ease-out forwards;
+}
+
+/* Print (Download PDF): only the document preview should print — everything
+   else on the wizard / details page (nav, cards, buttons, sidebars) is hidden.
+   Target element is <ProposalDocument>'s root, #proposal-print-root. */
+@media print {
+  body * { visibility: hidden; }
+  #proposal-print-root, #proposal-print-root * { visibility: visible; }
+  #proposal-print-root {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: white;
+  }
+  #proposal-print-root .doc-page {
+    max-width: none;
+    box-shadow: none;
+    border-radius: 0;
+    margin: 0;
+    padding: 24px 36px;
+    page-break-after: always;
+  }
+  #proposal-print-root .doc-page:last-child {
+    page-break-after: auto;
+  }
+  #proposal-print-root .doc-cover {
+    page-break-after: always;
+  }
 }

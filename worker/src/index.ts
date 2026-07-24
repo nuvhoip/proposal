@@ -23,7 +23,19 @@ import {
   handleGetHotelGroup,
   handleCreateHotelGroup,
   handleListEntities,
+  handleUpdateHotelGroup,
+  handleSearchHotelGroupsByHubspotId,
+  handlePropertyTypeahead,
+  handleListPropertiesByHgid,
+  handleGetProperty,
+  handleCreateProperty,
+  handleGetMarkets,
 } from './routes/registry'
+import {
+  searchHubspotObjects,
+  createHubspotClient,
+  updateHubspotCompany,
+} from './routes/hubspot'
 
 /* ── Rate limiter ────────────────────────────────────────────── */
 async function checkRateLimit(request: Request, env: Env): Promise<boolean> {
@@ -221,10 +233,24 @@ async function route(
     return handleHotelGroupTypeahead(request, env)
   }
 
+  // Registry — reverse lookup: does a hotel group already reference this HubSpot company id?
+  // Must be checked before hgDetailMatch below, since that regex would otherwise
+  // treat the literal path segment "search" as a :hgid value.
+  if (path === '/registry/hotel-groups/search' && method === 'GET') {
+    const hubspotId = new URL(request.url).searchParams.get('hubspot_id')?.trim()
+    if (!hubspotId) return err('hubspot_id is required.')
+    return handleSearchHotelGroupsByHubspotId(env, hubspotId)
+  }
+
   // Registry — full hotel group record (used to resolve entity_code after a typeahead pick)
   const hgDetailMatch = path.match(/^\/registry\/hotel-groups\/([A-Za-z0-9_-]+)$/)
   if (hgDetailMatch && method === 'GET') {
     return handleGetHotelGroup(env, hgDetailMatch[1])
+  }
+
+  // Registry — write hubspot_id back onto a hotel group once linked to a HubSpot Company
+  if (hgDetailMatch && method === 'PATCH') {
+    return handleUpdateHotelGroup(request, env, hgDetailMatch[1])
   }
 
   // Registry — create a new hotel group (Add Hotel Group flow when the wizard search finds no match)
@@ -235,6 +261,44 @@ async function route(
   // Registry — active legal entities (populates the Add Hotel Group "legal entity" choice)
   if (path === '/registry/entities' && method === 'GET') {
     return handleListEntities(env)
+  }
+
+  // Registry — active markets for a geo (populates the Market picker required by property creation)
+  if (path === '/registry/markets' && method === 'GET') {
+    return handleGetMarkets(request, env)
+  }
+
+  // Registry — properties (issue pid, scoped to a parent hgid)
+  if (path === '/registry/properties/typeahead' && method === 'GET') {
+    return handlePropertyTypeahead(request, env)
+  }
+  if (path === '/registry/properties' && method === 'POST') {
+    return handleCreateProperty(request, env)
+  }
+  const propDetailMatch = path.match(/^\/registry\/properties\/([A-Za-z0-9_-]+)$/)
+  if (propDetailMatch && method === 'GET') {
+    return handleGetProperty(env, propDetailMatch[1])
+  }
+  const hgPropsMatch = path.match(/^\/registry\/hotel-groups\/([A-Za-z0-9_-]+)\/properties$/)
+  if (hgPropsMatch && method === 'GET') {
+    return handleListPropertiesByHgid(env, hgPropsMatch[1])
+  }
+
+  // HubSpot — search companies/contacts (proxied; HUBSPOT_API_KEY stays server-side).
+  // Separate CRM check from the registry lookups above — see routes/hubspot.ts.
+  if (path === '/hubspot/search' && method === 'GET') {
+    return searchHubspotObjects(request, env)
+  }
+
+  // HubSpot — create a new company (+ contact) when the search above finds no match
+  if (path === '/hubspot/clients' && method === 'POST') {
+    return createHubspotClient(request, env)
+  }
+
+  // HubSpot — write hgid/pid onto an existing company once the Master Registry side is resolved
+  const hsCompanyMatch = path.match(/^\/hubspot\/companies\/([A-Za-z0-9_-]+)$/)
+  if (hsCompanyMatch && method === 'PATCH') {
+    return updateHubspotCompany(request, env, hsCompanyMatch[1])
   }
 
   return err('Not found', 404)

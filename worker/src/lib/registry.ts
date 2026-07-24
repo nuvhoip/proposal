@@ -124,6 +124,118 @@ export async function listEntities(env: Env): Promise<RegistryEntity[]> {
   return registryFetch<RegistryEntity[]>(env, '/v1/ref/entities')
 }
 
+/** PATCH /v1/hotel-groups/:hgid — used here specifically to write hubspot_id
+ *  back onto a registry hotel group once a matching/linked HubSpot Company
+ *  is created or confirmed (see routes/hubspot.ts hgid/pid sync). */
+export async function updateHotelGroup(
+  env: Env, hgid: string, patch: { hubspot_id?: string; group_name?: string; trading_name?: string; status?: string }
+): Promise<RegistryHotelGroupRecord> {
+  return registryFetch<RegistryHotelGroupRecord>(env, `/v1/hotel-groups/${encodeURIComponent(hgid)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  })
+}
+
+/** GET /v1/hotel-groups/search?hubspot_id=... — reverse lookup: given a
+ *  HubSpot company id, find the registry hotel group already linked to it
+ *  (if any). Used to detect the "HubSpot has it, Registry doesn't (yet)"
+ *  case without relying on fuzzy name-matching. */
+export async function searchHotelGroupsByHubspotId(
+  env: Env, hubspotId: string
+): Promise<RegistryHotelGroupRecord[]> {
+  const params = new URLSearchParams({ hubspot_id: hubspotId })
+  return registryFetch<RegistryHotelGroupRecord[]>(env, `/v1/hotel-groups/search?${params.toString()}`)
+}
+
+/* ─── Properties (issue pid, scoped to a parent hgid) ──────────────────────── */
+
+export interface RegistryPropertySummary {
+  pid:           string
+  hgid:          string
+  property_name: string
+  brand:         string | null
+  geo:           string
+  market:        string
+  status:        string
+}
+
+export interface RegistryPropertyRecord extends RegistryPropertySummary {
+  entity_code:      string
+  address_street:   string | null
+  address_city:     string | null
+  address_state:    string | null
+  address_postcode: string | null
+  address_country:  string | null
+  thc_property_id:  string | null
+  created_at:       string
+  updated_at:        string
+}
+
+/** GET /v1/properties/typeahead?q=&geo=&hgid= — q must be >=2 chars.
+ *  hgid narrows results to properties under a specific hotel group. */
+export async function propertyTypeahead(
+  env: Env, q: string, opts: { geo?: string; hgid?: string } = {}
+): Promise<RegistryPropertySummary[]> {
+  const params = new URLSearchParams({ q })
+  if (opts.geo)  params.set('geo', opts.geo)
+  if (opts.hgid) params.set('hgid', opts.hgid)
+  return registryFetch<RegistryPropertySummary[]>(env, `/v1/properties/typeahead?${params.toString()}`)
+}
+
+/** GET /v1/hotel-groups/:hgid/properties — all properties under a hotel group. */
+export async function listPropertiesByHgid(env: Env, hgid: string): Promise<RegistryPropertySummary[]> {
+  return registryFetch<RegistryPropertySummary[]>(env, `/v1/hotel-groups/${encodeURIComponent(hgid)}/properties`)
+}
+
+/** GET /v1/properties/:pid — full record. */
+export async function getProperty(env: Env, pid: string): Promise<RegistryPropertyRecord> {
+  return registryFetch<RegistryPropertyRecord>(env, `/v1/properties/${encodeURIComponent(pid)}`)
+}
+
+export interface CreatePropertyPayload {
+  hgid:          string
+  entity_code:   string
+  property_name: string
+  geo:           string
+  market:        string
+  status?:       'prospect' | 'onboarding'
+  address_street?:  string
+  address_city?:    string
+  address_state?:   string
+  address_postcode?: string
+  address_country?: string
+}
+
+/** POST /v1/properties — creates a new property under an existing hgid and
+ *  issues its pid. Status defaults to 'prospect' to match the hotel-group
+ *  create flow (registry only allows prospect|onboarding at creation). */
+export async function createProperty(
+  env: Env, payload: CreatePropertyPayload
+): Promise<RegistryPropertyRecord> {
+  return registryFetch<RegistryPropertyRecord>(env, '/v1/properties', {
+    method: 'POST',
+    body: JSON.stringify({ status: 'prospect', ...payload }),
+  })
+}
+
+export interface RegistryMarket {
+  market:    string
+  geo:       string
+  label:     string
+  is_active: boolean
+  geo_label: string
+}
+
+/** GET /v1/ref/markets?geo= — active markets for a geo, used to populate the
+ *  Market picker required by property creation (registry validates market
+ *  against the property's geo). */
+export async function getMarkets(env: Env, geo?: string): Promise<RegistryMarket[]> {
+  const params = new URLSearchParams()
+  if (geo) params.set('geo', geo)
+  const qs = params.toString()
+  return registryFetch<RegistryMarket[]>(env, `/v1/ref/markets${qs ? `?${qs}` : ''}`)
+}
+
 /* ─── Proposals ─────────────────────────────────────────────────────────────── */
 
 export type RegistryServiceLine = 'RM' | 'SM' | 'MK' | 'CR' | 'WA' | 'PO' | 'CO' | 'MS'

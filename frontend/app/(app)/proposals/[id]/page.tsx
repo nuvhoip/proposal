@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { Proposal } from '@/lib/types'
+import { buildDocModelFromProposal, downloadBlob } from '@/lib/documentModel'
+import { ProposalDocument } from '@/components/proposal/ProposalDocument'
+import { buildDocxFile } from '@/lib/exportDocx'
 
 const WORKER = process.env.NEXT_PUBLIC_WORKER_URL
 
@@ -33,6 +36,8 @@ export default function ProposalDetailPage() {
   const [error,    setError]    = useState('')
   const [sending,  setSending]  = useState(false)
   const [copied,   setCopied]   = useState<'id' | 'link' | null>(null)
+  const [showDoc,  setShowDoc]  = useState(false)
+  const [exporting, setExporting] = useState<'pdf' | 'word' | null>(null)
 
   async function copyToClipboard(text: string, which: 'id' | 'link') {
     try {
@@ -116,6 +121,26 @@ export default function ProposalDetailPage() {
 
   const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL}/p/${proposal.signing_token}`
   const canSend   = proposal.status === 'draft'
+  const docModel  = buildDocModelFromProposal(proposal)
+
+  const handleDownloadPdf = () => {
+    setShowDoc(true)
+    setExporting('pdf')
+    // Print-to-PDF: @media print (globals.css) hides everything except
+    // #proposal-print-root, which <ProposalDocument> renders into.
+    window.setTimeout(() => window.print(), 50)
+    window.setTimeout(() => setExporting(null), 600)
+  }
+
+  const handleDownloadWord = async () => {
+    setExporting('word')
+    try {
+      const blob = await buildDocxFile(docModel)
+      downloadBlob(blob, `${docModel.title.replace(/[^\w-]+/g, '-')}.docx`)
+    } finally {
+      setExporting(null)
+    }
+  }
 
   return (
     <div style={{ padding: '32px', maxWidth: 960, margin: '0 auto' }}>
@@ -158,6 +183,20 @@ export default function ProposalDetailPage() {
           <span className={`nv-badge ${STATUS_CLASSES[proposal.status] || ''}`}>
             {proposal.status}
           </span>
+          <button
+            className="nv-btn nv-btn--ghost nv-btn--md"
+            onClick={handleDownloadPdf}
+            disabled={exporting !== null}
+          >
+            {exporting === 'pdf' ? 'Preparing…' : '⬇ PDF'}
+          </button>
+          <button
+            className="nv-btn nv-btn--ghost nv-btn--md"
+            onClick={handleDownloadWord}
+            disabled={exporting !== null}
+          >
+            {exporting === 'word' ? 'Preparing…' : '⬇ Word'}
+          </button>
           {canSend && (
             <Link href={`/proposals/new?edit=${proposal.id}`}
                   className="nv-btn nv-btn--outlined nv-btn--md">
@@ -361,6 +400,28 @@ export default function ProposalDetailPage() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Document Preview */}
+      <div className="nv-card" style={{ padding: 24, marginTop: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <h2 style={{ fontSize: 14, fontFamily: 'var(--nv-font-display)',
+                       color: 'var(--nv-text-muted)', textTransform: 'uppercase',
+                       letterSpacing: '0.08em', margin: 0 }}>
+            Document Preview
+          </h2>
+          <button
+            className="nv-btn nv-btn--ghost nv-btn--sm"
+            onClick={() => setShowDoc(v => !v)}
+          >
+            {showDoc ? 'Hide' : 'Show'}
+          </button>
+        </div>
+        {showDoc && (
+          <div style={{ marginTop: 16 }}>
+            <ProposalDocument model={docModel} />
+          </div>
+        )}
       </div>
     </div>
   )

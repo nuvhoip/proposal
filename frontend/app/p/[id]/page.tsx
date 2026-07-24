@@ -55,7 +55,7 @@ export default function PublicProposalPage() {
     <div className="public-page">
       {/* Header */}
       <header className="public-header">
-        <NuvhoLogo variant="white" height={38} />
+        <NuvhoLogo variant="white" height={40} />
         <div className="public-header__meta">
           <span className="public-header__ref">Proposal #{proposal.id.slice(0,8).toUpperCase()}</span>
           {proposal.expiryDate && (
@@ -153,7 +153,6 @@ export default function PublicProposalPage() {
 
       {/* Footer */}
       <footer className="public-footer">
-        <NuvhoLogo variant="white" height={32} />
         <span>© Nuvho Systems Pty Ltd · Smart Hoteliers</span>
       </footer>
 

@@ -78,12 +78,70 @@ export interface Staff {
   active: boolean
 }
 
+// Fee-row type used by the per-service Pricing editor
+export type FeeType = 'monthly' | 'setup' | 'fixed' | 'daily' | 'hourly' | 'commission' | 'custom'
+
+// One ordered/toggleable scope-of-work line item, grouped under a section heading
+export interface ScopeItem {
+  id:             string
+  sectionHeading: string
+  text:           string
+  enabled:        boolean
+  isCustom?:      boolean
+}
+
+// One editable, reorderable pricing row within a service line
+export interface FeeRow {
+  id:        string
+  component: string
+  feeType:   FeeType
+  fee:       number | ''
+  term:      number | ''
+  note:      string
+}
+
+// One editable, reorderable footnote / small-print line under a service's pricing table
+export interface PricingFootnote {
+  id:   string
+  text: string
+}
+
 // Simplified service line used inside the proposal wizard
 export interface DraftServiceLine {
   code:        ServiceCode
+  // Flat summary fields — derived from feeRows (kept for backward-compat with
+  // the worker's proposal_services columns and existing total/summary calcs)
   monthlyFee:  number
   setupFee:    number
   term:        number
+  // Scope of work — ordered, toggleable, inline-editable per service line
+  scopeItems:  ScopeItem[]
+  // Flexible pricing — draggable fee rows + footnotes per service line
+  feeRows:     FeeRow[]
+  footnotes:   PricingFootnote[]
+}
+
+// One editable, reorderable Terms & Conditions clause
+export interface TermsClause {
+  id:      string
+  heading: string
+  text:    string
+  enabled: boolean
+}
+
+export type SignatureMethod = 'type' | 'draw'
+
+export interface ProposalTerms {
+  clauses:           TermsClause[]
+  validityDays:      number
+  signatureRequired: boolean
+  // How the signatory provides their signature — typed (rendered in a script
+  // font) or hand-drawn on a canvas. `signatoryName` doubles as the printed
+  // name under the mark either way; `signatureDataUrl` holds the drawn PNG.
+  signatureMethod:   SignatureMethod
+  signatoryName:     string
+  signatoryTitle:    string
+  signatureDataUrl:  string
 }
 
 // Proposal generator wizard state (nested per-step structure)
@@ -95,6 +153,7 @@ export interface ProposalDraft {
     name:            string
     region:          Region
     hgid:            string   // Nuvho Master Registry Hotel Group id (HG-{GEO}-{SEQ4}) — set via typeahead
+    pid:             string   // Nuvho Master Registry Property id (PRP-{GEO}-{SEQ4}) — resolved/created alongside hgid
     entityCode:      string   // registry entity_code resolved from the selected hotel group
     contactName:     string
     contactEmail:    string
@@ -102,23 +161,29 @@ export interface ProposalDraft {
     contactTitle:    string
     propertyAddress: string
     hubspotDealId:   string
+    hubspotCompanyId?: string   // HubSpot Company id — resolved via /hubspot/search or created via /hubspot/clients
+    hubspotContactId?: string   // HubSpot Contact id — resolved via /hubspot/search or created via /hubspot/clients
   }
 
   // Step 2 — Service Lines
   services: DraftServiceLine[]
 
-  // Step 3 — Sender
+  // Step 5 — Sender
   sender: {
     staffId: string
+    accountManagerId: string
     message: string
   }
 
-  // Step 4 — Cover
+  // Step 6 — Cover
   cover: {
     coverUrl: string
   }
 
-  // Step 5 — Preview
+  // Step 7 — Terms & Conditions
+  terms: ProposalTerms
+
+  // Step 8 — Preview
   preview: {
     recipientEmail: string
   }

@@ -34,11 +34,6 @@ const navItems: NavItem[] = [
     icon: <Image src="/icons/rocket.svg" width={18} height={18} alt="" style={{ filter: WHITE_ICON }} />,
   },
   {
-    href: '/engagements',
-    label: 'Engagements',
-    icon: <Image src="/icons/handshake.svg" width={18} height={18} alt="" style={{ filter: WHITE_ICON }} />,
-  },
-  {
     href: '/settings',
     label: 'Settings',
     icon: <Image src="/icons/gears.svg" width={18} height={18} alt="" style={{ filter: WHITE_ICON }} />,
@@ -80,7 +75,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="app-sidebar__header">
           {collapsed
             ? <NuvhoIconMark variant="white" size={32} />
-            : <NuvhoLogo variant="white" height={34} />}
+            : <NuvhoLogo variant="white" height={50} />}
           <button
             className="app-sidebar__toggle"
             onClick={() => setCollapsed(c => !c)}
@@ -145,13 +140,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* Brand footer */}
         <div className="app-sidebar__brand">
           {!collapsed && (
-            <>
-              <NuvhoLogo variant="white" height={28} />
-              <span className="app-sidebar__copyright">© Nuvho Systems Pty Ltd</span>
-            </>
-          )}
-          {collapsed && (
-            <NuvhoIconMark variant="white" size={20} />
+            <span className="app-sidebar__copyright">© Nuvho Systems Pty Ltd</span>
           )}
         </div>
       </aside>

@@ -80,7 +80,7 @@ export default function LoginPage() {
         <div className="login-form-card animate-fade-in-up">
           {/* Mobile logo */}
           <div className="login-form-card__mobile-logo">
-            <NuvhoLogo variant="primary" height={36} />
+            <NuvhoLogo variant="primary" height={50} />
           </div>
 
           <div className="login-form-card__header">
