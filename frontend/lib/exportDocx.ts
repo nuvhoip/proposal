@@ -55,6 +55,13 @@ function htmlToParagraphs(html: string): string[] {
     .filter(Boolean)
 }
 
+// NUVCL-125: salutation uses just the client's first name ("Dear John,")
+// rather than the full contact name — mirrors ProposalDocument.tsx's
+// getFirstName() helper.
+function getFirstName(fullName: string): string {
+  return fullName.trim().split(/\s+/)[0] || ''
+}
+
 export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
   const multiSvc = model.services.length > 1
   const children: (Paragraph | Table)[] = []
@@ -78,7 +85,7 @@ export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
   children.push(new Paragraph({ text: model.hotelName || '[Hotel Name]' }))
   children.push(new Paragraph({ text: model.propertyAddress || '[Property Address]', spacing: { after: 500 } }))
   children.push(new Paragraph({ children: [new TextRun({ text: `RE: ${model.title}`, bold: true })], spacing: { after: 200 } }))
-  children.push(body(`Dear ${model.contactName || '[Client Name]'},`))
+  children.push(body(`Dear ${getFirstName(model.contactName) || '[Client Name]'},`))
   // introMessage is authored via the rich-text editor on wizard Step 1 (since NUVCL-118) — always HTML.
   htmlToParagraphs(model.introMessage).forEach(line => children.push(body(line)))
 
@@ -104,15 +111,9 @@ export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
   children.push(new Paragraph({ children: [new TextRun({ text: model.senderName || '[Sender Name]', bold: true })] }))
   if (model.senderRoleLabel) children.push(new Paragraph({ text: model.senderRoleLabel }))
   if (model.senderEmail) children.push(new Paragraph({ text: `e: ${model.senderEmail}` }))
-  // Legal entity / registration line (e.g. "Nuvho Pty Ltd - ABN 62 622 629
-  // 672") under the letter's sign-off, matching ProposalDocument.tsx's
-  // .doc-letter-footer — in addition to, not instead of, the fuller legal
-  // footer block further down (near the Appendix).
-  if (model.footerText) {
-    model.footerText.split('\n').forEach(line => {
-      children.push(new Paragraph({ children: [new TextRun({ text: line, size: 16, color: '757575' })] }))
-    })
-  }
+  // NUVCL-124: sign-off footer block removed — matches ProposalDocument.tsx's
+  // removal of .doc-letter-footer. The fuller legal footer block further
+  // down (near the Appendix, using model.footerText again) is unchanged.
   children.push(new Paragraph({ text: '', spacing: { after: 300 } }))
 
   // Background

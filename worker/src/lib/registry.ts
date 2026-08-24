@@ -91,6 +91,10 @@ export interface CreateHotelGroupPayload {
   trading_name?: string
   geo: string
   status?: 'prospect' | 'onboarding'
+  // NUVCL-121: registry.hotel_groups.is_active (Active/Inactive), separate
+  // from the prospect/onboarding lifecycle `status` above. Optional — the
+  // registry defaults new groups to active if omitted.
+  is_active?: boolean
 }
 
 /** POST /v1/hotel-groups — creates a new hotel group in the master registry.
@@ -197,7 +201,8 @@ export interface CreatePropertyPayload {
   entity_code:   string
   property_name: string
   geo:           string
-  market:        string
+  // NUVCL-121 (2026-08-24): `market` removed — the Master Registry dropped
+  // the market component entirely, so property creation no longer needs it.
   status?:       'prospect' | 'onboarding'
   address_street?:  string
   address_city?:    string
@@ -218,23 +223,8 @@ export async function createProperty(
   })
 }
 
-export interface RegistryMarket {
-  market:    string
-  geo:       string
-  label:     string
-  is_active: boolean
-  geo_label: string
-}
-
-/** GET /v1/ref/markets?geo= — active markets for a geo, used to populate the
- *  Market picker required by property creation (registry validates market
- *  against the property's geo). */
-export async function getMarkets(env: Env, geo?: string): Promise<RegistryMarket[]> {
-  const params = new URLSearchParams()
-  if (geo) params.set('geo', geo)
-  const qs = params.toString()
-  return registryFetch<RegistryMarket[]>(env, `/v1/ref/markets${qs ? `?${qs}` : ''}`)
-}
+// NUVCL-121 (2026-08-24): RegistryMarket + getMarkets() removed — the
+// Master Registry dropped the market component entirely.
 
 /* ─── Proposals ─────────────────────────────────────────────────────────────── */
 

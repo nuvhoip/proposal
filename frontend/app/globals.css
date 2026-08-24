@@ -472,7 +472,13 @@ a.nv-sidebar-subnav-item.nv-sidebar-subnav-item--active {
     break-after: page;
   }
   #proposal-print-root .doc-page:not(.doc-cover) p {
-    margin-bottom: 6px;
+    margin-bottom: 10px; /* NUVCL-124 (2026-08-24): was 6px — Jude flagged the PDF as too cramped between paragraphs */
+  }
+  /* NUVCL-124: extra breathing room specifically below the "Dear xxx,"
+     salutation in print — higher-specificity than the generic p rule above
+     so it isn't flattened back down to the denser 10px. */
+  #proposal-print-root .doc-page:not(.doc-cover) p.doc-salutation {
+    margin-bottom: 14px;
   }
 
   /* NUVCL-120: Background, Scope of Works, Nuvho Pty Ltd, Fee Structure,
@@ -503,7 +509,7 @@ a.nv-sidebar-subnav-item.nv-sidebar-subnav-item--active {
     line-height: 1.4;
   }
   #proposal-print-root .doc-flow p {
-    margin-bottom: 6px;
+    margin-bottom: 10px; /* NUVCL-124 (2026-08-24): was 6px — see matching .doc-page rule above */
   }
   #proposal-print-root .doc-section {
     margin: 0 0 6mm;
@@ -528,7 +534,14 @@ a.nv-sidebar-subnav-item.nv-sidebar-subnav-item--active {
   #proposal-print-root .doc-fee-table td,
   #proposal-print-root .doc-fee-table th   { padding: 4px 6px; }
   #proposal-print-root .doc-toc            { margin: 8px 0; }
-  #proposal-print-root .doc-legal-footer   { margin-top: 10px; padding-top: 6px; }
+  /* Ody (2026-08-24): hide the ABN/registration line from the PDF only —
+     the on-screen preview and the Word export are untouched, so this is a
+     print-only suppression, not a data or feature removal. Both the top
+     Business Number line (NUVCL-124, first line of footerText) and this
+     full legal footer block derive from the same region_settings.footer_text
+     value, so both are hidden here together. */
+  #proposal-print-root .doc-business-number { display: none; }
+  #proposal-print-root .doc-legal-footer    { display: none; }
   #proposal-print-root .doc-clause         { margin-bottom: 6px; }
 
   /* Keep short, indivisible chunks intact rather than sliced across a page

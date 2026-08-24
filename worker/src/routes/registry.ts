@@ -16,7 +16,6 @@ import {
   listPropertiesByHgid,
   getProperty,
   createProperty,
-  getMarkets,
   RegistryError,
 } from '../lib/registry'
 
@@ -68,6 +67,10 @@ export async function handleCreateHotelGroup(request: Request, env: Env): Promis
   const status        = (CREATE_STATUSES as readonly string[]).includes(statusRaw)
     ? (statusRaw as 'prospect' | 'onboarding')
     : undefined
+  // NUVCL-121: registry.hotel_groups.is_active (Active/Inactive) — separate
+  // field from the prospect/onboarding lifecycle `status` above. Optional;
+  // only forwarded when explicitly present in the request body.
+  const is_active     = typeof body?.is_active === 'boolean' ? body.is_active : undefined
 
   if (!entity_code || !group_name || !geo) {
     return err('entity_code, group_name, and geo are required.')
@@ -79,10 +82,11 @@ export async function handleCreateHotelGroup(request: Request, env: Env): Promis
   // Build the payload without explicit `undefined` keys — createHotelGroup()
   // spreads this over a `{ status: 'prospect', ... }` default, and a present-
   // but-undefined key would silently override that default to undefined.
-  const payload: { entity_code: string; group_name: string; geo: string; trading_name?: string; status?: 'prospect' | 'onboarding' } =
+  const payload: { entity_code: string; group_name: string; geo: string; trading_name?: string; status?: 'prospect' | 'onboarding'; is_active?: boolean } =
     { entity_code, group_name, geo }
   if (trading_name) payload.trading_name = trading_name
   if (status) payload.status = status
+  if (is_active !== undefined) payload.is_active = is_active
 
   try {
     const hotelGroup = await createHotelGroup(env, payload)
@@ -197,19 +201,20 @@ export async function handleCreateProperty(request: Request, env: Env): Promise<
   const entity_code   = typeof body?.entity_code === 'string' ? body.entity_code.trim() : ''
   const property_name = typeof body?.property_name === 'string' ? body.property_name.trim() : ''
   const geo           = typeof body?.geo === 'string' ? body.geo.trim().toUpperCase() : ''
-  const market        = typeof body?.market === 'string' ? body.market.trim().toUpperCase() : ''
   const statusRaw     = typeof body?.status === 'string' ? body.status.trim() : ''
   const status        = statusRaw === 'onboarding' ? 'onboarding' : statusRaw === 'prospect' ? 'prospect' : undefined
 
-  if (!hgid || !entity_code || !property_name || !geo || !market) {
-    return err('hgid, entity_code, property_name, geo, and market are required.')
+  // NUVCL-121 (2026-08-24): `market` no longer required — the Master
+  // Registry dropped the market component entirely.
+  if (!hgid || !entity_code || !property_name || !geo) {
+    return err('hgid, entity_code, property_name, and geo are required.')
   }
   if (statusRaw && !status) {
     return err('status must be one of: prospect, onboarding')
   }
 
-  const payload: { hgid: string; entity_code: string; property_name: string; geo: string; market: string; status?: 'prospect' | 'onboarding' } =
-    { hgid, entity_code, property_name, geo, market }
+  const payload: { hgid: string; entity_code: string; property_name: string; geo: string; status?: 'prospect' | 'onboarding' } =
+    { hgid, entity_code, property_name, geo }
   if (status) payload.status = status
 
   try {
@@ -221,17 +226,5 @@ export async function handleCreateProperty(request: Request, env: Env): Promise<
   }
 }
 
-// Active markets for a geo — populates the Market picker required by
-// property creation (the registry validates market against the property's
-// geo, same pattern as entity_code against the hotel-group's geo).
-export async function handleGetMarkets(request: Request, env: Env): Promise<Response> {
-  const url = new URL(request.url)
-  const geo = url.searchParams.get('geo')?.trim() || undefined
-  try {
-    const markets = await getMarkets(env, geo)
-    return ok({ markets })
-  } catch (e) {
-    if (e instanceof RegistryError) return err(e.message, e.status)
-    return err(e instanceof Error ? e.message : 'Registry lookup failed', 502)
-  }
-}
+// NUVCL-121 (2026-08-24): handleGetMarkets removed — the Master Registry
+// dropped the market component entirely.

@@ -35,6 +35,27 @@ function buildTocItems(companyName: string, visible: {
   return items
 }
 
+// NUVCL-125: derive a first name from the single Contact Name field captured
+// on Hotel Details, for the salutation ("Dear <First Name>," instead of the
+// full name). A true separate First Name / Surname capture would need a
+// wizard + schema change (flagged on the ticket) — this is the lower-risk
+// interim approach: take the first whitespace-delimited token of whatever's
+// captured today.
+function getFirstName(fullName: string): string {
+  return fullName.trim().split(/\s+/)[0] || ''
+}
+
+// NUVCL-124: "Business Number" shown top-right of the letterhead, replacing
+// the dropped sign-off footer block below. The first line of footerText is
+// the legal entity/registration line (e.g. "Nuvho Pty Ltd - ABN 62 622 629
+// 672") — the same text the removed doc-letter-footer used to show under
+// the sign-off; the rest of footerText (if any further lines) is dropped
+// here per Jude's "easiest solution" simplification. The fuller
+// doc-legal-footer block near the Appendix is untouched.
+function getBusinessNumberLine(footerText: string): string {
+  return (footerText || '').split('\n')[0]?.trim() || ''
+}
+
 export function ProposalDocument({ model }: { model: ProposalDocModel }) {
   const multiSvc = model.services.length > 1
   // A step that was skipped (left with no usable content) drops both its
@@ -181,6 +202,11 @@ export function ProposalDocument({ model }: { model: ProposalDocModel }) {
           <div className="doc-nuvho-address">
             {model.nuvhoAddress && model.nuvhoAddress.split('\n').map((line, i) => <React.Fragment key={i}>{line}<br /></React.Fragment>)}
             <div className="doc-date">{model.dateIssued}</div>
+            {/* NUVCL-124: Business Number top-right, replacing the dropped
+                letter footer below the sign-off. */}
+            {getBusinessNumberLine(model.footerText) && (
+              <div className="doc-business-number">{getBusinessNumberLine(model.footerText)}</div>
+            )}
           </div>
         </div>
         {/* NUVCL-103: title/email/phone were captured on Step 1 and shown to
@@ -197,7 +223,7 @@ export function ProposalDocument({ model }: { model: ProposalDocModel }) {
           </>}
         </div>
         <div className="doc-re">RE: {model.title}</div>
-        <p>Dear {model.contactName || '[Client Name]'},</p>
+        <p className="doc-salutation">Dear {getFirstName(model.contactName) || '[Client Name]'},</p>
         {/* introMessage is authored via the rich-text editor on wizard Step 1 (since NUVCL-118) — always HTML */}
         <div className="doc-rich-text" dangerouslySetInnerHTML={{ __html: model.introMessage }} />
 
@@ -228,17 +254,11 @@ export function ProposalDocument({ model }: { model: ProposalDocModel }) {
           {model.senderRoleLabel || '[Sending team member not yet selected]'}
           {model.senderEmail && <><br />e: {model.senderEmail}</>}
         </div>
-        {/* Legal entity / registration line (e.g. "Nuvho Pty Ltd - ABN
-            62 622 629 672") shown right under the letter's sign-off, in
-            addition to — not instead of — the fuller legal footer that
-            still renders lower in the document near the Appendix. Sourced
-            from the same region/entity footerText setting so it stays in
-            sync automatically if that text is ever updated. */}
-        {model.footerText && (
-          <div className="doc-letter-footer">
-            {model.footerText.split('\n').map((line, i) => <React.Fragment key={i}>{line}<br /></React.Fragment>)}
-          </div>
-        )}
+        {/* NUVCL-124 (2026-08-24): the letter sign-off footer block was
+            dropped per Jude's decision — the Business Number now shows
+            top-right of the letterhead instead (see above). The fuller
+            doc-legal-footer block near the Appendix still renders lower in
+            the document, unchanged. */}
       </div>
 
       {/* NUVCL-120: Background through Appendix now share ONE flowing
@@ -388,7 +408,7 @@ export function ProposalDocument({ model }: { model: ProposalDocModel }) {
           border-radius: 4px; box-shadow: var(--nv-shadow-sm); font-family: var(--font-raleway);
           font-size: 13px; line-height: 1.7; color: var(--nv-text-body);
         }
-        .doc-page p { margin-bottom: 12px; }
+        .doc-page p { margin-bottom: 18px; } /* NUVCL-124: single-line spacing after each paragraph */
         /* NUVCL-120: Background..Appendix render inside ONE .doc-flow card
            (instead of one .doc-page card each) so the on-screen preview is a
            single continuous sheet, matching what actually prints — no
@@ -400,7 +420,7 @@ export function ProposalDocument({ model }: { model: ProposalDocModel }) {
           border-radius: 4px; box-shadow: var(--nv-shadow-sm); font-family: var(--font-raleway);
           font-size: 13px; line-height: 1.7; color: var(--nv-text-body);
         }
-        .doc-flow p { margin-bottom: 12px; }
+        .doc-flow p { margin-bottom: 18px; } /* NUVCL-124: single-line spacing after each paragraph */
         .doc-section { margin-bottom: 32px; }
         .doc-section:last-child { margin-bottom: 0; }
         .doc-cover {
@@ -512,15 +532,15 @@ export function ProposalDocument({ model }: { model: ProposalDocModel }) {
         .doc-letterhead__logo { flex-shrink: 0; }
         .doc-date    { font-size: 12px; color: var(--nv-text-muted); margin-top: 6px; }
         .doc-nuvho-address { font-size: 11.5px; color: var(--nv-text-muted); text-align: right; line-height: 1.5; }
-        .doc-address { margin-bottom: 40px; }
+        .doc-business-number { margin-top: 6px; font-size: 10.5px; color: var(--nv-text-muted); } /* NUVCL-124 */
+        .doc-address { margin-bottom: 48px; } /* NUVCL-124: more spacing below client address */
         .doc-legal-footer {
           margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--nv-border-hair);
           font-size: 10.5px; line-height: 1.6; color: var(--nv-text-muted);
         }
-        .doc-letter-footer {
-          margin-top: 14px; font-size: 10px; line-height: 1.5; color: var(--nv-text-muted);
-        }
-        .doc-re      { font-weight: 700; margin-bottom: 16px; }
+        /* NUVCL-124 (2026-08-24): .doc-letter-footer removed with the block it styled — see doc-business-number above. */
+        .doc-re      { font-weight: 700; margin-bottom: 22px; } /* NUVCL-124: more spacing below reference */
+        .doc-salutation { margin-bottom: 20px; } /* NUVCL-124: single line space below "Dear xxx," */
         .doc-toc     { margin: 18px 0; padding-left: 4px; }
         .doc-toc__item {
           display: block; padding: 4px 0; font-weight: 600; color: var(--nv-text-heading);
@@ -547,7 +567,7 @@ export function ProposalDocument({ model }: { model: ProposalDocModel }) {
         .doc-fee-total { text-align: right; margin-top: 10px; font-weight: 700; color: var(--nv-blue-slate); }
         .doc-footnotes { margin-top: 12px; padding-left: 18px; font-size: 11px; color: var(--nv-text-muted); }
 
-        .doc-rich-text :global(p) { margin: 0 0 10px; }
+        .doc-rich-text :global(p) { margin: 0 0 18px; } /* NUVCL-124: single-line spacing after each paragraph */
         .doc-rich-text :global(ul), .doc-rich-text :global(ol) { margin: 0 0 10px 20px; }
         .doc-signature__mark { padding-bottom: 8px; min-height: 60px; display: flex; align-items: flex-end; margin-top: 10px; }
         .doc-signature__script { font-family: var(--font-signature); font-size: 36px; color: var(--nv-text-heading); }

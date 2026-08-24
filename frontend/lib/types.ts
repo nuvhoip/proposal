@@ -244,6 +244,7 @@ export interface ProposalDraft {
     contactTitle:    string
     propertyAddress: string
     hubspotDealId:   string
+    hubspotDealName?: string    // NUVCL-123: display label for the linked/created HubSpot Deal, resolved via /hubspot/deals/search or /hubspot/deals
     hubspotCompanyId?: string   // HubSpot Company id — resolved via /hubspot/search or created via /hubspot/clients
     hubspotContactId?: string   // HubSpot Contact id — resolved via /hubspot/search or created via /hubspot/clients
   }

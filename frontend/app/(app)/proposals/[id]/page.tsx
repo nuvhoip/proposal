@@ -4,9 +4,8 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { Proposal } from '@/lib/types'
-import { buildDocModelFromProposal, downloadBlob } from '@/lib/documentModel'
+import { buildDocModelFromProposal } from '@/lib/documentModel'
 import { ProposalDocument } from '@/components/proposal/ProposalDocument'
-import { buildDocxFile } from '@/lib/exportDocx'
 
 const WORKER = process.env.NEXT_PUBLIC_WORKER_URL
 
@@ -37,7 +36,7 @@ export default function ProposalDetailPage() {
   const [deleting, setDeleting] = useState(false)
   const [copied,   setCopied]   = useState<'id' | 'link' | null>(null)
   const [showDoc,  setShowDoc]  = useState(false)
-  const [exporting, setExporting] = useState<'pdf' | 'word' | null>(null)
+  const [exporting, setExporting] = useState<'pdf' | null>(null)
 
   // Resend — lets staff re-send the signing-link email for a proposal
   // that's already gone out, editing To/CC/BCC first (e.g. adding a
@@ -173,6 +172,9 @@ export default function ProposalDetailPage() {
 
   const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL}/p/${proposal.signing_token}`
   const canSend   = proposal.status === 'draft'
+  // NUVCL-126: PDF download only available once the client has signed
+  // (signature capture / approval, per NUVCL-105) — Word download removed entirely.
+  const canDownloadPdf = proposal.status === 'signed' || proposal.status === 'fully_signed'
   const docModel  = buildDocModelFromProposal(proposal)
 
   const handleDownloadPdf = () => {
@@ -182,16 +184,6 @@ export default function ProposalDetailPage() {
     // #proposal-print-root, which <ProposalDocument> renders into.
     window.setTimeout(() => window.print(), 50)
     window.setTimeout(() => setExporting(null), 600)
-  }
-
-  const handleDownloadWord = async () => {
-    setExporting('word')
-    try {
-      const blob = await buildDocxFile(docModel)
-      downloadBlob(blob, `${docModel.title.replace(/[^\w-]+/g, '-')}.docx`)
-    } finally {
-      setExporting(null)
-    }
   }
 
   return (
@@ -236,20 +228,16 @@ export default function ProposalDetailPage() {
           <span className={`nv-badge ${STATUS_CLASSES[proposal.status] || ''}`}>
             {proposal.status}
           </span>
-          <button
-            className="nv-btn nv-btn--ghost nv-btn--md"
-            onClick={handleDownloadPdf}
-            disabled={exporting !== null}
-          >
-            {exporting === 'pdf' ? 'Preparing…' : '⬇ PDF'}
-          </button>
-          <button
-            className="nv-btn nv-btn--ghost nv-btn--md"
-            onClick={handleDownloadWord}
-            disabled={exporting !== null}
-          >
-            {exporting === 'word' ? 'Preparing…' : '⬇ Word'}
-          </button>
+          {/* NUVCL-126: PDF gated to signed proposals only; Word download removed. */}
+          {canDownloadPdf && (
+            <button
+              className="nv-btn nv-btn--ghost nv-btn--md"
+              onClick={handleDownloadPdf}
+              disabled={exporting !== null}
+            >
+              {exporting === 'pdf' ? 'Preparing…' : '⬇ PDF'}
+            </button>
+          )}
           {/* NUVCL-99: Copy Link promoted from the "Signing Link" card at the
               bottom of the page up into the top action bar (that card is
               removed below) so staff don't have to scroll to grab the link. */}

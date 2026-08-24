@@ -538,17 +538,31 @@ export default function NewProposalPage() {
     // See resolveCoverUrlForSave above — a freshly-picked cover photo only
     // has a browser-local blob: URL until now; upload it and patch cover_url
     // to the durable URL the worker hands back, now that this proposal has
-    // an id to upload against.
+    // an id to upload against. Deliberately caught locally rather than left
+    // to propagate: the proposal record itself was already saved by the
+    // create/update call above, so a cover-photo failure (upload endpoint
+    // not yet deployed, a transient network/R2 hiccup, an oversized file)
+    // must not make the WHOLE save look like it failed — that previously
+    // aborted createDraftProposal entirely and left the proposal record
+    // saved but reported to staff as "not saving".
     if (draft.cover.uploadFile) {
-      const durableCoverUrl = await resolveCoverUrlForSave(id)
-      const patchRes = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/proposals/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ cover_url: durableCoverUrl }),
-      })
-      const patchData = await patchRes.json()
-      if (!patchRes.ok) throw new Error(patchData.error || 'Failed to save cover photo')
+      try {
+        const durableCoverUrl = await resolveCoverUrlForSave(id)
+        const patchRes = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/proposals/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ cover_url: durableCoverUrl }),
+        })
+        const patchData = await patchRes.json()
+        if (!patchRes.ok) throw new Error(patchData.error || 'Failed to save cover photo')
+      } catch (e: any) {
+        console.error('[Cover photo] upload failed:', e)
+        setErrors(prev => ({
+          ...prev,
+          submit: `Proposal saved, but the cover photo failed to upload (${e?.message || 'unknown error'}) — reopen this proposal and re-upload it from the Cover Image step.`,
+        }))
+      }
     }
 
     return id
@@ -797,32 +811,16 @@ function regionFromJurisdiction(jurisdiction: string): Region | null {
   return null
 }
 
-// Hardcoded fallback for the Market picker — mirrors registry.market_codes
-// (confirmed against the live DB) while GET /v1/ref/markets is unreachable
-// from the wizard (the registry runs on DigitalOcean App Platform; the
-// live endpoint isn't returning data at the moment). Remove once that's
-// fixed and swap the two effects below back to a live fetch.
-const MARKETS_BY_GEO: Record<string, { market: string; label: string }[]> = {
-  AU: [
-    { market: 'ADL', label: 'Adelaide' },
-    { market: 'BNE', label: 'Brisbane' },
-    { market: 'CBR', label: 'Canberra' },
-    { market: 'GCS', label: 'Gold Coast' },
-    { market: 'MEL', label: 'Melbourne' },
-    { market: 'PER', label: 'Perth' },
-    { market: 'SYD', label: 'Sydney' },
-  ],
-  IE: [
-    { market: 'CRK', label: 'Cork' },
-    { market: 'DUB', label: 'Dublin' },
-  ],
-  UK: [
-    { market: 'BHM', label: 'Birmingham' },
-    { market: 'EDI', label: 'Edinburgh' },
-    { market: 'LON', label: 'London' },
-    { market: 'MCR', label: 'Manchester' },
-  ],
-}
+// NUVCL-121 (2026-08-24): MARKETS_BY_GEO removed — the Master Registry
+// dropped the market component entirely, so the wizard no longer needs a
+// market picker anywhere in the Hotel Details flow.
+
+// NUVCL-122 (2026-08-24): Odysseus's decision — pause hotel-group/property
+// *creation* from the wizard for now (Jude's Property-selector ask is
+// deferred). Flip to true to re-enable the "Add Hotel Group" entry point;
+// the underlying code (openAddHotelGroup/submitAddHotelGroup, the registry
+// create routes) is left fully intact, just unreachable from the UI.
+const ENABLE_HOTEL_GROUP_CREATION = false
 
 interface HubspotSearchResult {
   id:   string
@@ -843,12 +841,8 @@ interface RegistryPropertySummary {
   status:        string
 }
 
-interface RegistryMarket {
-  market:    string
-  geo:       string
-  label:     string
-  is_active: boolean
-}
+// NUVCL-121 (2026-08-24): RegistryMarket interface removed along with the
+// market picker it typed.
 
 // Combined search result — the unified box below queries the Master
 // Registry and HubSpot in parallel and shows both, tagged by source.
@@ -873,6 +867,52 @@ function Step1HotelDetails({
   const [regResults, setRegResults] = useState<RegistryHotelGroupSummary[]>([])
   const [hsResults, setHsResults]   = useState<HubspotSearchResult[]>([])
   const [hgResolveError, setHgResolveError] = useState('')
+
+  // NUVCL-122: Property (PRP) selector sourced from the Master Registry,
+  // replacing the free-text Hotel Name field once a hotel group (hgid) is
+  // linked. Property *creation* stays paused (ENABLE_HOTEL_GROUP_CREATION,
+  // above) — this only lets staff pick among a group's existing registry
+  // properties, mirroring the same auto-select-when-one-result pattern
+  // already used for the sync modal below.
+  const [hgProperties, setHgProperties]           = useState<RegistryPropertySummary[]>([])
+  const [hgPropertiesLoading, setHgPropertiesLoading] = useState(false)
+  const [hgPropertiesError, setHgPropertiesError] = useState('')
+  // Popped up instead of a free-text fallback when a linked hotel group has
+  // zero properties in the Master Registry — per Odysseus, 2026-08-24,
+  // staff should be redirected to add the property there rather than typing
+  // a name locally (property creation from this wizard stays paused).
+  const [noPropertyModalOpen, setNoPropertyModalOpen] = useState(false)
+
+  function fetchHgProperties(hgid: string) {
+    let cancelled = false
+    setHgPropertiesLoading(true)
+    setHgPropertiesError('')
+    fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/registry/hotel-groups/${hgid}/properties`, { credentials: 'include' })
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled) return
+        const props: RegistryPropertySummary[] = data?.data?.properties || []
+        setHgProperties(props)
+        if (props.length === 1 && !h.pid) {
+          setDraft(d => ({ ...d, hotel: { ...d.hotel, pid: props[0].pid, name: props[0].property_name } }))
+        }
+        setNoPropertyModalOpen(props.length === 0)
+      })
+      .catch(() => { if (!cancelled) setHgPropertiesError('Could not load properties for this hotel group.') })
+      .finally(() => { if (!cancelled) setHgPropertiesLoading(false) })
+    return () => { cancelled = true }
+  }
+
+  React.useEffect(() => {
+    if (!h.hgid) { setHgProperties([]); setHgPropertiesError(''); setNoPropertyModalOpen(false); return }
+    return fetchHgProperties(h.hgid)
+  }, [h.hgid])
+
+  function selectHgProperty(pid: string) {
+    const p = hgProperties.find(pr => pr.pid === pid)
+    if (!p) return
+    setDraft(d => ({ ...d, hotel: { ...d.hotel, pid: p.pid, name: p.property_name } }))
+  }
 
   // "Confidential" toggle at the top of Hotel Details — cosmetic only for
   // now, per request: just the check mark, not yet wired to the draft, the
@@ -924,8 +964,8 @@ function Step1HotelDetails({
   const [syncExistingProps, setSyncExistingProps] = useState<RegistryPropertySummary[]>([])
   const [syncPickedPid, setSyncPickedPid]   = useState('')      // toHubspot: pid of an existing property, if any
   const [syncPropertyName, setSyncPropertyName] = useState('')  // used when a new property must be created
-  const [syncMarket, setSyncMarket]     = useState('')
-  const [syncMarkets, setSyncMarkets]   = useState<RegistryMarket[]>([])
+  // NUVCL-121: syncMarket/syncMarkets removed — market is no longer part of
+  // property creation.
   // toRegistry also needs a legal entity, same as the "Add Hotel Group" flow
   const [syncEntityCode, setSyncEntityCode] = useState('')
   const [syncEntities, setSyncEntities]     = useState<RegistryEntity[]>([])
@@ -941,17 +981,7 @@ function Step1HotelDetails({
     let cancelled = false
     ;(async () => {
       try {
-        // Market list is hardcoded for now — see MARKETS_BY_GEO above.
-        const markets = (MARKETS_BY_GEO[h.region.toUpperCase()] || []).map(m => ({
-          ...m, geo: h.region.toUpperCase(), is_active: true,
-        }))
-        if (!cancelled) {
-          setSyncMarkets(markets)
-          if (markets.length === 1) setSyncMarket(markets[0].market)
-          if (markets.length === 0) {
-            setSyncError(`No markets configured for ${h.region.toUpperCase()} — add one to MARKETS_BY_GEO.`)
-          }
-        }
+        // NUVCL-121: market list fetch removed — no longer part of property creation.
         if (syncDirection === 'toHubspot' && syncHgid) {
           const propsRes = await fetch(
             `${process.env.NEXT_PUBLIC_WORKER_URL}/registry/hotel-groups/${syncHgid}/properties`,
@@ -990,7 +1020,6 @@ function Step1HotelDetails({
     setSyncCompanyName(name)
     setSyncPropertyName(name)
     setSyncPickedPid('')
-    setSyncMarket('')
     setSyncError('')
     setSyncOpen(true)
   }
@@ -1001,7 +1030,6 @@ function Step1HotelDetails({
     setSyncCompanyId(companyId)
     setSyncCompanyName(name)
     setSyncPropertyName(name)
-    setSyncMarket('')
     setSyncEntityCode('')
     setSyncError('')
     setSyncOpen(true)
@@ -1016,12 +1044,11 @@ function Step1HotelDetails({
         // Create a property (and its pid) if none was picked from an existing list.
         if (!pid) {
           if (!syncPropertyName.trim()) throw new Error('Property name is required.')
-          if (!syncMarket) throw new Error('Select a market.')
           const propRes = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/registry/properties`, {
             method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               hgid: syncHgid, entity_code: h.entityCode, property_name: syncPropertyName.trim(),
-              geo: h.region.toUpperCase(), market: syncMarket,
+              geo: h.region.toUpperCase(),
             }),
           })
           const propData = await propRes.json()
@@ -1066,7 +1093,6 @@ function Step1HotelDetails({
       setSyncSaving(true)
       try {
         if (!syncEntityCode) throw new Error('Select the legal entity for this hotel group.')
-        if (!syncMarket) throw new Error('Select a market.')
         const hgRes = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/registry/hotel-groups`, {
           method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1083,7 +1109,7 @@ function Step1HotelDetails({
           method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             hgid: hg.hgid, entity_code: syncEntityCode, property_name: syncPropertyName.trim() || h.name,
-            geo: h.region.toUpperCase(), market: syncMarket,
+            geo: h.region.toUpperCase(),
           }),
         })
         const propData = await propRes.json()
@@ -1178,6 +1204,73 @@ function Step1HotelDetails({
     setHgResolveError('')
   }
 
+  // NUVCL-123: HubSpot Deal search/link/create — mirrors the unified
+  // hotel-group/account search box above, scoped to /hubspot/deals*.
+  const [dealQuery, setDealQuery]     = useState(h.hubspotDealName || '')
+  const [dealOpen, setDealOpen]       = useState(false)
+  const [dealLoading, setDealLoading] = useState(false)
+  const [dealResults, setDealResults] = useState<{ id: string; name: string; amount: string | null; stage: string | null }[]>([])
+  const [dealCreating, setDealCreating] = useState(false)
+  const [dealError, setDealError]     = useState('')
+
+  React.useEffect(() => {
+    if (h.hubspotDealId || dealQuery.trim().length < 2) { setDealResults([]); return }
+    let cancelled = false
+    const timer = setTimeout(async () => {
+      setDealLoading(true)
+      try {
+        const res = await fetch(
+          `${process.env.NEXT_PUBLIC_WORKER_URL}/hubspot/deals/search?${new URLSearchParams({ q: dealQuery.trim() })}`,
+          { credentials: 'include' }
+        ).then(r => r.json())
+        if (!cancelled) setDealResults(res?.data?.results || [])
+      } catch {
+        if (!cancelled) setDealResults([])
+      } finally {
+        if (!cancelled) setDealLoading(false)
+      }
+    }, 300)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [dealQuery, h.hubspotDealId])
+
+  function selectDeal(d: { id: string; name: string }) {
+    setDraft(dd => ({ ...dd, hotel: { ...dd.hotel, hubspotDealId: d.id, hubspotDealName: d.name } }))
+    setDealQuery(d.name)
+    setDealOpen(false)
+  }
+
+  function clearDeal() {
+    setDraft(dd => ({ ...dd, hotel: { ...dd.hotel, hubspotDealId: '', hubspotDealName: '' } }))
+    setDealQuery('')
+  }
+
+  async function createDeal() {
+    if (!dealQuery.trim()) return
+    setDealCreating(true)
+    setDealError('')
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/hubspot/deals`, {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dealName: dealQuery.trim(),
+          companyId: h.hubspotCompanyId || undefined,
+          contactId: h.hubspotContactId || undefined,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.success === false) {
+        throw new Error(data.error?.message || data.error || 'Could not create the HubSpot deal.')
+      }
+      const { dealId } = data.data || {}
+      setDraft(dd => ({ ...dd, hotel: { ...dd.hotel, hubspotDealId: dealId, hubspotDealName: dealQuery.trim() } }))
+      setDealOpen(false)
+    } catch (e) {
+      setDealError(e instanceof Error ? e.message : 'Could not create the HubSpot deal.')
+    } finally {
+      setDealCreating(false)
+    }
+  }
+
   // Add Hotel Group — used when the unified search turns up no existing
   // match anywhere. Creates the registry hotel group + property (pid) and,
   // once created, immediately opens the HubSpot sync prompt for it.
@@ -1189,6 +1282,9 @@ function Step1HotelDetails({
   const [hgAddTradingName, setHgAddTradingName] = useState('')
   const [hgAddGeo, setHgAddGeo]         = useState<Region>('au')
   const [hgAddStatus, setHgAddStatus]   = useState<'prospect' | 'onboarding'>('prospect')
+  // NUVCL-121: Active/Inactive per the registry's hotel_groups.is_active
+  // field — separate from the prospect/onboarding lifecycle status above.
+  const [hgAddIsActive, setHgAddIsActive] = useState(true)
   const [hgEntities, setHgEntities] = useState<RegistryEntity[]>([])
 
   React.useEffect(() => {
@@ -1234,27 +1330,15 @@ function Step1HotelDetails({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hgAddOpen, hgAddGeo, hgEntities])
 
-  // Market picker for the property created alongside a brand-new hotel group.
-  const [hgAddMarket, setHgAddMarket]   = useState('')
-  const [hgAddMarkets, setHgAddMarkets] = useState<RegistryMarket[]>([])
-  React.useEffect(() => {
-    if (!hgAddOpen) return
-    // Market list is hardcoded for now — see MARKETS_BY_GEO above.
-    const markets = (MARKETS_BY_GEO[hgAddGeo.toUpperCase()] || []).map(m => ({
-      ...m, geo: hgAddGeo.toUpperCase(), is_active: true,
-    }))
-    setHgAddMarkets(markets)
-    setHgAddMarket(markets.length === 1 ? markets[0].market : '')
-    if (markets.length === 0) {
-      setHgAddError(`No markets configured for ${hgAddGeo.toUpperCase()} — add one to MARKETS_BY_GEO.`)
-    }
-  }, [hgAddOpen, hgAddGeo])
+  // NUVCL-121 (2026-08-24): hgAddMarket/hgAddMarkets removed — market is no
+  // longer part of hotel-group/property creation.
 
   function openAddHotelGroup() {
     setHgAddGroupName(acctQuery.trim())
     setHgAddTradingName('')
     setHgAddGeo(h.region)
     setHgAddStatus('prospect')
+    setHgAddIsActive(true)
     setHgAddError('')
     setHgAddOpen(true)
     setAcctOpen(false)
@@ -1263,7 +1347,6 @@ function Step1HotelDetails({
   async function submitAddHotelGroup() {
     if (!hgAddGroupName.trim()) { setHgAddError('Group name is required.'); return }
     if (!hgAddEntityCode) { setHgAddError('Select the legal entity for this hotel group.'); return }
-    if (!hgAddMarket) { setHgAddError('Select a market.'); return }
     setHgAddSaving(true)
     setHgAddError('')
     try {
@@ -1277,6 +1360,7 @@ function Step1HotelDetails({
           entity_code: hgAddEntityCode,
           geo: hgAddGeo.toUpperCase(),
           status: hgAddStatus,
+          is_active: hgAddIsActive,
         }),
       })
       const data = await res.json()
@@ -1290,7 +1374,7 @@ function Step1HotelDetails({
         body: JSON.stringify({
           hgid: hg.hgid, entity_code: hgAddEntityCode,
           property_name: hgAddTradingName.trim() || hgAddGroupName.trim(),
-          geo: hgAddGeo.toUpperCase(), market: hgAddMarket,
+          geo: hgAddGeo.toUpperCase(),
         }),
       })
       const propData = await propRes.json()
@@ -1413,7 +1497,13 @@ function Step1HotelDetails({
               <div className="hg-dropdown">
                 {acctLoading && <div className="hg-dropdown__item hg-dropdown__item--muted">Searching…</div>}
                 {!acctLoading && regResults.length === 0 && hsResults.length === 0 && (
-                  <div className="hg-dropdown__item hg-dropdown__item--muted">No matches yet.</div>
+                  <div className="hg-dropdown__item hg-dropdown__item--muted hg-dropdown__item--nomatch">
+                    No matches for &quot;{acctQuery.trim()}&quot; in the registry or HubSpot.{' '}
+                    <a href="https://register-admin.nuvho.com/" target="_blank" rel="noreferrer">
+                      Add it to the Master Registry
+                    </a>{' '}
+                    and search again.
+                  </div>
                 )}
                 {regResults.map(hg => (
                   <button type="button" key={`hg-${hg.hgid}`} className="hg-dropdown__item"
@@ -1433,11 +1523,16 @@ function Step1HotelDetails({
                     </span>
                   </button>
                 ))}
-                <button type="button" className="hg-dropdown__item hg-dropdown__item--add"
-                  onMouseDown={e => e.preventDefault()}
-                  onClick={openAddHotelGroup}>
-                  + Add &quot;{acctQuery.trim()}&quot; as a new hotel group
-                </button>
+                {/* NUVCL-122 (2026-08-24): hotel-group creation paused for now —
+                    button hidden, openAddHotelGroup/the modal below are untouched
+                    so this is a one-line flip (ENABLE_HOTEL_GROUP_CREATION) to restore. */}
+                {ENABLE_HOTEL_GROUP_CREATION && (
+                  <button type="button" className="hg-dropdown__item hg-dropdown__item--add"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={openAddHotelGroup}>
+                    + Add &quot;{acctQuery.trim()}&quot; as a new hotel group
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -1446,16 +1541,40 @@ function Step1HotelDetails({
           <p className="hs-section__hint" style={{ color: 'var(--nv-error)' }}>{errors.hgid || hgResolveError}</p>
         ) : (
           <p className="hs-section__hint">
-            Searches both the Nuvho Master Registry and HubSpot. Picking a result from one side that
-            isn&apos;t yet linked to the other will prompt you to sync hgid/pid across both.
+            Searches both the Nuvho Master Registry and HubSpot.
           </p>
         )}
       </div>
 
       <div className="form-grid">
-        <FormField label="Hotel name *" error={errors.hotelName} span={2}>
-          <input className="nv-input" placeholder="e.g. The Langham Sydney"
-            value={h.name} onChange={e => update('name', e.target.value)} />
+        {/* NUVCL-122: once a hotel group is linked, Hotel Name becomes a
+            Property (PRP) picker sourced from the Master Registry instead of
+            free text. Falls back to a plain text field when no hotel group
+            is linked yet, or when the linked group has no registry
+            properties (property creation from here is paused — see
+            ENABLE_HOTEL_GROUP_CREATION above). */}
+        <FormField label="Hotel name *" error={errors.hotelName || hgPropertiesError} span={2}>
+          {!h.hgid ? (
+            <input className="nv-input" placeholder="e.g. The Langham Sydney"
+              value={h.name} onChange={e => update('name', e.target.value)} />
+          ) : hgPropertiesLoading ? (
+            <input className="nv-input" value="Loading properties…" disabled />
+          ) : hgProperties.length > 0 ? (
+            <select className="nv-input" value={h.pid} onChange={e => selectHgProperty(e.target.value)}>
+              {!h.pid && <option value="">Select a property…</option>}
+              {hgProperties.map(p => (
+                <option key={p.pid} value={p.pid}>{p.property_name} ({p.pid})</option>
+              ))}
+            </select>
+          ) : (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input className="nv-input" value="No property found in the Master Registry" disabled />
+              <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm"
+                onClick={() => setNoPropertyModalOpen(true)}>
+                Details
+              </button>
+            </div>
+          )}
         </FormField>
 
         <FormField label="Contact name *" error={errors.contactName}>
@@ -1483,9 +1602,45 @@ function Step1HotelDetails({
             value={h.propertyAddress} onChange={e => update('propertyAddress', e.target.value)} />
         </FormField>
 
-        <FormField label="HubSpot Deal ID" error={errors.hubspotDealId}>
-          <input className="nv-input" placeholder="(optional)"
-            value={h.hubspotDealId} onChange={e => update('hubspotDealId', e.target.value)} />
+        <FormField label="HubSpot Deal" error={errors.hubspotDealId || dealError} span={2}>
+          {h.hubspotDealId ? (
+            <div className="hg-selected">
+              <span>{h.hubspotDealName || '(unnamed deal)'} <code>{h.hubspotDealId}</code></span>
+              <button type="button" className="nv-btn nv-btn--ghost nv-btn--sm" onClick={clearDeal}>
+                Change
+              </button>
+            </div>
+          ) : (
+            <div className="hg-search">
+              <input className="nv-input" placeholder="Search HubSpot deals… (optional)"
+                value={dealQuery}
+                onChange={e => { setDealQuery(e.target.value); setDealOpen(true) }}
+                onFocus={() => setDealOpen(true)}
+                onBlur={() => setTimeout(() => setDealOpen(false), 150)} />
+              {dealOpen && dealQuery.trim().length >= 2 && (
+                <div className="hg-dropdown">
+                  {dealLoading && <div className="hg-dropdown__item hg-dropdown__item--muted">Searching…</div>}
+                  {!dealLoading && dealResults.length === 0 && (
+                    <div className="hg-dropdown__item hg-dropdown__item--muted">No matching deals.</div>
+                  )}
+                  {dealResults.map(d => (
+                    <button type="button" key={d.id} className="hg-dropdown__item"
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => selectDeal(d)}>
+                      <strong>{d.name}</strong>
+                      <span className="hg-dropdown__meta">{d.stage || '—'}{d.amount ? ` · ${d.amount}` : ''}</span>
+                    </button>
+                  ))}
+                  <button type="button" className="hg-dropdown__item hg-dropdown__item--add"
+                    onMouseDown={e => e.preventDefault()}
+                    disabled={dealCreating}
+                    onClick={createDeal}>
+                    {dealCreating ? 'Creating…' : `+ Create "${dealQuery.trim()}" as a new deal`}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </FormField>
 
         {/* NUVCL-118: moved here from the removed Sender step — Account
@@ -1521,6 +1676,43 @@ function Step1HotelDetails({
           />
         </FormField>
       </div>
+
+      {/* No-properties-in-registry modal — pops up in place of a free-text
+          fallback when the linked hotel group has zero properties in the
+          Master Registry (property creation from this wizard stays paused;
+          NUVCL-122, per Odysseus's 2026-08-24 follow-up). */}
+      {noPropertyModalOpen && (
+        <div className="hg-modal-overlay" onMouseDown={() => setNoPropertyModalOpen(false)}>
+          <div className="hg-modal" onMouseDown={e => e.stopPropagation()}>
+            <div className="hg-modal__header">
+              <h3>Property not in the Master Registry</h3>
+              <button type="button" className="hg-modal__close" aria-label="Close"
+                onClick={() => setNoPropertyModalOpen(false)}>
+                ×
+              </button>
+            </div>
+            <div className="hg-modal__body">
+              <p className="hg-modal__hint">
+                <strong>{acctQuery || 'This hotel group'}</strong> has no properties recorded in the Nuvho
+                Master Registry yet. Add the property there first, then come back and search again — property
+                creation from this wizard is currently paused.
+              </p>
+              {hgPropertiesError && <div className="wizard-error">{hgPropertiesError}</div>}
+            </div>
+            <div className="hg-modal__footer">
+              <button type="button" className="nv-btn nv-btn--outlined nv-btn--md"
+                onClick={() => setNoPropertyModalOpen(false)}>
+                Close
+              </button>
+              <button type="button" className="nv-btn nv-btn--solid nv-btn--md"
+                disabled={hgPropertiesLoading}
+                onClick={() => fetchHgProperties(h.hgid)}>
+                {hgPropertiesLoading ? 'Checking…' : 'Retry'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Sync modal — handles both hgid/pid reconciliation directions. */}
       {syncOpen && (
@@ -1565,16 +1757,7 @@ function Step1HotelDetails({
                         <input className="nv-input" value={syncPropertyName}
                           onChange={e => setSyncPropertyName(e.target.value)} />
                       </div>
-                      <div className="hg-modal__field">
-                        <label className="hg-modal__label">Market *</label>
-                        <select className="nv-input" value={syncMarket} onChange={e => setSyncMarket(e.target.value)}>
-                          <option value="">Select…</option>
-                          {syncMarkets.map(m => (
-                            <option key={m.market} value={m.market}>{m.label} ({m.market})</option>
-                          ))}
-                        </select>
-                        <p className="hg-modal__hint">A new property (and pid) will be created under this hotel group.</p>
-                      </div>
+                      <p className="hg-modal__hint">A new property (and pid) will be created under this hotel group.</p>
                     </>
                   )}
                 </>
@@ -1605,15 +1788,6 @@ function Step1HotelDetails({
                     <label className="hg-modal__label">Property Name *</label>
                     <input className="nv-input" value={syncPropertyName}
                       onChange={e => setSyncPropertyName(e.target.value)} />
-                  </div>
-                  <div className="hg-modal__field">
-                    <label className="hg-modal__label">Market *</label>
-                    <select className="nv-input" value={syncMarket} onChange={e => setSyncMarket(e.target.value)}>
-                      <option value="">Select…</option>
-                      {syncMarkets.map(m => (
-                        <option key={m.market} value={m.market}>{m.label} ({m.market})</option>
-                      ))}
-                    </select>
                   </div>
                 </>
               )}
@@ -1693,15 +1867,8 @@ function Step1HotelDetails({
               </div>
 
               <div className="hg-modal__field">
-                <label className="hg-modal__label">Market *</label>
-                <select className="nv-input" value={hgAddMarket} onChange={e => setHgAddMarket(e.target.value)}>
-                  <option value="">Select…</option>
-                  {hgAddMarkets.map(m => (
-                    <option key={m.market} value={m.market}>{m.label} ({m.market})</option>
-                  ))}
-                </select>
                 <p className="hg-modal__hint">
-                  A property record (and pid) is created under this group immediately, using this market.
+                  A property record (and pid) is created under this group immediately.
                 </p>
               </div>
 
@@ -1715,6 +1882,16 @@ function Step1HotelDetails({
                 <p className="hg-modal__hint">
                   New groups start as <strong>Prospect</strong>. Move to <strong>Onboarding</strong> once you&apos;ve engaged the client.
                 </p>
+              </div>
+
+              {/* NUVCL-121: Active/Inactive per the registry's hotel_groups.is_active field. */}
+              <div className="hg-modal__field">
+                <label className="hg-modal__label">Active</label>
+                <select className="nv-input" value={hgAddIsActive ? 'active' : 'inactive'}
+                  onChange={e => setHgAddIsActive(e.target.value === 'active')}>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
               </div>
 
               {hgAddError && <div className="wizard-error">{hgAddError}</div>}
@@ -1757,6 +1934,8 @@ function Step1HotelDetails({
         .hg-dropdown__item:hover { background: var(--nv-platinum); }
         .hg-dropdown__item--muted { color: var(--nv-text-muted); cursor: default; }
         .hg-dropdown__item--muted:hover { background: none; }
+        .hg-dropdown__item--nomatch { white-space: normal; line-height: 1.5; }
+        .hg-dropdown__item--nomatch a { color: var(--nv-blue-slate); cursor: pointer; font-weight: 600; }
         .hg-dropdown__item--add {
           color: var(--nv-error); font-weight: 600;
           border-top: 1px solid var(--nv-border-hair);

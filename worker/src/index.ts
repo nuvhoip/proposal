@@ -41,12 +41,13 @@ import {
   handleListPropertiesByHgid,
   handleGetProperty,
   handleCreateProperty,
-  handleGetMarkets,
 } from './routes/registry'
 import {
   searchHubspotObjects,
   createHubspotClient,
   updateHubspotCompany,
+  searchHubspotDeals,
+  createHubspotDeal,
 } from './routes/hubspot'
 
 /* ── Rate limiter ────────────────────────────────────────────── */
@@ -376,10 +377,8 @@ async function route(
     return handleListEntities(env)
   }
 
-  // Registry — active markets for a geo (populates the Market picker required by property creation)
-  if (path === '/registry/markets' && method === 'GET') {
-    return handleGetMarkets(request, env)
-  }
+  // NUVCL-121 (2026-08-24): GET /registry/markets removed — the Master
+  // Registry dropped the market component entirely.
 
   // Registry — properties (issue pid, scoped to a parent hgid)
   if (path === '/registry/properties/typeahead' && method === 'GET') {
@@ -412,6 +411,15 @@ async function route(
   const hsCompanyMatch = path.match(/^\/hubspot\/companies\/([A-Za-z0-9_-]+)$/)
   if (hsCompanyMatch && method === 'PATCH') {
     return updateHubspotCompany(request, env, hsCompanyMatch[1])
+  }
+
+  // NUVCL-123 — HubSpot Deal linking on Hotel Details: search existing deals,
+  // or create a new one associated to the resolved Company/Contact.
+  if (path === '/hubspot/deals/search' && method === 'GET') {
+    return searchHubspotDeals(request, env)
+  }
+  if (path === '/hubspot/deals' && method === 'POST') {
+    return createHubspotDeal(request, env)
   }
 
   return err('Not found', 404)

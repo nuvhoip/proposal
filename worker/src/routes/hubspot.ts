@@ -19,6 +19,14 @@ interface HubspotSearchResult {
   pid:  string | null
 }
 
+// NUVCL-123: HubSpot Deal linking on Hotel Details.
+interface HubspotDealResult {
+  id:     string
+  name:   string
+  amount: string | null
+  stage:  string | null
+}
+
 async function hubspotFetch(env: Env, path: string, init: RequestInit = {}): Promise<Response> {
   return fetch(`${HUBSPOT_BASE}${path}`, {
     ...init,
@@ -218,4 +226,79 @@ export async function createHubspotClient(request: Request, env: Env): Promise<R
   }
 
   return ok({ companyId, contactId }, 201)
+}
+/* ─── GET /hubspot/deals/search?q=... ─────────────────────────────────────
+ * NUVCL-123: searches HubSpot deals by name for the Hotel Details "link an
+ * existing Deal" affordance. Mirrors searchHubspotObjects()'s pattern above.
+ */
+export async function searchHubspotDeals(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url)
+  const q   = (url.searchParams.get('q') || '').trim()
+  if (q.length < 2) return err('q must be at least 2 characters.')
+  if (!env.HUBSPOT_API_KEY) return err('HubSpot is not configured', 500)
+
+  const deals = await searchObjectType(
+    env, 'deals' as 'companies' | 'contacts', // same generic search shape as companies/contacts
+    [{ filters: [{ propertyName: 'dealname', operator: 'CONTAINS_TOKEN', value: q }] }],
+    ['dealname', 'amount', 'dealstage'],
+  )
+
+  const results: HubspotDealResult[] = deals.map(d => ({
+    id:     d.id as string,
+    name:   d.properties?.dealname || '(unnamed deal)',
+    amount: d.properties?.amount ?? null,
+    stage:  d.properties?.dealstage ?? null,
+  }))
+
+  return ok({ results })
+}
+
+/* ─── POST /hubspot/deals ──────────────────────────────────────────────────
+ * NUVCL-123: creates a new Deal when the search above finds no match, and
+ * associates it to the given Company/Contact (whichever ids are known at
+ * this point in Hotel Details) via the v4 default-associations endpoint —
+ * same pattern as createHubspotClient()'s company↔contact association.
+ */
+export async function createHubspotDeal(request: Request, env: Env): Promise<Response> {
+  let body: any
+  try {
+    body = await request.json()
+  } catch {
+    return err('Invalid JSON body.')
+  }
+
+  const dealName   = typeof body?.dealName === 'string' ? body.dealName.trim() : ''
+  const companyId  = typeof body?.companyId === 'string' ? body.companyId.trim() : ''
+  const contactId  = typeof body?.contactId === 'string' ? body.contactId.trim() : ''
+
+  if (!dealName) return err('dealName is required.')
+  if (!env.HUBSPOT_API_KEY) return err('HubSpot is not configured', 500)
+
+  const dealRes = await hubspotFetch(env, '/crm/v3/objects/deals', {
+    method: 'POST',
+    body: JSON.stringify({ properties: { dealname: dealName } }),
+  })
+  if (!dealRes.ok) {
+    const detail = await dealRes.text().catch(() => '')
+    console.error('[HubSpot] deal create failed:', dealRes.status, detail)
+    return err('Could not create HubSpot deal.', 502)
+  }
+  const deal: { id: string } = await dealRes.json()
+  const dealId = deal.id
+
+  for (const [objType, objId] of [['companies', companyId], ['contacts', contactId]] as const) {
+    if (!objId) continue
+    const assocRes = await hubspotFetch(
+      env,
+      `/crm/v4/objects/deals/${dealId}/associations/default/${objType}/${objId}`,
+      { method: 'PUT' },
+    )
+    if (!assocRes.ok) {
+      const detail = await assocRes.text().catch(() => '')
+      console.error(`[HubSpot] deal↔${objType} association failed:`, assocRes.status, detail)
+      // Don't fail the whole request — the deal itself was created successfully.
+    }
+  }
+
+  return ok({ dealId, dealName }, 201)
 }
