@@ -517,6 +517,13 @@ a.nv-sidebar-subnav-item.nv-sidebar-subnav-item--active {
   #proposal-print-root .doc-section:last-child {
     margin-bottom: 0;
   }
+  /* NUVCL-131: "Page Break" checkbox on each Preview & Save category
+     (Step7Preview) — forces that section onto a fresh sheet in the
+     generated PDF. No effect on the on-screen preview. */
+  #proposal-print-root .doc-section--break {
+    page-break-before: always;
+    break-before: page;
+  }
 
   /* Denser print typography than the on-screen sizing (13px/1.7 is roomy
      for a screen card but wastes pages on paper) so more content fits per
@@ -534,13 +541,12 @@ a.nv-sidebar-subnav-item.nv-sidebar-subnav-item--active {
   #proposal-print-root .doc-fee-table td,
   #proposal-print-root .doc-fee-table th   { padding: 4px 6px; }
   #proposal-print-root .doc-toc            { margin: 8px 0; }
-  /* Ody (2026-08-24): hide the ABN/registration line from the PDF only —
-     the on-screen preview and the Word export are untouched, so this is a
-     print-only suppression, not a data or feature removal. Both the top
-     Business Number line (NUVCL-124, first line of footerText) and this
-     full legal footer block derive from the same region_settings.footer_text
-     value, so both are hidden here together. */
-  #proposal-print-root .doc-business-number { display: none; }
+  /* NUVCL-131 (2026-08-25): Ody's 2026-08-24 print suppression of the
+     Business Number line is reversed here — the line has been relocated
+     from the letterhead down to directly below the signature (with a
+     horizontal rule) per Ody's latest request, and should now print. The
+     fuller legal footer block near the Appendix, a separate on-page
+     element, stays hidden from the PDF as before. */
   #proposal-print-root .doc-legal-footer    { display: none; }
   #proposal-print-root .doc-clause         { margin-bottom: 6px; }
 
@@ -562,8 +568,18 @@ a.nv-sidebar-subnav-item.nv-sidebar-subnav-item--active {
   #proposal-print-root .doc-fee-table tr,
   #proposal-print-root .doc-clause,
   #proposal-print-root .doc-signature__mark,
-  #proposal-print-root .doc-sender {
+  #proposal-print-root .doc-sender,
+  #proposal-print-root .doc-client-acceptance {
     page-break-inside: avoid;
     break-inside: avoid;
+  }
+
+  /* NUVCL-131: generic "screen-only" utility — the public sign page's
+     interactive Accept & Sign form (passed into ProposalDocument as
+     beforeAppendix) is wrapped in this class so it never appears in the
+     printed/PDF output, only the on-screen unsigned state. Visible by
+     default; hidden only here, under print. */
+  .no-print {
+    display: none !important;
   }
 }

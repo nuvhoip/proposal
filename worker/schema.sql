@@ -191,6 +191,21 @@ CREATE TABLE IF NOT EXISTS proposal_terms (
   -- step) message shown to the client above the Quote Approval signature
   -- block, in place of the default static sentence when set.
   signature_message   TEXT,
+  -- NUVCL-131: per-category "Page Break" checkboxes from the wizard's
+  -- Preview & Save step (Step7Preview) — JSON-encoded
+  -- Record<sectionKey, boolean>, e.g. {"background":true}. Added to an
+  -- already-deployed database via migrations/0013_proposal_terms_page_breaks_and_client_signature.sql.
+  page_breaks_json    TEXT NOT NULL DEFAULT '{}',
+  -- NUVCL-131: the CLIENT's own captured e-signature from the public sign
+  -- page, kept separate from signatory_name/signature_method/
+  -- signature_data_url above (the SENDER's own letter sign-off), so neither
+  -- overwrites the other and both can be rendered distinctly in the
+  -- generated document/PDF.
+  client_signatory_name      TEXT,
+  client_signatory_title     TEXT,
+  client_signature_method    TEXT,
+  client_signature_data_url  TEXT,
+  client_signed_at           TEXT,
   created_at          TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );

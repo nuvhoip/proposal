@@ -96,6 +96,22 @@ export interface ProposalDocModel {
   // default "Should the terms of this proposal be acceptable…" sentence.
   signatureMessage:  string
   clauses:           TermsClause[]
+  // Per-category forced-page-break flags from the wizard's Preview & Save
+  // step (Step7Preview) — see the matching field on ProposalTerms (lib/
+  // types.ts) for the key convention. Honoured by <ProposalDocument> in
+  // print/PDF output only; no effect on the on-screen preview layout itself.
+  pageBreaks:        Record<string, boolean>
+  // The CLIENT's own e-signature, captured via the public sign page's
+  // POST /p/:id/sign and stored in dedicated proposal_terms.client_* columns
+  // — deliberately separate from signatureMethod/signatoryName/
+  // signatureDataUrl above, which are the SENDER's cover-letter sign-off.
+  // Empty strings mean "not yet signed". Rendered by <ProposalDocument> at
+  // the top of the Terms & Conditions/Appendix section.
+  clientSignatoryName:    string
+  clientSignatoryTitle:   string
+  clientSignatureMethod:  'type' | 'draw'
+  clientSignatureDataUrl: string
+  clientSignedAt:         string
 }
 
 // "Central Reservations" + "Marketing Services" → "Central Reservations & Marketing Services"
@@ -158,6 +174,13 @@ export function buildDocModelFromDraft(draft: ProposalDraft, staff: StaffLike[])
     signatureDataUrl:  draft.terms.signatureDataUrl,
     signatureMessage:  draft.terms.signatureMessage || '',
     clauses:           draft.terms.clauses.filter(c => c.enabled),
+    pageBreaks:        draft.terms.pageBreaks || {},
+    // A draft in progress has never been signed by a client yet.
+    clientSignatoryName:    '',
+    clientSignatoryTitle:   '',
+    clientSignatureMethod:  'type',
+    clientSignatureDataUrl: '',
+    clientSignedAt:         '',
   }
 }
 
@@ -207,6 +230,15 @@ export function buildDocModelFromProposal(p: any): ProposalDocModel {
     signatureDataUrl:  terms.signatureDataUrl || '',
     signatureMessage:  terms.signatureMessage || '',
     clauses:           (terms.clauses || []).filter((c: TermsClause) => c.enabled),
+    pageBreaks:        terms.pageBreaks || {},
+    // The client's own e-signature (separate from the sender's cover-letter
+    // sign-off above) — populated once /p/:id/sign has been called; see the
+    // matching client_* columns added to proposal_terms.
+    clientSignatoryName:    terms.clientSignatoryName || '',
+    clientSignatoryTitle:   terms.clientSignatoryTitle || '',
+    clientSignatureMethod:  terms.clientSignatureMethod === 'draw' ? 'draw' : 'type',
+    clientSignatureDataUrl: terms.clientSignatureDataUrl || '',
+    clientSignedAt:         terms.clientSignedAt || '',
   }
 }
 

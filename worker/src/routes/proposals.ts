@@ -82,6 +82,13 @@ function mapTermsRow(termsRow: TermsRow | null) {
     signatoryTitle:     termsRow.signatory_title || '',
     signatureDataUrl:   termsRow.signature_data_url || '',
     signatureMessage:   termsRow.signature_message || '',
+    // NUVCL-131
+    pageBreaks:             JSON.parse(termsRow.page_breaks_json || '{}'),
+    clientSignatoryName:    termsRow.client_signatory_name || '',
+    clientSignatoryTitle:   termsRow.client_signatory_title || '',
+    clientSignatureMethod:  termsRow.client_signature_method || 'type',
+    clientSignatureDataUrl: termsRow.client_signature_data_url || '',
+    clientSignedAt:         termsRow.client_signed_at || '',
   }
 }
 
@@ -777,11 +784,17 @@ export async function signProposal(token: string, request: Request, env: Env): P
     WHERE id=?
   `).bind(signatoryName, proposal.id).run()
 
-  // Merge the captured signature into the proposal's terms row (preserving
-  // whatever clauses/validity/etc. were already configured) so the same
-  // <ProposalDocument> Quote Approval block — viewed later on the internal
-  // Proposal Details page — shows the client's actual signature instead of
-  // the placeholder staff configured when building the proposal.
+  // NUVCL-131: merge the captured signature into the proposal's terms row
+  // (preserving whatever clauses/validity/etc. were already configured), but
+  // into the dedicated client_* columns — NOT signatoryName/signatureMethod/
+  // signatureDataUrl, which are the SENDER's own letter sign-off ("Yours
+  // sincerely, ..."). Previously this call reused the sender's own fields
+  // for the client's signature, silently overwriting the sender's sign-off
+  // with whatever the client typed/drew, and leaving no distinct record of
+  // the client's own signature — which is why it never showed up correctly
+  // in the generated PDF. mapTermsRow/upsertTerms now round-trip both sets
+  // of fields independently; see documentModel.ts's clientSignatoryName etc.
+  // and ProposalDocument.tsx's doc-client-acceptance block for the read side.
   const existingTermsRow = await env.DB.prepare('SELECT * FROM proposal_terms WHERE proposal_id = ?')
     .bind(proposal.id).first<TermsRow>()
   const existingTerms = mapTermsRow(existingTermsRow ?? null)
@@ -789,12 +802,20 @@ export async function signProposal(token: string, request: Request, env: Env): P
     clauses:             existingTerms?.clauses ?? [],
     validityDays:        existingTerms?.validityDays ?? 30,
     governingEntityCode: existingTerms?.governingEntityCode ?? '',
-    signatureRequired: true,
-    signatureMethod,
-    signatoryName,
-    signatoryTitle:    body.signatoryTitle?.trim() || existingTerms?.signatoryTitle || '',
-    signatureDataUrl:  signatureMethod === 'draw' ? signatureDataUrl : '',
+    pageBreaks:          existingTerms?.pageBreaks ?? {},
+    // Sender's own letter sign-off — untouched, carried forward as-is.
+    signatureRequired: existingTerms?.signatureRequired ?? true,
+    signatureMethod:   existingTerms?.signatureMethod || 'type',
+    signatoryName:     existingTerms?.signatoryName || '',
+    signatoryTitle:    existingTerms?.signatoryTitle || '',
+    signatureDataUrl:  existingTerms?.signatureDataUrl || '',
     signatureMessage:  existingTerms?.signatureMessage || '',
+    // The client's own signature, captured just now.
+    clientSignatoryName:    signatoryName,
+    clientSignatoryTitle:   body.signatoryTitle?.trim() || '',
+    clientSignatureMethod:  signatureMethod,
+    clientSignatureDataUrl: signatureMethod === 'draw' ? signatureDataUrl : '',
+    clientSignedAt:         new Date().toISOString(),
   })
 
   await auditLog(env, proposal.id, 'signed', proposal.contact_email, { signatoryName, signatureMethod })
@@ -929,8 +950,8 @@ async function insertServiceChildren(env: Env, serviceRowId: string, svc: any): 
 async function upsertTerms(env: Env, proposalId: string, terms: any): Promise<void> {
   if (!terms) return
   await env.DB.prepare(`
-    INSERT INTO proposal_terms (proposal_id, clauses_json, validity_days, governing_entity_code, signature_required, signature_method, signatory_name, signatory_title, signature_data_url, signature_message, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    INSERT INTO proposal_terms (proposal_id, clauses_json, validity_days, governing_entity_code, signature_required, signature_method, signatory_name, signatory_title, signature_data_url, signature_message, page_breaks_json, client_signatory_name, client_signatory_title, client_signature_method, client_signature_data_url, client_signed_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(proposal_id) DO UPDATE SET
       clauses_json          = excluded.clauses_json,
       validity_days         = excluded.validity_days,
@@ -941,6 +962,17 @@ async function upsertTerms(env: Env, proposalId: string, terms: any): Promise<vo
       signatory_title       = excluded.signatory_title,
       signature_data_url    = excluded.signature_data_url,
       signature_message     = excluded.signature_message,
+      page_breaks_json      = excluded.page_breaks_json,
+      -- NUVCL-131: the client_* columns are "sticky" — ordinary Terms-step
+      -- saves (createProposal/updateProposal) never pass client fields, so
+      -- COALESCE keeps whatever the client already signed with rather than
+      -- wiping it to null on the next unrelated save. signProposal() is the
+      -- only caller that supplies non-null values here, and does overwrite.
+      client_signatory_name      = COALESCE(excluded.client_signatory_name, client_signatory_name),
+      client_signatory_title     = COALESCE(excluded.client_signatory_title, client_signatory_title),
+      client_signature_method    = COALESCE(excluded.client_signature_method, client_signature_method),
+      client_signature_data_url  = COALESCE(excluded.client_signature_data_url, client_signature_data_url),
+      client_signed_at           = COALESCE(excluded.client_signed_at, client_signed_at),
       updated_at            = datetime('now')
   `).bind(
     proposalId,
@@ -953,6 +985,14 @@ async function upsertTerms(env: Env, proposalId: string, terms: any): Promise<vo
     terms.signatoryTitle || null,
     terms.signatureDataUrl || null,
     terms.signatureMessage || null,
+    JSON.stringify(terms.pageBreaks || {}),
+    terms.clientSignatoryName || null,
+    terms.clientSignatoryTitle || null,
+    terms.clientSignatureMethod === 'draw' || terms.clientSignatureMethod === 'type'
+      ? terms.clientSignatureMethod
+      : null,
+    terms.clientSignatureDataUrl || null,
+    terms.clientSignedAt || null,
   ).run()
 }
 

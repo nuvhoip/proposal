@@ -56,7 +56,17 @@ function getBusinessNumberLine(footerText: string): string {
   return (footerText || '').split('\n')[0]?.trim() || ''
 }
 
-export function ProposalDocument({ model }: { model: ProposalDocModel }) {
+export function ProposalDocument({ model, beforeAppendix }: {
+  model: ProposalDocModel
+  // Rendered inside .doc-flow immediately before the Terms & Conditions /
+  // Appendix section (or at the end of .doc-flow if there's no Appendix to
+  // show). Used by the public sign page to place its interactive Accept &
+  // Sign form directly above Terms & Conditions instead of below the whole
+  // document. Callers that pass interactive form content should give it a
+  // "no-print" class (see globals.css) so it doesn't appear in the PDF —
+  // ProposalDocument itself doesn't assume one way or the other.
+  beforeAppendix?: React.ReactNode
+}) {
   const multiSvc = model.services.length > 1
   // A step that was skipped (left with no usable content) drops both its
   // Table of Contents entry and its own page below — an empty "Scope of
@@ -77,6 +87,13 @@ export function ProposalDocument({ model }: { model: ProposalDocModel }) {
   // nothing to show.
   const showAppendix     = showServices && model.clauses.length > 0
   const tocItems = buildTocItems(model.companyName, { showBackground, showScope, showFees, showAppendix })
+
+  // "Page Break" checkboxes from the wizard's Preview & Save step (Step7Preview)
+  // — applies only in print/PDF output (see the .doc-section--break rule in
+  // globals.css's @media print block); has no visual effect on-screen.
+  function breakClass(sectionKey: string): string {
+    return model.pageBreaks?.[sectionKey] ? ' doc-section--break' : ''
+  }
 
   function jumpTo(e: React.MouseEvent, id: string) {
     e.preventDefault()
@@ -202,11 +219,6 @@ export function ProposalDocument({ model }: { model: ProposalDocModel }) {
           <div className="doc-nuvho-address">
             {model.nuvhoAddress && model.nuvhoAddress.split('\n').map((line, i) => <React.Fragment key={i}>{line}<br /></React.Fragment>)}
             <div className="doc-date">{model.dateIssued}</div>
-            {/* NUVCL-124: Business Number top-right, replacing the dropped
-                letter footer below the sign-off. */}
-            {getBusinessNumberLine(model.footerText) && (
-              <div className="doc-business-number">{getBusinessNumberLine(model.footerText)}</div>
-            )}
           </div>
         </div>
         {/* NUVCL-103: title/email/phone were captured on Step 1 and shown to
@@ -254,11 +266,15 @@ export function ProposalDocument({ model }: { model: ProposalDocModel }) {
           {model.senderRoleLabel || '[Sending team member not yet selected]'}
           {model.senderEmail && <><br />e: {model.senderEmail}</>}
         </div>
-        {/* NUVCL-124 (2026-08-24): the letter sign-off footer block was
-            dropped per Jude's decision — the Business Number now shows
-            top-right of the letterhead instead (see above). The fuller
-            doc-legal-footer block near the Appendix still renders lower in
-            the document, unchanged. */}
+        {/* NUVCL-131: Business Number moved from the letterhead top-right
+            (NUVCL-124) down to directly below the sign-off, separated by a
+            horizontal rule, per Odysseus's reference image. */}
+        {getBusinessNumberLine(model.footerText) && (
+          <>
+            <hr className="doc-signature-hr" />
+            <div className="doc-business-number">{getBusinessNumberLine(model.footerText)}</div>
+          </>
+        )}
       </div>
 
       {/* NUVCL-120: Background through Appendix now share ONE flowing
@@ -278,7 +294,7 @@ export function ProposalDocument({ model }: { model: ProposalDocModel }) {
         {/* Background — hidden when Services (Step 2) was skipped, i.e.
             there's nothing to describe. */}
         {showBackground && (
-          <div className="doc-section" id="doc-section-background">
+          <div className={`doc-section${breakClass('background')}`} id="doc-section-background">
             <h3 className="doc-heading">Background</h3>
             <p>
               {model.hotelName || 'The property'} has engaged Nuvho to deliver {model.title.toLowerCase()}, with a
@@ -290,7 +306,7 @@ export function ProposalDocument({ model }: { model: ProposalDocModel }) {
 
         {/* Scope of Works — hidden when Services (Step 2) was skipped. */}
         {showScope && (
-          <div className="doc-section" id="doc-section-scope">
+          <div className={`doc-section${breakClass('scope')}`} id="doc-section-scope">
             <h3 className="doc-heading">Scope of Works</h3>
             <p>
               We develop a long-term and collaborative partnership with our clients, delivering services and value
@@ -318,7 +334,7 @@ export function ProposalDocument({ model }: { model: ProposalDocModel }) {
         )}
 
         {/* Nuvho Pty Ltd (Company Name + About — Settings → Region Settings) */}
-        <div className="doc-section" id="doc-section-nuvho">
+        <div className={`doc-section${breakClass('nuvho')}`} id="doc-section-nuvho">
           <h3 className="doc-heading">{model.companyName || 'Nuvho Pty Ltd'}</h3>
           <p>
             {model.aboutNuvho || (
@@ -332,7 +348,7 @@ export function ProposalDocument({ model }: { model: ProposalDocModel }) {
         {/* Fee Structure — hidden together with Background and Scope of Works
             whenever Services (Step 2) was skipped. */}
         {showFees && (
-          <div className="doc-section" id="doc-section-fees">
+          <div className={`doc-section${breakClass('fees')}`} id="doc-section-fees">
             <h3 className="doc-heading">Fee Structure</h3>
             <p>
               The following table outlines the associated fee structure of our services. Our fees exclude GST, which
@@ -386,10 +402,42 @@ export function ProposalDocument({ model }: { model: ProposalDocModel }) {
           </div>
         )}
 
+        {/* NUVCL-131: the public sign page's interactive Accept & Sign form
+            (unsigned state) renders here via beforeAppendix, directly above
+            Terms & Conditions, instead of below the whole document. Once
+            signed, the caller stops passing beforeAppendix and the captured
+            signature shows instead as the static "Client Acceptance" block
+            below (so it's included when the document is printed to PDF). */}
+        {beforeAppendix}
+
         {/* Appendix — Terms & Conditions — hidden when Services (Step 2) was
             skipped, or when the resolved entity has no clauses configured. */}
         {showAppendix && (
-          <div className="doc-section" id="doc-section-appendix">
+          <div className={`doc-section${breakClass('appendix')}`} id="doc-section-appendix">
+            {/* NUVCL-131: client's captured e-signature, shown at the top of
+                Terms & Conditions once the proposal has been signed — was
+                previously missing from the document/PDF entirely (the
+                signature was only ever written to the DB, never rendered
+                here). */}
+            {model.clientSignedAt && (
+              <div className="doc-client-acceptance">
+                <h4 className="doc-subheading">Client Acceptance</h4>
+                <div className="doc-signature__mark">
+                  {model.clientSignatureMethod === 'draw'
+                    ? (model.clientSignatureDataUrl
+                        ? <img src={model.clientSignatureDataUrl} alt="Client signature" className="doc-signature__img" />
+                        : <span className="doc-empty">Signature not captured</span>)
+                    : (model.clientSignatoryName
+                        ? <span className="doc-signature__script">{model.clientSignatoryName}</span>
+                        : <span className="doc-empty">Signature not captured</span>)}
+                </div>
+                <div className="doc-client-acceptance__meta">
+                  <strong>{model.clientSignatoryName || '[Client Name]'}</strong>
+                  {model.clientSignatoryTitle && <>, {model.clientSignatoryTitle}</>}<br />
+                  Signed {model.clientSignedAt}
+                </div>
+              </div>
+            )}
             <h3 className="doc-heading">Terms &amp; Conditions</h3>
             {model.clauses.map(c => (
               <div key={c.id} className="doc-clause">
@@ -532,7 +580,8 @@ export function ProposalDocument({ model }: { model: ProposalDocModel }) {
         .doc-letterhead__logo { flex-shrink: 0; }
         .doc-date    { font-size: 12px; color: var(--nv-text-muted); margin-top: 6px; }
         .doc-nuvho-address { font-size: 11.5px; color: var(--nv-text-muted); text-align: right; line-height: 1.5; }
-        .doc-business-number { margin-top: 6px; font-size: 10.5px; color: var(--nv-text-muted); } /* NUVCL-124 */
+        .doc-business-number { margin-top: 6px; font-size: 10.5px; color: var(--nv-text-muted); } /* NUVCL-124, relocated per NUVCL-131 */
+        .doc-signature-hr { border: none; border-top: 1px solid var(--nv-border-hair); margin: 18px 0 8px; } /* NUVCL-131 */
         .doc-address { margin-bottom: 48px; } /* NUVCL-124: more spacing below client address */
         .doc-legal-footer {
           margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--nv-border-hair);
@@ -574,6 +623,13 @@ export function ProposalDocument({ model }: { model: ProposalDocModel }) {
         .doc-signature__img { max-height: 80px; }
 
         .doc-clause { margin-bottom: 14px; }
+
+        /* NUVCL-131: client's captured signature, printed at the top of
+           Terms & Conditions once the proposal has been signed. */
+        .doc-client-acceptance {
+          margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--nv-border-hair);
+        }
+        .doc-client-acceptance__meta { font-size: 11.5px; color: var(--nv-text-muted); line-height: 1.5; }
       `}</style>
     </div>
   )

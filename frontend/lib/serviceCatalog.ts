@@ -312,6 +312,7 @@ export function initTerms(_region: Region): ProposalTerms {
     signatoryTitle:    '',
     signatureDataUrl:  '',
     signatureMessage:  '',
+    pageBreaks:        {},
   }
 }
 

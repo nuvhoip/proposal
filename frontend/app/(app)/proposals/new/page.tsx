@@ -930,7 +930,14 @@ function Step1HotelDetails({
       try {
         const [regRes, hsRes] = await Promise.all([
           fetch(
-            `${process.env.NEXT_PUBLIC_WORKER_URL}/registry/hotel-groups/typeahead?${new URLSearchParams({ q: acctQuery.trim(), geo: h.region.toUpperCase() })}`,
+            // NUVCL-128 (regression fix, 2nd time): geo (physical country,
+            // e.g. GR for Greece) is NOT the same thing as Region (Nuvho's
+            // own au/uk/ie operating jurisdiction) — filtering the typeahead
+            // by the wizard's Region field permanently hid any hotel group
+            // whose geo isn't literally "AU"/"UK"/"IE" (e.g. Vision Hotels,
+            // geo=GR, Region=ie). The registry typeahead already scopes by
+            // Governing Entity server-side; it doesn't need geo at all.
+            `${process.env.NEXT_PUBLIC_WORKER_URL}/registry/hotel-groups/typeahead?${new URLSearchParams({ q: acctQuery.trim() })}`,
             { credentials: 'include' }
           ).then(r => r.json()).catch(() => null),
           fetch(
@@ -948,7 +955,7 @@ function Step1HotelDetails({
       }
     }, 300)
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [acctQuery, h.region, h.hgid])
+  }, [acctQuery, h.hgid])
 
   // ── Sync modal — reconciles whichever side (Registry / HubSpot) is
   // missing once an account is picked or created. Two directions:
@@ -1479,7 +1486,13 @@ function Step1HotelDetails({
         {h.hgid ? (
           <div className="hg-selected">
             <span>
-              {h.name || acctQuery} <code>{h.hgid}</code>{h.pid && <code>{h.pid}</code>}
+              {/* NUVCL-129 (regression fix, 2nd time): keep the ORIGINAL
+                  Hotel Group Name once a property is picked — don't fall
+                  back to it only when acctQuery is empty. acctQuery holds
+                  whatever was typed/selected for the group itself, so it
+                  must win over h.name (which selectHgProperty() does NOT
+                  touch, but was still able to show through here before). */}
+              {acctQuery || h.name} <code>{h.hgid}</code>{h.pid && <code>{h.pid}</code>}
               {h.hubspotCompanyId && <code>HS {h.hubspotCompanyId}</code>}
             </span>
             <button type="button" className="nv-btn nv-btn--ghost nv-btn--sm" onClick={clearHotelGroup}>
@@ -2997,6 +3010,29 @@ function Step7Preview({ draft, setDraft, errors, staff = [] }: StepProps) {
   const total = draft.services.reduce((acc, s) => acc + s.monthlyFee * s.term + s.setupFee, 0)
   const model = buildDocModelFromDraft(draft, staff)
 
+  // NUVCL-131: one "Page Break" checkbox per document category, mirroring
+  // the same show/hide rules ProposalDocument.tsx uses for each section
+  // (a category that's hidden from the document — e.g. Background when
+  // Services/Step 2 was skipped — has nothing to add a page break to, so
+  // it's left out of this list too). Toggling a checkbox writes straight
+  // into draft.terms.pageBreaks, which buildDocModelFromDraft/documentModel
+  // already thread through to model.pageBreaks and, from there, to
+  // ProposalDocument's breakClass() helper on the section it applies to.
+  const pageBreakCategories: { key: string; label: string; show: boolean }[] = [
+    { key: 'background', label: 'Background',        show: model.services.length > 0 },
+    { key: 'scope',       label: 'Scope of Works',     show: model.services.length > 0 },
+    { key: 'nuvho',       label: model.companyName || 'Nuvho Pty Ltd', show: true },
+    { key: 'fees',        label: 'Fee Structure',      show: model.services.length > 0 },
+    { key: 'appendix',   label: 'Terms & Conditions',  show: model.services.length > 0 && model.clauses.length > 0 },
+  ]
+
+  function togglePageBreak(key: string, checked: boolean) {
+    setDraft(d => ({
+      ...d,
+      terms: { ...d.terms, pageBreaks: { ...(d.terms.pageBreaks || {}), [key]: checked } },
+    }))
+  }
+
   return (
     <div className="step-content">
       <h2 className="step-title">Preview & Save</h2>
@@ -3022,6 +3058,27 @@ function Step7Preview({ draft, setDraft, errors, staff = [] }: StepProps) {
         Clicking <strong>Generate Document</strong> will create and save the proposal — it will
         not be sent yet. Open it from the Proposals list afterwards to review, then use its
         <strong> Send</strong> button (which always asks you to confirm) when you&apos;re ready to send it.
+      </div>
+
+      <div className="page-break-panel">
+        <h3 className="preview-doc-heading">Page Breaks</h3>
+        <p className="step-desc">
+          Check a category to force it onto a new page when the PDF is generated. Unchecked
+          categories flow onto the same page as the one before them, space permitting.
+        </p>
+        {pageBreakCategories.filter(c => c.show).map(c => (
+          <label key={c.key} className="page-break-row">
+            <span>{c.label}</span>
+            <span className="page-break-toggle">
+              <input
+                type="checkbox"
+                checked={!!draft.terms.pageBreaks?.[c.key]}
+                onChange={e => togglePageBreak(c.key, e.target.checked)}
+              />
+              Page Break
+            </span>
+          </label>
+        ))}
       </div>
 
       <div className="preview-doc-header">
@@ -3050,6 +3107,38 @@ function Step7Preview({ draft, setDraft, errors, staff = [] }: StepProps) {
           font-size: 13px;
           color: var(--nv-text-muted);
           line-height: 1.6;
+        }
+        .page-break-panel {
+          margin-top: 28px;
+          border: 1px solid var(--nv-border-hair);
+          border-radius: 10px;
+          padding: 16px 20px;
+        }
+        .page-break-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 16px;
+          padding: 10px 0;
+          border-top: 1px solid var(--nv-border-hair);
+          font-size: 13.5px;
+          cursor: pointer;
+        }
+        .page-break-row:first-of-type {
+          border-top: none;
+        }
+        .page-break-toggle {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 12.5px;
+          color: var(--nv-text-muted);
+          white-space: nowrap;
+        }
+        .page-break-toggle input {
+          width: 16px;
+          height: 16px;
+          cursor: pointer;
         }
         .preview-doc-header {
           margin-top: 28px;

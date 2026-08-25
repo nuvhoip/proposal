@@ -24,6 +24,7 @@ export default function PublicProposalPage() {
   const [error,    setError]    = useState<string | null>(null)
   const [signing,  setSigning]  = useState(false)
   const [signed,   setSigned]   = useState(false)
+  const [exporting, setExporting] = useState(false)
 
   // Signing form state — seeded from the proposal's own Quote Approval
   // fields once it loads, so a pre-filled signatory name/title carries
@@ -86,15 +87,22 @@ export default function PublicProposalPage() {
       const data = await res.json()
       if (!res.ok || data.error) throw new Error(data.error || 'Failed to sign proposal')
 
-      // Reflect the just-captured signature straight into the rendered
-      // document so the Quote Approval section shows exactly what was
-      // signed, without a refetch.
+      // NUVCL-131: reflect the just-captured CLIENT signature straight into
+      // the rendered document, without a refetch — into the dedicated
+      // client_* fields (see documentModel.ts), not the sender's own
+      // signatureMethod/signatoryName/signatureDataUrl, which are the
+      // sender's letter sign-off and must stay untouched. This is what
+      // ProposalDocument.tsx's doc-client-acceptance block (top of Terms &
+      // Conditions) reads from — previously the client's signature was
+      // written into the sender's own fields instead, so it never showed up
+      // distinctly, and was missing from the generated PDF entirely.
       setDocModel(prev => prev ? {
         ...prev,
-        signatureMethod:  sigMethod,
-        signatoryName:    sigName.trim(),
-        signatoryTitle:   sigTitle.trim(),
-        signatureDataUrl: sigMethod === 'draw' ? sigDataUrl : '',
+        clientSignatoryName:    sigName.trim(),
+        clientSignatoryTitle:   sigTitle.trim(),
+        clientSignatureMethod:  sigMethod,
+        clientSignatureDataUrl: sigMethod === 'draw' ? sigDataUrl : '',
+        clientSignedAt:         new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' }),
       } : prev)
       setSigned(true)
     } catch (e: any) {
@@ -102,6 +110,17 @@ export default function PublicProposalPage() {
     } finally {
       setSigning(false)
     }
+  }
+
+  // NUVCL-131: PDF download for the client, once signed — same print-to-PDF
+  // mechanism as the internal Proposal Details page's "⬇ PDF" button
+  // (window.print(); @media print in globals.css hides everything except
+  // #proposal-print-root, which <ProposalDocument> renders into, and hides
+  // .no-print content such as the sign form / this button itself).
+  const handleDownloadPdf = () => {
+    setExporting(true)
+    window.setTimeout(() => window.print(), 50)
+    window.setTimeout(() => setExporting(false), 600)
   }
 
   if (loading) return <LoadingScreen />
@@ -127,114 +146,139 @@ export default function PublicProposalPage() {
         </div>
       </header>
 
-      {/* The actual proposal — same component + model builder as the
-          internal Proposal Details page, so nothing here is a summary or
-          placeholder. */}
+      {/* NUVCL-131: the actual proposal — same component + model builder as
+          the internal Proposal Details page, so nothing here is a summary
+          or placeholder. The Accept & Sign form (while unsigned, not yet
+          expired) is now passed in as beforeAppendix so it renders directly
+          above Terms & Conditions instead of below the entire document —
+          it's wrapped in .no-print (globals.css) so it never shows up in
+          the printed/PDF output, only the live page. */}
       <div className="public-doc-wrap">
-        <ProposalDocument model={docModel} />
+        <ProposalDocument
+          model={docModel}
+          beforeAppendix={!signed && !isExpired ? (
+            <div className="public-sign-form-wrap no-print">
+                <div className="public-sign-form">
+                  <h2 className="public-section-title">Accept This Proposal</h2>
+                  <p style={{ fontSize: 14, color: 'var(--nv-text-muted)', marginBottom: 20 }}>
+                    By signing below, you acknowledge and accept the terms and services outlined in this proposal.
+                  </p>
+
+                  <div className="sign-fields">
+                    <div className="sign-field">
+                      <label className="sign-label">Your full name</label>
+                      <input
+                        className="nv-input"
+                        placeholder="Your full name"
+                        value={sigName}
+                        onChange={e => setSigName(e.target.value)}
+                      />
+                    </div>
+                    <div className="sign-field">
+                      <label className="sign-label">Title (optional)</label>
+                      <input
+                        className="nv-input"
+                        placeholder="e.g. General Manager"
+                        value={sigTitle}
+                        onChange={e => setSigTitle(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Same Type name / Draw signature toggle as the internal
+                      wizard's Terms & Conditions step — the client picks how
+                      they sign rather than being locked to one method. */}
+                  <div className="signature-method" role="tablist" aria-label="Signature method">
+                    <button type="button" role="tab" aria-selected={sigMethod === 'type'}
+                      className={`signature-method__btn ${sigMethod === 'type' ? 'signature-method__btn--active' : ''}`}
+                      onClick={() => setSigMethod('type')}>
+                      Type name
+                    </button>
+                    <button type="button" role="tab" aria-selected={sigMethod === 'draw'}
+                      className={`signature-method__btn ${sigMethod === 'draw' ? 'signature-method__btn--active' : ''}`}
+                      onClick={() => setSigMethod('draw')}>
+                      Draw signature
+                    </button>
+                  </div>
+
+                  {sigMethod === 'draw' ? (
+                    <div className="sign-capture">
+                      <span className="sign-capture__label">Draw signature</span>
+                      <SignaturePad value={sigDataUrl} onChange={setSigDataUrl} />
+                    </div>
+                  ) : (
+                    <div className="sign-capture">
+                      <span className="sign-capture__label">Signature preview</span>
+                      <div className="sign-capture__script">{sigName || 'Your name here'}</div>
+                    </div>
+                  )}
+
+                  <label className="approval-check">
+                    <input type="checkbox" checked={approved} onChange={e => setApproved(e.target.checked)} />
+                    <span>
+                      I have read and agree to the{' '}
+                      <a href="#doc-section-appendix" onClick={e => {
+                        e.preventDefault()
+                        document.getElementById('doc-section-appendix')?.scrollIntoView({ behavior: 'smooth' })
+                      }}>Terms and Conditions</a>.
+                    </span>
+                  </label>
+
+                  <button
+                    className="nv-btn nv-btn--solid nv-btn--lg"
+                    onClick={handleSign}
+                    disabled={signing || !approved || !sigName.trim() || (sigMethod === 'draw' && !sigDataUrl)}
+                    aria-busy={signing}
+                  >
+                    {signing ? 'Signing…' : 'Accept & Sign'}
+                  </button>
+
+                  {error && (
+                    <p style={{ color: 'var(--nv-error)', fontSize: 13, marginTop: 8 }}>{error}</p>
+                  )}
+                </div>
+            </div>
+          ) : undefined}
+        />
       </div>
 
-      {/* Accept & Sign */}
-      <div className="public-body">
-        <section className="public-section public-sign-section">
-          {signed ? (
-            <div className="public-signed">
-              <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-                <circle cx="24" cy="24" r="22" fill="var(--nv-success)" fillOpacity="0.1"/>
-                <circle cx="24" cy="24" r="22" stroke="var(--nv-success)" strokeWidth="2"/>
-                <path d="M14 24l7 7 13-13" stroke="var(--nv-success)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-              <h3>Proposal Accepted</h3>
-              <p>Thank you for accepting this proposal. Our team will be in touch shortly to begin onboarding.</p>
-            </div>
-          ) : isExpired ? (
-            <div className="public-expired">
-              <h3>Proposal Expired</h3>
-              <p>This proposal has expired. Please contact your Nuvho representative to receive an updated proposal.</p>
-            </div>
-          ) : (
-            <div className="public-sign-form">
-              <h2 className="public-section-title">Accept This Proposal</h2>
-              <p style={{ fontSize: 14, color: 'var(--nv-text-muted)', marginBottom: 20 }}>
-                By signing below, you acknowledge and accept the terms and services outlined in this proposal.
-              </p>
-
-              <div className="sign-fields">
-                <div className="sign-field">
-                  <label className="sign-label">Your full name</label>
-                  <input
-                    className="nv-input"
-                    placeholder="Your full name"
-                    value={sigName}
-                    onChange={e => setSigName(e.target.value)}
-                  />
-                </div>
-                <div className="sign-field">
-                  <label className="sign-label">Title (optional)</label>
-                  <input
-                    className="nv-input"
-                    placeholder="e.g. General Manager"
-                    value={sigTitle}
-                    onChange={e => setSigTitle(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              {/* Same Type name / Draw signature toggle as the internal
-                  wizard's Terms & Conditions step — the client picks how
-                  they sign rather than being locked to one method. */}
-              <div className="signature-method" role="tablist" aria-label="Signature method">
-                <button type="button" role="tab" aria-selected={sigMethod === 'type'}
-                  className={`signature-method__btn ${sigMethod === 'type' ? 'signature-method__btn--active' : ''}`}
-                  onClick={() => setSigMethod('type')}>
-                  Type name
-                </button>
-                <button type="button" role="tab" aria-selected={sigMethod === 'draw'}
-                  className={`signature-method__btn ${sigMethod === 'draw' ? 'signature-method__btn--active' : ''}`}
-                  onClick={() => setSigMethod('draw')}>
-                  Draw signature
+      {/* Post-signing / expired state — stays below the whole document
+          (rather than above Terms & Conditions like the active sign form
+          above) since it's a final confirmation/status screen, not part of
+          the signing flow itself. */}
+      {(signed || isExpired) && (
+        <div className="public-body">
+          <section className="public-section public-sign-section">
+            {signed ? (
+              <div className="public-signed">
+                <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                  <circle cx="24" cy="24" r="22" fill="var(--nv-success)" fillOpacity="0.1"/>
+                  <circle cx="24" cy="24" r="22" stroke="var(--nv-success)" strokeWidth="2"/>
+                  <path d="M14 24l7 7 13-13" stroke="var(--nv-success)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                <h3>Proposal Accepted</h3>
+                <p>Thank you for accepting this proposal. Our team will be in touch shortly to begin onboarding.</p>
+                {/* NUVCL-131: download the signed proposal, including the
+                    client's own signature (now rendered in the Appendix —
+                    see ProposalDocument.tsx's doc-client-acceptance block). */}
+                <button
+                  className="nv-btn nv-btn--ghost nv-btn--lg"
+                  onClick={handleDownloadPdf}
+                  disabled={exporting}
+                  style={{ marginTop: 16 }}
+                >
+                  {exporting ? 'Preparing…' : '⬇ Download PDF'}
                 </button>
               </div>
-
-              {sigMethod === 'draw' ? (
-                <div className="sign-capture">
-                  <span className="sign-capture__label">Draw signature</span>
-                  <SignaturePad value={sigDataUrl} onChange={setSigDataUrl} />
-                </div>
-              ) : (
-                <div className="sign-capture">
-                  <span className="sign-capture__label">Signature preview</span>
-                  <div className="sign-capture__script">{sigName || 'Your name here'}</div>
-                </div>
-              )}
-
-              <label className="approval-check">
-                <input type="checkbox" checked={approved} onChange={e => setApproved(e.target.checked)} />
-                <span>
-                  I have read and agree to the{' '}
-                  <a href="#doc-section-appendix" onClick={e => {
-                    e.preventDefault()
-                    document.getElementById('doc-section-appendix')?.scrollIntoView({ behavior: 'smooth' })
-                  }}>Terms and Conditions</a>.
-                </span>
-              </label>
-
-              <button
-                className="nv-btn nv-btn--solid nv-btn--lg"
-                onClick={handleSign}
-                disabled={signing || !approved || !sigName.trim() || (sigMethod === 'draw' && !sigDataUrl)}
-                aria-busy={signing}
-              >
-                {signing ? 'Signing…' : 'Accept & Sign'}
-              </button>
-
-              {error && (
-                <p style={{ color: 'var(--nv-error)', fontSize: 13, marginTop: 8 }}>{error}</p>
-              )}
-            </div>
-          )}
-        </section>
-      </div>
+            ) : (
+              <div className="public-expired">
+                <h3>Proposal Expired</h3>
+                <p>This proposal has expired. Please contact your Nuvho representative to receive an updated proposal.</p>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
 
       {/* Footer */}
       <footer className="public-footer">
@@ -273,6 +317,19 @@ export default function PublicProposalPage() {
           width: 100%;
           margin: 0 auto;
           padding: 0 24px 48px;
+        }
+
+        /* NUVCL-131: the Accept & Sign form now renders as a child of
+           ProposalDocument's own .doc-flow card (via beforeAppendix), which
+           already supplies the white background/shadow/padding — so this
+           wrapper only needs a separating rule above it, matching the
+           spacing between .doc-section blocks, rather than repeating the
+           .public-sign-section "card" styling and nesting a card in a card. */
+        .public-sign-form-wrap {
+          margin-top: 32px;
+          margin-bottom: 32px;
+          padding-top: 32px;
+          border-top: 1px solid var(--nv-border-hair);
         }
 
         .public-section { margin-bottom: 0; }

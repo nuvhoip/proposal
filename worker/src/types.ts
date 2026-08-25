@@ -130,6 +130,22 @@ export interface TermsRow {
   signatory_title:        string | null
   signature_data_url:     string | null
   signature_message:      string | null
+  // NUVCL-131: per-category "Page Break" checkboxes from Step7Preview —
+  // JSON-encoded Record<sectionKey, boolean>, e.g. {"background":true}.
+  page_breaks_json:       string | null
+  // NUVCL-131: the CLIENT's own captured e-signature from the public sign
+  // page, kept in dedicated columns separate from signatory_name/
+  // signature_method/signature_data_url above (which are the SENDER's own
+  // letter sign-off). Previously the client's signature was written into
+  // those same sender columns via signProposal()'s upsertTerms() call,
+  // silently overwriting the sender's sign-off instead of being tracked in
+  // its own right — which is also why it never appeared in the generated
+  // PDF as the client's signature.
+  client_signatory_name:      string | null
+  client_signatory_title:     string | null
+  client_signature_method:    'type' | 'draw' | null
+  client_signature_data_url:  string | null
+  client_signed_at:           string | null
 }
 
 export interface AttachmentRow {

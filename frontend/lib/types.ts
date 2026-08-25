@@ -225,6 +225,13 @@ export interface ProposalTerms {
   // signature block on the client-facing document, in place of the default
   // "Should the terms of this proposal be acceptable…" sentence when present.
   signatureMessage:  string
+  // Per-category "force a page break before this section" flags, set on the
+  // wizard's Preview & Save step (Step7Preview) and honoured by
+  // <ProposalDocument> in print/PDF output. Keyed by the same section ids
+  // ProposalDocument.tsx's buildTocItems() uses: 'background' | 'scope' |
+  // 'nuvho' | 'fees' | 'appendix'. Missing/false = no forced break (default
+  // flowing layout, unchanged from before this existed).
+  pageBreaks:        Record<string, boolean>
 }
 
 // Proposal generator wizard state (nested per-step structure)
