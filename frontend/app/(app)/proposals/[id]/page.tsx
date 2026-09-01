@@ -34,7 +34,7 @@ export default function ProposalDetailPage() {
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState('')
   const [deleting, setDeleting] = useState(false)
-  const [copied,   setCopied]   = useState<'id' | 'link' | null>(null)
+  const [copied,   setCopied]   = useState<string | null>(null)
   const [showDoc,  setShowDoc]  = useState(false)
   const [exporting, setExporting] = useState<'pdf' | null>(null)
 
@@ -49,7 +49,7 @@ export default function ProposalDetailPage() {
   const [resendError,  setResendError]  = useState('')
   const [resendNotice, setResendNotice] = useState('')
 
-  async function copyToClipboard(text: string, which: 'id' | 'link') {
+  async function copyToClipboard(text: string, which: string) {
     try {
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(text)
@@ -74,20 +74,42 @@ export default function ProposalDetailPage() {
     }
   }
 
+  // Same staleness problem as the list page (proposals/page.tsx): this only
+  // ever fetched once on mount, so signing a proposal on its public
+  // /p/{token} page (opened via Copy Link, often in its own tab) never
+  // showed up here — status stayed "draft" and the Expires row stayed on
+  // its original value even though the worker's signProposal() had already
+  // updated the D1 row. Re-fetching on tab focus/visibility fixes that
+  // without needing a manual hard refresh.
   useEffect(() => {
     if (!id) return
-    Promise.all([
-      fetch(`${WORKER}/proposals/${id}`, { credentials: 'include' }),
-      fetch(`${WORKER}/proposals/${id}/audit`, { credentials: 'include' }),
-    ])
-      .then(async ([pRes, aRes]) => {
-        if (!pRes.ok) throw new Error('Proposal not found')
-        const [pJson, aJson] = await Promise.all([pRes.json(), aRes.json()])
-        setProposal(pJson.data)
-        setAudit(aJson.data || [])
-      })
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false))
+
+    function loadProposal() {
+      Promise.all([
+        fetch(`${WORKER}/proposals/${id}`, { credentials: 'include' }),
+        fetch(`${WORKER}/proposals/${id}/audit`, { credentials: 'include' }),
+      ])
+        .then(async ([pRes, aRes]) => {
+          if (!pRes.ok) throw new Error('Proposal not found')
+          const [pJson, aJson] = await Promise.all([pRes.json(), aRes.json()])
+          setProposal(pJson.data)
+          setAudit(aJson.data || [])
+        })
+        .catch(e => setError(e.message))
+        .finally(() => setLoading(false))
+    }
+
+    loadProposal()
+
+    function onVisible() {
+      if (document.visibilityState === 'visible') loadProposal()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', loadProposal)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', loadProposal)
+    }
   }, [id])
 
 
@@ -209,20 +231,64 @@ export default function ProposalDetailPage() {
             {proposal.region?.toUpperCase()} · Created {new Date(proposal.created_at).toLocaleDateString('en-AU')}
           </p>
           <button
-            onClick={() => copyToClipboard(proposal.np_id || proposal.id, 'id')}
+            onClick={() => copyToClipboard(proposal.prop_id || proposal.np_id || proposal.id, 'id')}
             title="Click to copy the Proposal ID"
             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0,
                      marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}
           >
             <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--nv-text-muted)',
                            background: 'var(--nv-platinum)', borderRadius: 6, padding: '2px 8px' }}>
-              {proposal.np_id || proposal.id}
+              {proposal.prop_id || proposal.np_id || proposal.id}
             </span>
             <span style={{ fontSize: 11, color: copied === 'id' ? 'var(--nv-success)' : 'var(--nv-blue-slate)',
                            fontWeight: copied === 'id' ? 700 : 400 }}>
               {copied === 'id' ? '✓ Copied!' : 'Copy'}
             </span>
           </button>
+
+          {!proposal.prop_id && proposal.prop_id_sync_error && (
+            <div style={{ fontSize: 11, color: 'var(--nv-text-muted)', marginTop: 4 }}>
+              Proposal ID not yet created — {proposal.prop_id_sync_error}
+            </div>
+          )}
+
+          {/* Engagement ID (EID) — the registry-issued ENG-{GEO}-{SVC}-{YYYY}-
+              {SEQ4} id, one per bundled service line, distinct from the
+              Proposal ID (prop_id) above — that one is the Master Registry's
+              PROP-{GEO}-{YYYY}-{SEQ4} record, shared across every bundled
+              service line. Only exists once a registered property (pid) is
+              linked to this proposal — see worker/src/routes/proposals.ts's
+              createProposal for why a service can come back with no eid. */}
+          {Array.isArray(proposal.registryLinks) && proposal.registryLinks.length > 0 && (
+            <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {proposal.registryLinks.map((link: any) => (
+                link.eid ? (
+                  <button
+                    key={link.service_line}
+                    onClick={() => copyToClipboard(link.eid, `eid-${link.service_line}`)}
+                    title="Click to copy the Engagement ID (EID)"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                             display: 'flex', alignItems: 'center', gap: 6 }}
+                  >
+                    <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--nv-text-muted)',
+                                   background: 'var(--nv-platinum)', borderRadius: 6, padding: '2px 8px' }}>
+                      EID ({link.service_line}) {link.eid}
+                    </span>
+                    <span style={{ fontSize: 11,
+                                   color: copied === `eid-${link.service_line}` ? 'var(--nv-success)' : 'var(--nv-blue-slate)',
+                                   fontWeight: copied === `eid-${link.service_line}` ? 700 : 400 }}>
+                      {copied === `eid-${link.service_line}` ? '✓ Copied!' : 'Copy'}
+                    </span>
+                  </button>
+                ) : (
+                  <span key={link.service_line} style={{ fontSize: 11, color: 'var(--nv-text-muted)' }}>
+                    Engagement ID ({link.service_line}): not yet created
+                    {link.eid_sync_error ? ` — ${link.eid_sync_error}` : ''}
+                  </span>
+                )
+              ))}
+            </div>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <span className={`nv-badge ${STATUS_CLASSES[proposal.status] || ''}`}>

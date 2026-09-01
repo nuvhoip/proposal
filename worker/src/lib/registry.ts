@@ -228,13 +228,19 @@ export async function createProperty(
 
 /* ─── Proposals ─────────────────────────────────────────────────────────────── */
 
+// This app's OWN service-line scheme (SERVICE_DEFS in the wizard), as
+// opposed to the registry's current valid codes (RegistryEngagementServiceLine,
+// defined further down next to the mapping between the two). Kept only for
+// the two spots below that still reference it directly on this app's own
+// payload shape -- NOT what actually gets sent to the registry over the
+// wire; see toRegistryServiceLine's comment for why those differ.
 export type RegistryServiceLine = 'RM' | 'SM' | 'MK' | 'CR' | 'WA' | 'PO' | 'CO' | 'MS'
 export type RegistryProposalStatus = 'draft' | 'sent' | 'signed' | 'declined' | 'expired'
 
 export interface RegistryProposalPayload {
   hgid: string
   entity_code: string
-  service_line: RegistryServiceLine
+  service_line: RegistryEngagementServiceLine
   geo: string
   pid?: string | null
   status?: RegistryProposalStatus
@@ -249,7 +255,7 @@ export interface RegistryProposalRecord {
   prop_id: string
   hgid: string
   entity_code: string
-  service_line: RegistryServiceLine
+  service_line: RegistryEngagementServiceLine
   geo: string
   status: string
   [key: string]: unknown
@@ -285,12 +291,124 @@ export interface RegistryNpIdRecord {
 }
 
 /** POST /v1/np-ids — reserves one NP-{REGION}-{YYMMDD}-{6RAND} per bundled
- *  proposal (not per service line — see createProposal in routes/proposals.ts). */
+ *  proposal (not per service line — see createProposal in routes/proposals.ts).
+ *  Displayed to users as the "Proposal ID" — see frontend proposals list/detail pages.
+ *  (Not the same thing as the Engagement ID (EID) further down this file --
+ *  that one is a separate, registry-issued id created only once a property
+ *  is linked, distinct from this client-side-generated document reference.) */
 export async function reserveNpId(
   env: Env, region: string, issuedTo?: string
 ): Promise<RegistryNpIdRecord> {
   return registryFetch<RegistryNpIdRecord>(env, '/v1/np-ids', {
     method: 'POST',
     body: JSON.stringify({ region, issued_to: issuedTo ?? null }),
+  })
+}
+
+
+/* ─── Service line code mapping (this app's codes -> registry codes) ─────
+   The Master Registry's registry.service_line_codes table was migrated on
+   2026-08-14 (nuvho_master_registry/db/migrations/004_service_lines_cleanup.sql)
+   to a new 8-code target list — AD, CR, ES, MM, MS, RD, SM, SY — deactivating
+   the old CO/MK/PO/RM/WA codes that this app's SERVICE_DEFS still use (RM =
+   Revenue Management, SM = Sales Management, CR = Central Reservations,
+   MK = Marketing). Any registry call sending 'RM' or 'MK' as service_line is
+   now rejected with a 400 VALIDATION_ERROR — which silently broke
+   createRegistryProposal's PROP-ID sync for those two service lines the
+   moment that migration went live, since failures there are only recorded
+   in proposal_registry_links.sync_error (routes/proposals.ts), never
+   surfaced to a user. RM -> RD is a confident match (RD's own registry name,
+   "Revenue & Distribution Management", is exactly what RM covers); SM -> SM
+   and CR -> CR are unchanged. MK -> MM ("Marketing Management") is this
+   app's best-guess equivalent for Marketing — flag/correct this one
+   specifically if it's wrong. Proposals bundling a service with no mapping
+   below (WA/PO/CO — already-deactivated codes with no current SERVICE_DEFS
+   equivalent) skip registry sync for that line rather than guessing. */
+export type RegistryEngagementServiceLine = 'AD' | 'CR' | 'ES' | 'MM' | 'MS' | 'RD' | 'SM' | 'SY'
+
+const SERVICE_LINE_TO_REGISTRY: Partial<Record<RegistryServiceLine, RegistryEngagementServiceLine>> = {
+  RM: 'RD',
+  SM: 'SM',
+  CR: 'CR',
+  MK: 'MM',
+}
+
+export function toRegistryServiceLine(code: string): RegistryEngagementServiceLine | null {
+  return SERVICE_LINE_TO_REGISTRY[code as RegistryServiceLine] ?? null
+}
+
+/* ─── Engagements (EID, R1 ID Reference schema v1.3) ───────────────────────
+   Structural format ENG-{GEO}-{SVC}-{YYYY}-{SEQ4} (e.g. ENG-AU-RD-2026-0004).
+   Displayed to users as the "Engagement ID (EID)" — the real, registry-
+   issued id, distinct from the NP-... "Proposal ID" above (that one is a
+   client-side-generated document reference; this one is the canonical
+   contract record shared with HubSpot deal / Asana project / Xero invoice
+   per the automation spec). Requires an already-registered Property (pid)
+   — see createProposal in routes/proposals.ts for how a missing pid is
+   handled (sync skipped, not a hard failure). */
+
+// 2026-08-31: confirmed against the LIVE registry.engagements_status_check
+// constraint on nuvho_master_registry's Postgres DB (via SSH), since the
+// checked-out nuvho_master_registry repo's own validators/engagements.js
+// (CREATE_STATUSES = ['prospect','proposal']) does NOT match what the
+// deployed API actually enforces — a real drift between that repo's git
+// checkout and whatever is actually running on register.nuvho.com (DO App
+// Platform, no direct code access). Trust the DB constraint over that repo's
+// source for this field. 'proposal' does not exist as a valid status at all;
+// there is no dedicated pre-active state distinct from 'prospect'.
+export type RegistryEngagementStatus = 'prospect' | 'active' | 'inactive' | 'churned' | 'suspended'
+
+export interface RegistryEngagementPayload {
+  pid: string
+  hgid: string
+  entity_code: string
+  service_line: RegistryEngagementServiceLine
+  geo: string
+  status: RegistryEngagementStatus
+  hubspot_deal_id?: string | null
+  signed_proposal_id?: string | null
+  signed_date?: string | null
+  start_date?: string | null
+}
+
+export interface RegistryEngagementRecord {
+  eid: string
+  display_id: string | null
+  pid: string
+  hgid: string
+  entity_code: string
+  service_line: string
+  geo: string
+  status: string
+  [key: string]: unknown
+}
+
+/** POST /v1/engagements — Admin tier. Creates one canonical
+ *  ENG-{GEO}-{SVC}-{YYYY}-{SEQ4} record for a single service_line, tied to
+ *  an already-registered property (pid). Status must be 'prospect' at
+ *  creation (confirmed against the live DB CHECK constraint 2026-08-31 —
+ *  'proposal' is rejected with a 400 even though an older version of this
+ *  comment, following the checked-out registry repo's own validator,
+ *  claimed otherwise); use updateEngagement to move it to 'active' once
+ *  signed. */
+export async function createEngagement(
+  env: Env, payload: RegistryEngagementPayload
+): Promise<RegistryEngagementRecord> {
+  return registryFetch<RegistryEngagementRecord>(env, '/v1/engagements', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+/** PATCH /v1/engagements/:eid — Admin tier. Used at signing to move status
+ *  'proposal' -> 'active' and record signed_date (eid/pid/hgid/service_line/
+ *  geo are immutable — the registry rejects any attempt to change them). */
+export async function updateEngagement(
+  env: Env, eid: string, patch: Partial<Pick<RegistryEngagementPayload,
+    'status' | 'hubspot_deal_id' | 'signed_proposal_id' | 'signed_date' | 'start_date'>>
+): Promise<RegistryEngagementRecord> {
+  return registryFetch<RegistryEngagementRecord>(env, `/v1/engagements/${encodeURIComponent(eid)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
   })
 }

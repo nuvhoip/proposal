@@ -347,7 +347,7 @@ export default function NewProposalPage() {
   // instead of an empty field that only relies on documentModel.ts's
   // invisible build-time fallback (buildDefaultIntroMessage — same text).
   // Service/hotel name aren't chosen yet this early in the wizard, so this
-  // uses literal `[service]`/`[Hotel Name]` placeholders for staff to fill
+  // uses literal `[service]`/`[Property Name]` placeholders for staff to fill
   // in. Never runs on an edit-mode load, and only while the field is still
   // at its initial empty state, so it doesn't clobber a manual edit made
   // afterwards — same guard as the staffId effect above.
@@ -355,7 +355,7 @@ export default function NewProposalPage() {
     if (editId) return
     setDraft(d => d.sender.message ? d : ({
       ...d,
-      sender: { ...d.sender, message: buildDefaultIntroMessage('[service]', d.hotel.name || '[Hotel Name]') },
+      sender: { ...d.sender, message: buildDefaultIntroMessage('[service]', d.hotel.name || '[Property Name]') },
     }))
   }, [editId])
 
@@ -869,7 +869,7 @@ function Step1HotelDetails({
   const [hgResolveError, setHgResolveError] = useState('')
 
   // NUVCL-122: Property (PRP) selector sourced from the Master Registry,
-  // replacing the free-text Hotel Name field once a hotel group (hgid) is
+  // replacing the free-text Property name field once a hotel group (hgid) is
   // linked. Property *creation* stays paused (ENABLE_HOTEL_GROUP_CREATION,
   // above) — this only lets staff pick among a group's existing registry
   // properties, mirroring the same auto-select-when-one-result pattern
@@ -1560,13 +1560,13 @@ function Step1HotelDetails({
       </div>
 
       <div className="form-grid">
-        {/* NUVCL-122: once a hotel group is linked, Hotel Name becomes a
+        {/* NUVCL-122: once a hotel group is linked, Property name becomes a
             Property (PRP) picker sourced from the Master Registry instead of
             free text. Falls back to a plain text field when no hotel group
             is linked yet, or when the linked group has no registry
             properties (property creation from here is paused — see
             ENABLE_HOTEL_GROUP_CREATION above). */}
-        <FormField label="Hotel name *" error={errors.hotelName || hgPropertiesError} span={2}>
+        <FormField label="Property name *" error={errors.hotelName || hgPropertiesError} span={2}>
           {!h.hgid ? (
             <input className="nv-input" placeholder="e.g. The Langham Sydney"
               value={h.name} onChange={e => update('name', e.target.value)} />
@@ -3010,22 +3010,12 @@ function Step7Preview({ draft, setDraft, errors, staff = [] }: StepProps) {
   const total = draft.services.reduce((acc, s) => acc + s.monthlyFee * s.term + s.setupFee, 0)
   const model = buildDocModelFromDraft(draft, staff)
 
-  // NUVCL-131: one "Page Break" checkbox per document category, mirroring
-  // the same show/hide rules ProposalDocument.tsx uses for each section
-  // (a category that's hidden from the document — e.g. Background when
-  // Services/Step 2 was skipped — has nothing to add a page break to, so
-  // it's left out of this list too). Toggling a checkbox writes straight
-  // into draft.terms.pageBreaks, which buildDocModelFromDraft/documentModel
-  // already thread through to model.pageBreaks and, from there, to
-  // ProposalDocument's breakClass() helper on the section it applies to.
-  const pageBreakCategories: { key: string; label: string; show: boolean }[] = [
-    { key: 'background', label: 'Background',        show: model.services.length > 0 },
-    { key: 'scope',       label: 'Scope of Works',     show: model.services.length > 0 },
-    { key: 'nuvho',       label: model.companyName || 'Nuvho Pty Ltd', show: true },
-    { key: 'fees',        label: 'Fee Structure',      show: model.services.length > 0 },
-    { key: 'appendix',   label: 'Terms & Conditions',  show: model.services.length > 0 && model.clauses.length > 0 },
-  ]
-
+  // NUVCL-132: "Page Break" checkboxes now render INLINE at the right of
+  // each category heading, inside ProposalDocument itself (pageBreakEditable
+  // + onTogglePageBreak below) — replacing the earlier separate panel above
+  // the whole preview, per Odysseus's reference image. Toggling a checkbox
+  // writes straight into draft.terms.pageBreaks, which buildDocModelFromDraft
+  // /documentModel already thread through to model.pageBreaks.
   function togglePageBreak(key: string, checked: boolean) {
     setDraft(d => ({
       ...d,
@@ -3039,7 +3029,7 @@ function Step7Preview({ draft, setDraft, errors, staff = [] }: StepProps) {
       <p className="step-desc">Review proposal details before generating the document. Sending happens afterwards, from the proposal&apos;s detail page.</p>
 
       <div className="preview-summary">
-        <SummaryRow label="Hotel"    value={draft.hotel.name || '—'} />
+        <SummaryRow label="Property" value={draft.hotel.name || '—'} />
         <SummaryRow label="Contact"  value={`${draft.hotel.contactName} — ${draft.hotel.contactEmail}`} />
         <SummaryRow label="Services" value={draft.services.map(s => s.code).join(', ') || '—'} />
         <SummaryRow label="Total value" value={`$${total.toLocaleString('en-AU')}`} bold />
@@ -3060,37 +3050,18 @@ function Step7Preview({ draft, setDraft, errors, staff = [] }: StepProps) {
         <strong> Send</strong> button (which always asks you to confirm) when you&apos;re ready to send it.
       </div>
 
-      <div className="page-break-panel">
-        <h3 className="preview-doc-heading">Page Breaks</h3>
-        <p className="step-desc">
-          Check a category to force it onto a new page when the PDF is generated. Unchecked
-          categories flow onto the same page as the one before them, space permitting.
-        </p>
-        {pageBreakCategories.filter(c => c.show).map(c => (
-          <label key={c.key} className="page-break-row">
-            <span>{c.label}</span>
-            <span className="page-break-toggle">
-              <input
-                type="checkbox"
-                checked={!!draft.terms.pageBreaks?.[c.key]}
-                onChange={e => togglePageBreak(c.key, e.target.checked)}
-              />
-              Page Break
-            </span>
-          </label>
-        ))}
-      </div>
-
       <div className="preview-doc-header">
         <div>
           <h3 className="preview-doc-heading">Document Preview</h3>
           <p className="step-desc">
-            This is the structure the generated proposal document will follow. Downloading a PDF or
-            Word copy is available once it&apos;s saved — from the proposal&apos;s detail page.
+            This is the structure the generated proposal document will follow, shown at actual A4
+            size so line-wrapping and margins match the generated PDF. Check a category's "Page
+            Break" box to force it onto a new page. Downloading a PDF or Word copy is available
+            once it&apos;s saved — from the proposal&apos;s detail page.
           </p>
         </div>
       </div>
-      <ProposalDocument model={model} />
+      <ProposalDocument model={model} pageBreakEditable onTogglePageBreak={togglePageBreak} />
 
       <style jsx>{`
         .preview-summary {
@@ -3107,38 +3078,6 @@ function Step7Preview({ draft, setDraft, errors, staff = [] }: StepProps) {
           font-size: 13px;
           color: var(--nv-text-muted);
           line-height: 1.6;
-        }
-        .page-break-panel {
-          margin-top: 28px;
-          border: 1px solid var(--nv-border-hair);
-          border-radius: 10px;
-          padding: 16px 20px;
-        }
-        .page-break-row {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 16px;
-          padding: 10px 0;
-          border-top: 1px solid var(--nv-border-hair);
-          font-size: 13.5px;
-          cursor: pointer;
-        }
-        .page-break-row:first-of-type {
-          border-top: none;
-        }
-        .page-break-toggle {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          font-size: 12.5px;
-          color: var(--nv-text-muted);
-          white-space: nowrap;
-        }
-        .page-break-toggle input {
-          width: 16px;
-          height: 16px;
-          cursor: pointer;
         }
         .preview-doc-header {
           margin-top: 28px;
@@ -3279,7 +3218,7 @@ function validateStep(draft: ProposalDraft): Record<string, string> {
   if (draft.step === 1) {
     if (!draft.hotel.hgid || !draft.hotel.entityCode)
                                     errs.hgid         = 'Select a hotel group from the registry lookup'
-    if (!draft.hotel.name)          errs.hotelName    = 'Hotel name is required'
+    if (!draft.hotel.name)          errs.hotelName    = 'Property name is required'
     if (!draft.hotel.contactName)   errs.contactName  = 'Contact name is required'
     if (!draft.hotel.contactEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.hotel.contactEmail))
       errs.contactEmail = 'Valid email required'

@@ -31,7 +31,7 @@ export function buildCoverUrl(template: string, photoUrl?: string): string {
 
 // Shared with the wizard's Step 1 "Personal message" editor (see
 // app/(app)/proposals/new/page.tsx), which auto-fills a new proposal's
-// message field with this same text (using literal `[service]`/`[Hotel Name]`
+// message field with this same text (using literal `[service]`/`[Property Name]`
 // placeholders, since neither is known yet at Step 1) so staff see and can
 // edit a real starting paragraph instead of an empty field backed only by
 // this invisible build-time fallback.
@@ -40,7 +40,7 @@ export function buildDefaultIntroMessage(serviceLabel: string, hotelName: string
 }
 
 // Resolves a Step 1 message — which may be empty, the untouched default
-// above (with its literal `[service]`/`[Hotel Name]` tokens, since neither
+// above (with its literal `[service]`/`[Property Name]` tokens, since neither
 // is known that early in the wizard), or a staff-edited version that still
 // carries those same tokens — into final HTML with the proposal's real
 // service and hotel name substituted in at document/PDF generation time, so

@@ -268,23 +268,34 @@ INSERT OR IGNORE INTO service_categories (code, label, description, sort_order, 
 -- record (POST /v1/proposals) only accepts a single service_line, but a
 -- Nuvho proposal can bundle several (RM, SM, MK, CR…), so each service gets
 -- its own canonical PROP-{GEO}-{YYYY}-{SEQ4} record, linked back here.
+-- pid/eid/eid_display/eid_sync_error/eid_synced_at (migration 0014) track
+-- the same row's Engagement (EID, ENG-{GEO}-{SVC}-{YYYY}-{SEQ4}) sync,
+-- independently of the prop_id columns above — engagement creation needs an
+-- already-registered property (pid), which prop_id sync does not, so the
+-- two can succeed/fail independently for the same service line.
 CREATE TABLE IF NOT EXISTS proposal_registry_links (
-  id            TEXT PRIMARY KEY,
-  proposal_id   TEXT NOT NULL REFERENCES proposals(id) ON DELETE CASCADE,
-  service_line  TEXT NOT NULL,
-  hgid          TEXT NOT NULL,
-  entity_code   TEXT NOT NULL,
-  geo           TEXT NOT NULL,
-  prop_id       TEXT,                  -- registry-assigned id; null until synced
-  status        TEXT NOT NULL DEFAULT 'draft',
-  sync_error    TEXT,
-  synced_at     TEXT,
-  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  id             TEXT PRIMARY KEY,
+  proposal_id    TEXT NOT NULL REFERENCES proposals(id) ON DELETE CASCADE,
+  service_line   TEXT NOT NULL,
+  hgid           TEXT NOT NULL,
+  entity_code    TEXT NOT NULL,
+  geo            TEXT NOT NULL,
+  prop_id        TEXT,                 -- registry-assigned Proposal record id; null until synced
+  status         TEXT NOT NULL DEFAULT 'draft',
+  sync_error     TEXT,
+  synced_at      TEXT,
+  pid            TEXT,                 -- registry Property id this service's Engagement is tied to (from hotel.pid)
+  eid            TEXT,                 -- registry-assigned Engagement id (structural); null until synced
+  eid_display    TEXT,                 -- registry-assigned Engagement id (display, ENG-{slug}-{svc}-{seq3})
+  eid_sync_error TEXT,
+  eid_synced_at  TEXT,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_prl_proposal ON proposal_registry_links(proposal_id);
 CREATE INDEX IF NOT EXISTS idx_prl_prop_id  ON proposal_registry_links(prop_id);
+CREATE INDEX IF NOT EXISTS idx_prl_eid      ON proposal_registry_links(eid);
 
 -- ── Engagements ───────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS engagements (

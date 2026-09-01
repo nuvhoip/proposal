@@ -68,7 +68,7 @@ export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
 
   // Cover / title block
   children.push(new Paragraph({ text: model.title, heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER, spacing: { after: 100 } }))
-  children.push(new Paragraph({ text: model.hotelName || '[Hotel Name]', alignment: AlignmentType.CENTER, spacing: { after: 40 } }))
+  children.push(new Paragraph({ text: model.hotelName || '[Property Name]', alignment: AlignmentType.CENTER, spacing: { after: 40 } }))
   children.push(new Paragraph({ text: model.dateIssued, alignment: AlignmentType.CENTER, spacing: { after: 400 } }))
 
   // Letter
@@ -82,7 +82,7 @@ export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
     })
   }
   children.push(new Paragraph({ text: model.contactName || '[Client Name]' }))
-  children.push(new Paragraph({ text: model.hotelName || '[Hotel Name]' }))
+  children.push(new Paragraph({ text: model.hotelName || '[Property Name]' }))
   children.push(new Paragraph({ text: model.propertyAddress || '[Property Address]', spacing: { after: 500 } }))
   children.push(new Paragraph({ children: [new TextRun({ text: `RE: ${model.title}`, bold: true })], spacing: { after: 200 } }))
   children.push(body(`Dear ${getFirstName(model.contactName) || '[Client Name]'},`))

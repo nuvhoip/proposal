@@ -519,7 +519,10 @@ a.nv-sidebar-subnav-item.nv-sidebar-subnav-item--active {
   }
   /* NUVCL-131: "Page Break" checkbox on each Preview & Save category
      (Step7Preview) — forces that section onto a fresh sheet in the
-     generated PDF. No effect on the on-screen preview. */
+     generated PDF. ProposalDocument.tsx's renderFlowPages() separately
+     reads the same model.pageBreaks map to start a new on-screen .doc-flow
+     "page" card at the same point, so this now has a matching on-screen
+     effect too — this rule here only governs the print/PDF pagination. */
   #proposal-print-root .doc-section--break {
     page-break-before: always;
     break-before: page;
@@ -527,8 +530,11 @@ a.nv-sidebar-subnav-item.nv-sidebar-subnav-item--active {
 
   /* Denser print typography than the on-screen sizing (13px/1.7 is roomy
      for a screen card but wastes pages on paper) so more content fits per
-     sheet now that sections share pages. */
-  #proposal-print-root .doc-heading {
+     sheet now that sections share pages. NUVCL-132: targets .doc-heading-row
+     now (the border/spacing moved there so an inline "Page Break" checkbox
+     could sit at the heading's right on-screen — the checkbox itself never
+     renders here, since pageBreakEditable is only ever true in the wizard). */
+  #proposal-print-root .doc-heading-row {
     margin-bottom: 6px;
     padding-bottom: 4px;
     page-break-after: avoid;
@@ -544,10 +550,11 @@ a.nv-sidebar-subnav-item.nv-sidebar-subnav-item--active {
   /* NUVCL-131 (2026-08-25): Ody's 2026-08-24 print suppression of the
      Business Number line is reversed here — the line has been relocated
      from the letterhead down to directly below the signature (with a
-     horizontal rule) per Ody's latest request, and should now print. The
-     fuller legal footer block near the Appendix, a separate on-page
-     element, stays hidden from the PDF as before. */
-  #proposal-print-root .doc-legal-footer    { display: none; }
+     horizontal rule), and should now print. NUVCL-132: the fuller legal
+     footer block near the Appendix that used to duplicate this text (and
+     the display:none rule that hid it from print) has been removed
+     entirely from ProposalDocument.tsx — the text now renders once, only
+     on the cover letter. */
   #proposal-print-root .doc-clause         { margin-bottom: 6px; }
 
   /* Keep short, indivisible chunks intact rather than sliced across a page

@@ -21,7 +21,7 @@ const STATUS_CLASSES: Record<string, string> = {
 // fetch a monthly-value total per row (it always renders "—"), and the
 // trailing action column has no data of its own.
 const COLUMNS: { label: string; key: string | null }[] = [
-  { label: 'ID',       key: 'np_id' },
+  { label: 'ID',       key: 'prop_id' },
   { label: 'Hotel',    key: 'hotel_name' },
   { label: 'Contact',  key: 'contact_name' },
   { label: 'Services', key: 'service_codes' },
@@ -54,14 +54,34 @@ export default function ProposalsPage() {
   const [sortKey,   setSortKey]   = useState<string | null>(null)
   const [sortDir,   setSortDir]   = useState<'asc' | 'desc'>('asc')
 
+  // Extracted so it can run both on mount/filter-change AND whenever the
+  // user comes back to this tab — e.g. after signing a proposal on its
+  // public /p/{token} page (opened via Copy Link, often in a separate tab)
+  // or updating it from the detail page. Without this, the list only ever
+  // fetched once on mount, so a status/expiry change made elsewhere never
+  // showed up here until a manual hard refresh.
   useEffect(() => {
-    const url = filter
-      ? `${WORKER}/proposals?status=${filter}`
-      : `${WORKER}/proposals`
-    fetch(url, { credentials: 'include' })
-      .then(r => r.json())
-      .then(j => setProposals(j.data?.proposals || []))
-      .finally(() => setLoading(false))
+    function loadProposals() {
+      const url = filter
+        ? `${WORKER}/proposals?status=${filter}`
+        : `${WORKER}/proposals`
+      fetch(url, { credentials: 'include' })
+        .then(r => r.json())
+        .then(j => setProposals(j.data?.proposals || []))
+        .finally(() => setLoading(false))
+    }
+
+    loadProposals()
+
+    function onVisible() {
+      if (document.visibilityState === 'visible') loadProposals()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', loadProposals)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', loadProposals)
+    }
   }, [filter])
 
   // Default (no column clicked yet) keeps the API's own order — newest
@@ -71,8 +91,8 @@ export default function ProposalsPage() {
     if (!sortKey) return proposals
     const dir = sortDir === 'asc' ? 1 : -1
     return [...proposals].sort((a, b) => {
-      const av = sortKey === 'np_id' ? (a.np_id || a.id) : a[sortKey]
-      const bv = sortKey === 'np_id' ? (b.np_id || b.id) : b[sortKey]
+      const av = sortKey === 'prop_id' ? (a.prop_id || a.np_id || a.id) : a[sortKey]
+      const bv = sortKey === 'prop_id' ? (b.prop_id || b.np_id || b.id) : b[sortKey]
       return compareValues(av, bv) * dir
     })
   }, [proposals, sortKey, sortDir])
@@ -168,7 +188,7 @@ export default function ProposalsPage() {
                   <td style={{ padding: '14px 16px', fontFamily: 'monospace', fontSize: 11,
                                color: 'var(--nv-text-muted)' }}
                       title={p.id}>
-                    {p.np_id || p.id?.slice(-8)}
+                    {p.prop_id || p.np_id || p.id?.slice(-8)}
                   </td>
                   <td style={{ padding: '14px 16px', fontWeight: 600,
                                color: 'var(--nv-text-heading)' }}>

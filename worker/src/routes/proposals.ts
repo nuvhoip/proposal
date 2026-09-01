@@ -6,7 +6,8 @@ import { ok, err } from '../lib/response'
 import { ulid, randomToken } from '../lib/ulid'
 import {
   createRegistryProposal, updateRegistryProposal, reserveNpId, RegistryError,
-  type RegistryServiceLine, type RegistryProposalStatus,
+  createEngagement, updateEngagement, toRegistryServiceLine,
+  type RegistryProposalStatus, type RegistryEngagementStatus,
 } from '../lib/registry'
 import { formatNpIdLocal } from '../lib/npId'
 import { sendMailViaGraph } from '../lib/graph'
@@ -18,7 +19,7 @@ export async function listProposals(request: Request, env: Env, session: Session
   const limit  = parseInt(url.searchParams.get('limit') || '50')
   const offset = parseInt(url.searchParams.get('offset') || '0')
 
-  let query = 'SELECT p.*, GROUP_CONCAT(ps.code) as service_codes FROM proposals p LEFT JOIN proposal_services ps ON ps.proposal_id = p.id'
+  let query = 'SELECT p.*, GROUP_CONCAT(DISTINCT ps.code) as service_codes, MIN(prl.prop_id) as prop_id FROM proposals p LEFT JOIN proposal_services ps ON ps.proposal_id = p.id LEFT JOIN proposal_registry_links prl ON prl.proposal_id = p.id'
   const binds: any[] = []
 
   if (status) {
@@ -107,13 +108,14 @@ export async function getProposal(proposalId: string, env: Env, session: Session
   const sender = await env.DB.prepare('SELECT * FROM staff WHERE id = ?')
     .bind(proposal.sender_staff_id).first()
 
-  // hgid/entity_code aren't columns on `proposals` itself (they live per
-  // service-line in proposal_registry_links) — pull them from the first
-  // linked row so the edit wizard can pre-fill Step 1. All bundled service
-  // lines share the same hotel group, so any row's values are correct.
+  // hgid/entity_code/prop_id aren't columns on `proposals` itself (they live
+  // in proposal_registry_links) — pull them from the first linked row so the
+  // edit wizard can pre-fill Step 1. All bundled service lines share the
+  // same hotel group AND (since the 2026-08-31 fix) the same registry
+  // Proposal record/prop_id, so any row's values are correct.
   const registryLink = await env.DB.prepare(
-    'SELECT hgid, entity_code FROM proposal_registry_links WHERE proposal_id = ? LIMIT 1'
-  ).bind(proposalId).first<{ hgid: string; entity_code: string }>()
+    'SELECT hgid, entity_code, prop_id, sync_error FROM proposal_registry_links WHERE proposal_id = ? LIMIT 1'
+  ).bind(proposalId).first<{ hgid: string; entity_code: string; prop_id: string | null; sync_error: string | null }>()
 
   const termsRow = await env.DB.prepare('SELECT * FROM proposal_terms WHERE proposal_id = ?')
     .bind(proposalId).first<TermsRow>()
@@ -127,10 +129,30 @@ export async function getProposal(proposalId: string, env: Env, session: Session
     id: a.id, filename: a.filename, contentType: a.content_type, sizeBytes: a.size_bytes,
   }))
 
+  // Engagement ID (EID) sync status per bundled service line — the
+  // registry-issued ENG-{GEO}-{SVC}-{YYYY}-{SEQ4} id, distinct from the
+  // proposal's own np_id (see registry.ts's Engagements section). Often
+  // null: creating one requires an already-registered property (pid),
+  // which most proposals don't have yet (NUVCL-122's Property selector is
+  // still pending) — eid_sync_error explains why for the ones that failed.
+  const { results: registryLinks } = await env.DB.prepare(
+    'SELECT service_line, prop_id, eid, eid_display, eid_sync_error FROM proposal_registry_links WHERE proposal_id = ?'
+  ).bind(proposalId).all<{
+    service_line: string; prop_id: string | null
+    eid: string | null; eid_display: string | null; eid_sync_error: string | null
+  }>()
+
   return ok({
     ...proposal, services: servicesWithChildren, sender, terms, attachments,
     hgid: registryLink?.hgid ?? null,
     entity_code: registryLink?.entity_code ?? null,
+    // Registry runbook (2026-08-31): the canonical "Proposal ID" shown to
+    // users is now the Master Registry's own PROP-{GEO}-{YYYY}-{SEQ4} record
+    // (prop_id) — one per bundled document — not the locally-generated
+    // np_id. prop_id_sync_error explains a null prop_id.
+    prop_id: registryLink?.prop_id ?? null,
+    prop_id_sync_error: registryLink?.sync_error ?? null,
+    registryLinks,
   })
 }
 
@@ -213,31 +235,95 @@ export async function createProposal(request: Request, env: Env, session: Sessio
   // Persist Terms & Conditions (Step 7 of the wizard) — one row per proposal
   await upsertTerms(env, proposalId, body.terms)
 
-  // Register each bundled service line as its own canonical proposal record
-  // in the Nuvho Master Registry (register.nuvho.com). Partial failures are
-  // recorded per-row in proposal_registry_links rather than blocking the
-  // local proposal — see syncRegistryStatus() for the retry-on-status-change path.
-  for (const svc of services) {
-    let propId: string | null = null
-    let syncedAt: string | null = null
-    let syncError: string | null = null
+  // Register ONE canonical registry Proposal record for the whole bundled
+  // document (Master Registry runbook, Workflow 2 default: a single
+  // PROP-{GEO}-{YYYY}-{SEQ4} id per document, regardless of how many
+  // service lines it bundles — replaces the old one-record-per-line
+  // behaviour). Pick the first bundled service line with a valid registry
+  // mapping as the record's required (single) service_line — per the
+  // runbook, which one is chosen doesn't matter, since the real per-line
+  // detail lives on each line's own Engagement record below. AND (if a
+  // property is linked) create an Engagement (EID) per bundled service
+  // line, each pointing back at this one shared prop_id via
+  // signed_proposal_id. Partial failures are recorded per-row in
+  // proposal_registry_links rather than blocking the local proposal — see
+  // syncRegistryStatus()/syncEngagementStatus() for the retry-on-status-
+  // change path.
+  let propId: string | null = null
+  let propSyncedAt: string | null = null
+  let propSyncError: string | null = null
+  const representativeSvc = services
+    .map(svc => ({ svc, registrySvcLine: toRegistryServiceLine(svc.code) }))
+    .find(x => x.registrySvcLine)
+  if (representativeSvc) {
     try {
       const record = await createRegistryProposal(env, {
         hgid: hotel.hgid,
         entity_code: hotel.entityCode,
-        service_line: svc.code as RegistryServiceLine,
+        service_line: representativeSvc.registrySvcLine!,
         geo,
         status: 'draft',
+        expires_at: expiresAt,
         hubspot_deal_id: hotel.hubspotDealId || null,
       })
       propId = record.prop_id
-      syncedAt = new Date().toISOString()
+      propSyncedAt = new Date().toISOString()
     } catch (e) {
-      syncError = e instanceof RegistryError
+      propSyncError = e instanceof RegistryError
         ? `${e.code}: ${e.message}`
         : (e instanceof Error ? e.message : 'Unknown registry error')
-      console.error('[Registry sync] proposal create failed:', svc.code, syncError)
+      console.error('[Registry sync] proposal create failed:', propSyncError)
     }
+  } else if (services.length) {
+    propSyncError = `No registry service_line mapping for any bundled service (${services.map(s => s.code).join(', ')})`
+  }
+
+  for (const svc of services) {
+    // registry.service_line_codes only accepts the new 8-code list (AD/CR/
+    // ES/MM/MS/RD/SM/SY as of the 2026-08-14 migration) — svc.code is this
+    // app's own scheme (RM/SM/CR/MK/...), so it must be translated before
+    // it ever reaches the registry. See toRegistryServiceLine's comment in
+    // registry.ts for the mapping and why it exists.
+    const registrySvcLine = toRegistryServiceLine(svc.code)
+
+    // Engagement (EID) creation additionally requires an already-registered
+    // Property (pid) — hotel.pid is only set once a hotel-group property has
+    // actually been selected (NUVCL-122's Property selector is still
+    // pending for the free-text case), so this is expected to be skipped
+    // for many proposals today rather than treated as an error.
+    let eid: string | null = null
+    let eidDisplay: string | null = null
+    let eidSyncedAt: string | null = null
+    let eidSyncError: string | null = null
+    if (!registrySvcLine) {
+      eidSyncError = `No registry service_line mapping for '${svc.code}'`
+    } else if (!hotel.pid) {
+      eidSyncError = 'No linked property (pid) — link a registered property to enable an Engagement ID'
+    } else if (!propId) {
+      eidSyncError = 'The shared registry Proposal record failed to create — see the Proposal ID sync error'
+    } else {
+      try {
+        const record = await createEngagement(env, {
+          pid: hotel.pid,
+          hgid: hotel.hgid,
+          entity_code: hotel.entityCode,
+          service_line: registrySvcLine,
+          geo,
+          status: 'prospect',
+          hubspot_deal_id: hotel.hubspotDealId || null,
+          signed_proposal_id: propId,
+        })
+        eid = record.eid
+        eidDisplay = record.display_id ?? null
+        eidSyncedAt = new Date().toISOString()
+      } catch (e) {
+        eidSyncError = e instanceof RegistryError
+          ? `${e.code}: ${e.message}`
+          : (e instanceof Error ? e.message : 'Unknown registry error')
+        console.error('[Registry sync] engagement create failed:', svc.code, eidSyncError)
+      }
+    }
+
     // Not wrapping this write meant a missing/out-of-date proposal_registry_links
     // table (e.g. a deploy that shipped before the matching D1 migration ran)
     // took down the entire "save draft" request with a generic 500, even though
@@ -246,9 +332,13 @@ export async function createProposal(request: Request, env: Env, session: Sessio
     try {
       await env.DB.prepare(`
         INSERT INTO proposal_registry_links (
-          id, proposal_id, service_line, hgid, entity_code, geo, prop_id, status, sync_error, synced_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)
-      `).bind(ulid(), proposalId, svc.code, hotel.hgid, hotel.entityCode, geo, propId, syncError, syncedAt).run()
+          id, proposal_id, service_line, hgid, entity_code, geo, prop_id, status, sync_error, synced_at,
+          pid, eid, eid_display, eid_sync_error, eid_synced_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        ulid(), proposalId, svc.code, hotel.hgid, hotel.entityCode, geo, propId, propSyncError, propSyncedAt,
+        hotel.pid || null, eid, eidDisplay, eidSyncError, eidSyncedAt,
+      ).run()
     } catch (e) {
       console.error('[Registry sync] failed to write proposal_registry_links row:', svc.code, e)
     }
@@ -296,6 +386,43 @@ async function syncRegistryStatus(
       console.error('[Registry sync] status update failed:', link.prop_id, message)
       await env.DB.prepare(
         `UPDATE proposal_registry_links SET sync_error = ? WHERE id = ?`
+      ).bind(message, link.id).run()
+    }
+  }
+}
+
+/**
+ * Mirrors syncRegistryStatus() above but for each linked Engagement (eid)
+ * instead of the Proposal (prop_id) record — the two are independent rows
+ * in the registry (see registry.ts's Engagements section), so this is a
+ * separate loop rather than folded into syncRegistryStatus. Called at
+ * signing to move each engagement from 'proposal' to 'active' and record
+ * signed_date. A proposal with no linked eid (no property was registered at
+ * generation time) simply has nothing to update here — not an error.
+ */
+async function syncEngagementStatus(
+  env: Env,
+  proposalId: string,
+  status: RegistryEngagementStatus,
+  extra: { signed_date?: string; start_date?: string } = {}
+): Promise<void> {
+  const { results: links } = await env.DB.prepare(
+    `SELECT id, eid FROM proposal_registry_links WHERE proposal_id = ? AND eid IS NOT NULL`
+  ).bind(proposalId).all<{ id: string; eid: string }>()
+
+  for (const link of links) {
+    try {
+      await updateEngagement(env, link.eid, { status, ...extra })
+      await env.DB.prepare(
+        `UPDATE proposal_registry_links SET eid_synced_at = ?, eid_sync_error = NULL WHERE id = ?`
+      ).bind(new Date().toISOString(), link.id).run()
+    } catch (e) {
+      const message = e instanceof RegistryError
+        ? `${e.code}: ${e.message}`
+        : (e instanceof Error ? e.message : 'Unknown registry error')
+      console.error('[Registry sync] engagement status update failed:', link.eid, message)
+      await env.DB.prepare(
+        `UPDATE proposal_registry_links SET eid_sync_error = ? WHERE id = ?`
       ).bind(message, link.id).run()
     }
   }
@@ -820,8 +947,38 @@ export async function signProposal(token: string, request: Request, env: Env): P
 
   await auditLog(env, proposal.id, 'signed', proposal.contact_email, { signatoryName, signatureMethod })
 
-  // Sync status to every linked registry proposal record (best-effort)
+  // Sync status to every linked registry proposal record (best-effort).
+  //
+  // The Master Registry enforces a strict state machine on its own Proposal
+  // records (nuvho_master_registry/src/services/proposals.js:
+  // STATUS_TRANSITIONS = { draft: ['sent','declined','expired'], sent:
+  // ['signed','declined','expired'], ... }) — there is NO direct
+  // draft -> signed transition. A proposal only reaches 'sent' there via
+  // sendProposal() (below) calling syncRegistryStatus(..., 'sent', ...).
+  // If a proposal is signed WITHOUT ever going through Send first (this app
+  // allows sharing/opening the public /p/{token} link straight from a draft
+  // — e.g. while testing), the registry PATCH here would be rejected with
+  // INVALID_TRANSITION, and since syncRegistryStatus only records that into
+  // proposal_registry_links.sync_error (never surfaced once prop_id already
+  // exists — see getProposal's prop_id_sync_error handling), the registry's
+  // Proposal record would silently stay stuck on 'draft' forever, even
+  // though the local proposal and every linked Engagement update fine
+  // (Engagement's own status field has no such transition restriction,
+  // which is why "the engagement shows active/signed but the proposal
+  // still shows draft" can happen without any error being visible). Bridge
+  // through 'sent' first whenever the proposal reached us still in 'draft',
+  // so the registry's status machine is always satisfied regardless of
+  // whether Send was actually used.
+  if (proposal.status === 'draft') {
+    await syncRegistryStatus(env, proposal.id, 'sent', { sent_at: new Date().toISOString() })
+  }
   await syncRegistryStatus(env, proposal.id, 'signed', { signed_at: new Date().toISOString() })
+  // ...and move every linked Engagement from 'proposal' to 'active' too —
+  // this is the "update the one in the master registry" half of signing.
+  // signed_date is date-only (registry column is DATE, not TIMESTAMP).
+  await syncEngagementStatus(env, proposal.id, 'active', {
+    signed_date: new Date().toISOString().slice(0, 10),
+  })
 
   // Trigger A3–A9 automations
   const ctx = (globalThis as any).__executionContext

@@ -56,7 +56,7 @@ function getBusinessNumberLine(footerText: string): string {
   return (footerText || '').split('\n')[0]?.trim() || ''
 }
 
-export function ProposalDocument({ model, beforeAppendix }: {
+export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onTogglePageBreak }: {
   model: ProposalDocModel
   // Rendered inside .doc-flow immediately before the Terms & Conditions /
   // Appendix section (or at the end of .doc-flow if there's no Appendix to
@@ -66,6 +66,16 @@ export function ProposalDocument({ model, beforeAppendix }: {
   // "no-print" class (see globals.css) so it doesn't appear in the PDF —
   // ProposalDocument itself doesn't assume one way or the other.
   beforeAppendix?: React.ReactNode
+  // NUVCL-132: when true, each category heading (Background, Scope of
+  // Works, the company-name section, Fee Structure, Terms & Conditions)
+  // shows an inline "Page Break" checkbox at its right — only the wizard's
+  // Step7Preview passes this (with onTogglePageBreak wired to draft.terms.
+  // pageBreaks); the internal Proposal Details page and the public sign
+  // page render the document read-only and never set it, so the checkbox
+  // never appears outside the wizard and never prints (it also carries
+  // .no-print as a second line of defense).
+  pageBreakEditable?: boolean
+  onTogglePageBreak?: (sectionKey: string, checked: boolean) => void
 }) {
   const multiSvc = model.services.length > 1
   // A step that was skipped (left with no usable content) drops both its
@@ -88,17 +98,46 @@ export function ProposalDocument({ model, beforeAppendix }: {
   const showAppendix     = showServices && model.clauses.length > 0
   const tocItems = buildTocItems(model.companyName, { showBackground, showScope, showFees, showAppendix })
 
-  // "Page Break" checkboxes from the wizard's Preview & Save step (Step7Preview)
-  // — applies only in print/PDF output (see the .doc-section--break rule in
-  // globals.css's @media print block); has no visual effect on-screen.
+  // "Page Break" checkboxes from the wizard's Preview & Save step
+  // (Step7Preview) — forces the section onto a fresh sheet in the
+  // generated PDF via the .doc-section--break rule in globals.css's
+  // @media print block. The inline page-grouping IIFE further down in
+  // this component's JSX reads this same model.pageBreaks map to also
+  // start a brand new on-screen .doc-flow "page" card at the same point,
+  // so checking the box now has a visible effect in the preview too (it
+  // used to be print-only).
   function breakClass(sectionKey: string): string {
     return model.pageBreaks?.[sectionKey] ? ' doc-section--break' : ''
+  }
+
+  // NUVCL-132: the heading row for each "Page Break"-able category — the
+  // checkbox only renders in the wizard (pageBreakEditable), sitting to the
+  // right of the heading, on the same border-bottom rule the heading alone
+  // used to draw. Replaces the earlier separate "Page Breaks" panel above
+  // the whole document preview, per Odysseus's reference image.
+  function SectionHeading({ text, sectionKey }: { text: string; sectionKey: string }) {
+    return (
+      <div className="doc-heading-row">
+        <h3 className="doc-heading">{text}</h3>
+        {pageBreakEditable && (
+          <label className="doc-pagebreak-toggle no-print">
+            <input
+              type="checkbox"
+              checked={!!model.pageBreaks?.[sectionKey]}
+              onChange={e => onTogglePageBreak?.(sectionKey, e.target.checked)}
+            />
+            <span className="doc-pagebreak-toggle__label">Page Break</span>
+          </label>
+        )}
+      </div>
+    )
   }
 
   function jumpTo(e: React.MouseEvent, id: string) {
     e.preventDefault()
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
+
 
   // NUVCL-119: four branded A4 cover layouts (from Odysseus's "A4 cover page
   // templates" design export), selected in the wizard's Cover Image step and
@@ -124,7 +163,7 @@ export function ProposalDocument({ model, beforeAppendix }: {
           </div>
           <div className="doc-cover-circles__body">
             <div className="doc-cover-circles__category">{model.title || 'Proposal'}</div>
-            <div className="doc-cover-circles__heading">{model.hotelName || '[Hotel Name]'}</div>
+            <div className="doc-cover-circles__heading">{model.hotelName || '[Property Name]'}</div>
             <div className="doc-cover-circles__meta">
               <span>Issued</span>
               <strong>{model.dateIssued}</strong>
@@ -147,7 +186,7 @@ export function ProposalDocument({ model, beforeAppendix }: {
           </div>
           <div className="doc-cover-split__content">
             <div className="doc-cover-split__category">{model.title || 'Proposal'}</div>
-            <div className="doc-cover-split__heading">{model.hotelName || '[Hotel Name]'}</div>
+            <div className="doc-cover-split__heading">{model.hotelName || '[Property Name]'}</div>
             <div className="doc-cover-split__divider" />
             <div className="doc-cover-split__meta">
               <span>Issued</span>
@@ -170,7 +209,7 @@ export function ProposalDocument({ model, beforeAppendix }: {
           <div className="doc-cover-editorial__body">
             <NuvhoLogo variant="primary" height={70} />
             <div className="doc-cover-editorial__title">{model.title}</div>
-            <div className="doc-cover-editorial__hotel">{model.hotelName || '[Hotel Name]'}</div>
+            <div className="doc-cover-editorial__hotel">{model.hotelName || '[Property Name]'}</div>
             {tocItems.length > 0 && (
               <ul className="doc-cover-editorial__toc">
                 {tocItems.map(item => <li key={item.id}>{item.label}</li>)}
@@ -188,7 +227,7 @@ export function ProposalDocument({ model, beforeAppendix }: {
           </div>
           <div className="doc-cover-sidebar__main">
             <div className="doc-cover-editorial__title">{model.title}</div>
-            <div className="doc-cover-editorial__hotel">{model.hotelName || '[Hotel Name]'}</div>
+            <div className="doc-cover-editorial__hotel">{model.hotelName || '[Property Name]'}</div>
           </div>
         </div>
       )}
@@ -199,7 +238,7 @@ export function ProposalDocument({ model, beforeAppendix }: {
           <div className="doc-cover__scrim">
             <NuvhoLogo variant="white" height={120} />
             <div className="doc-cover__title">{model.title}</div>
-            <div className="doc-cover__hotel">{model.hotelName || '[Hotel Name]'}</div>
+            <div className="doc-cover__hotel">{model.hotelName || '[Property Name]'}</div>
           </div>
         </div>
       )}
@@ -227,7 +266,7 @@ export function ProposalDocument({ model, beforeAppendix }: {
         <div className="doc-address">
           {model.contactName || '[Client Name]'}
           {model.contactTitle && <>, {model.contactTitle}</>}<br />
-          {model.hotelName || '[Hotel Name]'}<br />
+          {model.hotelName || '[Property Name]'}<br />
           {model.propertyAddress || '[Property Address]'}
           {(model.contactEmail || model.contactPhone) && <>
             <br />
@@ -277,203 +316,262 @@ export function ProposalDocument({ model, beforeAppendix }: {
         )}
       </div>
 
-      {/* NUVCL-120: Background through Appendix now share ONE flowing
-          container (.doc-flow) instead of each being its own separate
-          .doc-page "card". This fixes two things at once: (1) on screen,
-          the preview no longer shows a stack of separately-carded sections
-          floating on a grey background — it's one continuous sheet, matching
-          what the PDF actually renders; (2) in print, the 15mm page-margin
-          padding (see globals.css) is now applied ONCE per physical page to
-          the shared wrapper instead of once per SECTION, which is what
-          caused the ~36mm blank gap whenever two short sections (e.g.
-          Background and Scope of Works) landed on the same sheet — each
-          section's own top+bottom padding plus its margin was stacking on
-          top of the next section's padding. Individual sections below only
-          need a small margin-bottom now for visual separation. */}
-      <div className="doc-flow">
-        {/* Background — hidden when Services (Step 2) was skipped, i.e.
-            there's nothing to describe. */}
-        {showBackground && (
-          <div className={`doc-section${breakClass('background')}`} id="doc-section-background">
-            <h3 className="doc-heading">Background</h3>
-            <p>
-              {model.hotelName || 'The property'} has engaged Nuvho to deliver {model.title.toLowerCase()}, with a
-              strong focus on maximising commercial performance and elevating the guest experience. This proposal
-              outlines our recommended scope of works, fee structure and terms of engagement.
-            </p>
-          </div>
-        )}
+      {/* Background through Appendix — grouped into on-screen "page" cards
+          by renderFlowPages() above wherever a "Page Break" box is
+          checked; see that function's own comment for the full
+          explanation. */}
+      {/* Background through Appendix are grouped into on-screen "page"
+          cards wherever a "Page Break" box is checked, instead of always
+          sharing the single .doc-flow card NUVCL-120 introduced. Each
+          group renders as its own .doc-flow — the same white / shadowed /
+          A4-sized card the cover and letter pages already use — so
+          checking the box now visibly starts a brand new page right here
+          (and anywhere else this component renders, e.g. the public sign
+          page). With no boxes checked, every section lands in one group
+          and renders exactly as before — a single continuous .doc-flow
+          sheet. Each section still carries its own breakClass()/
+          page-break-before for print — the PDF pagination is unchanged.
 
-        {/* Scope of Works — hidden when Services (Step 2) was skipped. */}
-        {showScope && (
-          <div className={`doc-section${breakClass('scope')}`} id="doc-section-scope">
-            <h3 className="doc-heading">Scope of Works</h3>
-            <p>
-              We develop a long-term and collaborative partnership with our clients, delivering services and value
-              across the spectrum of hotel operations.
-            </p>
-            {model.services.map(s => {
-              let lastSection: string | null = null
-              return (
-                <div key={s.code} className="doc-service-block">
-                  {multiSvc && <h4 className="doc-subheading">{s.label}</h4>}
-                  {s.scopeItems.filter(it => it.enabled).map(it => {
-                    const showHeading = it.sectionHeading !== lastSection
-                    lastSection = it.sectionHeading
-                    return (
-                      <React.Fragment key={it.id}>
-                        {showHeading && <h5 className="doc-subheading2">{it.sectionHeading}</h5>}
-                        <div className="doc-bullet">{it.text || '—'}</div>
-                      </React.Fragment>
-                    )
-                  })}
-                </div>
-              )
-            })}
-          </div>
-        )}
+          IMPORTANT: this MUST stay an inline IIFE embedded directly in
+          this JSX return statement, not a separately-declared function
+          called from here. styled-jsx's babel transform only auto-scopes
+          JSX literals it can see lexically inside the tree of THIS
+          component's own return statement — it does not reach into a
+          separately-declared function invoked via a call/JSX tag (see
+          the NUVCL-141 comment on SectionHeading below for the same
+          limitation). A prior version of this exact fix hoisted this
+          logic into a standalone `function renderFlowPages()` called as
+          `{renderFlowPages()}` — every non-:global() rule below
+          (.doc-flow, .doc-section, .doc-bullet, .doc-fee-table, etc.)
+          silently stopped applying anywhere this component renders,
+          including the public client sign page, because none of those
+          class names were ever actually attached to the DOM. Do not
+          repeat that mistake — keep this logic inline right here, or if
+          it must move into its own function, mark every CSS rule below
+          it uses as :global() the same way doc-heading-row/doc-heading/
+          doc-pagebreak-toggle already are. */}
+      {(() => {
+      type FlowItem = { key: string; breakBefore: boolean; node: React.ReactNode }
+      const items: FlowItem[] = []
 
-        {/* Nuvho Pty Ltd (Company Name + About — Settings → Region Settings) */}
-        <div className={`doc-section${breakClass('nuvho')}`} id="doc-section-nuvho">
-          <h3 className="doc-heading">{model.companyName || 'Nuvho Pty Ltd'}</h3>
-          <p>
-            {model.aboutNuvho || (
-              'Nuvho is a new breed of hotel services company, providing tailored solutions to clients from a ' +
-              'services, systems and operational perspective. We partner with independent and boutique hotels to ' +
-              'deliver the commercial capability of a larger group, without the overhead.'
-            )}
-          </p>
-        </div>
-
-        {/* Fee Structure — hidden together with Background and Scope of Works
-            whenever Services (Step 2) was skipped. */}
-        {showFees && (
-          <div className={`doc-section${breakClass('fees')}`} id="doc-section-fees">
-            <h3 className="doc-heading">Fee Structure</h3>
-            <p>
-              The following table outlines the associated fee structure of our services. Our fees exclude GST, which
-              will be charged in addition where applicable.
-            </p>
-            <table className="doc-fee-table">
-              <thead>
-                <tr><th>Component</th><th>Fee Type</th><th>Amount</th><th>Months</th><th>Note</th></tr>
-              </thead>
-              <tbody>
-                {model.services.map(s => (
-                  <React.Fragment key={s.code}>
-                    {multiSvc && (
-                      <tr className="doc-fee-table__group"><td colSpan={5}>{s.label}</td></tr>
-                    )}
-                    {s.feeRows.map(row => (
-                      <tr key={row.id}>
-                        <td>{row.component || '—'}</td>
-                        <td>{FEE_TYPES.find(f => f.value === row.feeType)?.label || row.feeType}</td>
-                        <td>{row.fee === '' ? '—' : `${model.currencySymbol}${Number(row.fee).toLocaleString()}`}</td>
-                        <td>{row.term === '' ? '—' : row.term}</td>
-                        <td>{row.note || ''}</td>
-                      </tr>
-                    ))}
-                  </React.Fragment>
-                ))}
-              </tbody>
-            </table>
-            {model.grandTotalMonthly > 0 && (
-              <div className="doc-fee-total">Combined monthly total: {model.currencySymbol}{model.grandTotalMonthly.toLocaleString()}</div>
-            )}
-            {model.footnotes.length > 0 && (
-              <ul className="doc-footnotes">
-                {model.footnotes.map(f => <li key={f.id}>{f.text}</li>)}
-              </ul>
-            )}
-          </div>
-        )}
-
-        {/* Quote Approval section removed — the sender's signature now lives
-            in the letter above, and client acceptance happens via the public
-            sign page's own checkbox/approval flow rather than this static
-            statement. The legal footer is unrelated boilerplate (generic
-            company-registration text), so it always renders as its own
-            section below regardless. */}
-        {model.footerText && (
-          <div className="doc-section">
-            <div className="doc-legal-footer">
-              {model.footerText.split('\n').map((line, i) => <React.Fragment key={i}>{line}<br /></React.Fragment>)}
+      if (showBackground) {
+        items.push({
+          key: 'background',
+          breakBefore: !!model.pageBreaks?.background,
+          node: (
+            <div className={`doc-section${breakClass('background')}`} id="doc-section-background">
+              <SectionHeading text="Background" sectionKey="background" />
+              <p>
+                {model.hotelName || 'The property'} has engaged Nuvho to deliver {model.title.toLowerCase()}, with a
+                strong focus on maximising commercial performance and elevating the guest experience. This proposal
+                outlines our recommended scope of works, fee structure and terms of engagement.
+              </p>
             </div>
-          </div>
-        )}
+          ),
+        })
+      }
 
-        {/* NUVCL-131: the public sign page's interactive Accept & Sign form
-            (unsigned state) renders here via beforeAppendix, directly above
-            Terms & Conditions, instead of below the whole document. Once
-            signed, the caller stops passing beforeAppendix and the captured
-            signature shows instead as the static "Client Acceptance" block
-            below (so it's included when the document is printed to PDF). */}
-        {beforeAppendix}
+      if (showScope) {
+        items.push({
+          key: 'scope',
+          breakBefore: !!model.pageBreaks?.scope,
+          node: (
+            <div className={`doc-section${breakClass('scope')}`} id="doc-section-scope">
+              <SectionHeading text="Scope of Works" sectionKey="scope" />
+              <p>
+                We develop a long-term and collaborative partnership with our clients, delivering services and value
+                across the spectrum of hotel operations.
+              </p>
+              {model.services.map(s => {
+                let lastSection: string | null = null
+                return (
+                  <div key={s.code} className="doc-service-block">
+                    {multiSvc && <h4 className="doc-subheading">{s.label}</h4>}
+                    {s.scopeItems.filter(it => it.enabled).map(it => {
+                      const showHeading = it.sectionHeading !== lastSection
+                      lastSection = it.sectionHeading
+                      return (
+                        <React.Fragment key={it.id}>
+                          {showHeading && <h5 className="doc-subheading2">{it.sectionHeading}</h5>}
+                          <div className="doc-bullet">{it.text || '—'}</div>
+                        </React.Fragment>
+                      )
+                    })}
+                  </div>
+                )
+              })}
+            </div>
+          ),
+        })
+      }
 
-        {/* Appendix — Terms & Conditions — hidden when Services (Step 2) was
-            skipped, or when the resolved entity has no clauses configured. */}
-        {showAppendix && (
-          <div className={`doc-section${breakClass('appendix')}`} id="doc-section-appendix">
-            {/* NUVCL-131: client's captured e-signature, shown at the top of
-                Terms & Conditions once the proposal has been signed — was
-                previously missing from the document/PDF entirely (the
-                signature was only ever written to the DB, never rendered
-                here). */}
-            {model.clientSignedAt && (
-              <div className="doc-client-acceptance">
-                <h4 className="doc-subheading">Client Acceptance</h4>
-                <div className="doc-signature__mark">
-                  {model.clientSignatureMethod === 'draw'
-                    ? (model.clientSignatureDataUrl
-                        ? <img src={model.clientSignatureDataUrl} alt="Client signature" className="doc-signature__img" />
-                        : <span className="doc-empty">Signature not captured</span>)
-                    : (model.clientSignatoryName
-                        ? <span className="doc-signature__script">{model.clientSignatoryName}</span>
-                        : <span className="doc-empty">Signature not captured</span>)}
-                </div>
-                <div className="doc-client-acceptance__meta">
-                  <strong>{model.clientSignatoryName || '[Client Name]'}</strong>
-                  {model.clientSignatoryTitle && <>, {model.clientSignatoryTitle}</>}<br />
-                  Signed {model.clientSignedAt}
-                </div>
-              </div>
-            )}
-            <h3 className="doc-heading">Terms &amp; Conditions</h3>
-            {model.clauses.map(c => (
-              <div key={c.id} className="doc-clause">
-                <h5 className="doc-subheading2">{c.heading}</h5>
-                <p>{c.text}</p>
-              </div>
-            ))}
+      items.push({
+        key: 'nuvho',
+        breakBefore: !!model.pageBreaks?.nuvho,
+        node: (
+          <div className={`doc-section${breakClass('nuvho')}`} id="doc-section-nuvho">
+            <SectionHeading text={model.companyName || 'Nuvho Pty Ltd'} sectionKey="nuvho" />
+            <p>
+              {model.aboutNuvho || (
+                'Nuvho is a new breed of hotel services company, providing tailored solutions to clients from a ' +
+                'services, systems and operational perspective. We partner with independent and boutique hotels to ' +
+                'deliver the commercial capability of a larger group, without the overhead.'
+              )}
+            </p>
           </div>
-        )}
-      </div>
+        ),
+      })
+
+      if (showFees) {
+        items.push({
+          key: 'fees',
+          breakBefore: !!model.pageBreaks?.fees,
+          node: (
+            <div className={`doc-section${breakClass('fees')}`} id="doc-section-fees">
+              <SectionHeading text="Fee Structure" sectionKey="fees" />
+              <p>
+                The following table outlines the associated fee structure of our services. Our fees exclude GST, which
+                will be charged in addition where applicable.
+              </p>
+              <table className="doc-fee-table">
+                <thead>
+                  <tr><th>Component</th><th>Fee Type</th><th>Amount</th><th>Months</th><th>Note</th></tr>
+                </thead>
+                <tbody>
+                  {model.services.map(s => (
+                    <React.Fragment key={s.code}>
+                      {multiSvc && (
+                        <tr className="doc-fee-table__group"><td colSpan={5}>{s.label}</td></tr>
+                      )}
+                      {s.feeRows.map(row => (
+                        <tr key={row.id}>
+                          <td>{row.component || '—'}</td>
+                          <td>{FEE_TYPES.find(f => f.value === row.feeType)?.label || row.feeType}</td>
+                          <td>{row.fee === '' ? '—' : `${model.currencySymbol}${Number(row.fee).toLocaleString()}`}</td>
+                          <td>{row.term === '' ? '—' : row.term}</td>
+                          <td>{row.note || ''}</td>
+                        </tr>
+                      ))}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+              {model.grandTotalMonthly > 0 && (
+                <div className="doc-fee-total">Combined monthly total: {model.currencySymbol}{model.grandTotalMonthly.toLocaleString()}</div>
+              )}
+              {model.footnotes.length > 0 && (
+                <div className="doc-footnotes">
+                  {model.footnotes.map(f => <div key={f.id} className="doc-bullet">{f.text}</div>)}
+                </div>
+              )}
+            </div>
+          ),
+        })
+      }
+
+      if (beforeAppendix) {
+        items.push({ key: 'beforeAppendix', breakBefore: false, node: beforeAppendix })
+      }
+
+      if (showAppendix) {
+        items.push({
+          key: 'appendix',
+          breakBefore: !!model.pageBreaks?.appendix,
+          node: (
+            <div className={`doc-section${breakClass('appendix')}`} id="doc-section-appendix">
+              {model.clientSignedAt && (
+                <div className="doc-client-acceptance">
+                  <h4 className="doc-subheading">Client Acceptance</h4>
+                  <div className="doc-signature__mark">
+                    {model.clientSignatureMethod === 'draw'
+                      ? (model.clientSignatureDataUrl
+                          ? <img src={model.clientSignatureDataUrl} alt="Client signature" className="doc-signature__img" />
+                          : <span className="doc-empty">Signature not captured</span>)
+                      : (model.clientSignatoryName
+                          ? <span className="doc-signature__script">{model.clientSignatoryName}</span>
+                          : <span className="doc-empty">Signature not captured</span>)}
+                  </div>
+                  <div className="doc-client-acceptance__meta">
+                    <strong>{model.clientSignatoryName || '[Client Name]'}</strong>
+                    {model.clientSignatoryTitle && <>, {model.clientSignatoryTitle}</>}<br />
+                    Signed {model.clientSignedAt}
+                  </div>
+                </div>
+              )}
+              <SectionHeading text="Terms & Conditions" sectionKey="appendix" />
+              {model.clauses.map(c => (
+                <div key={c.id} className="doc-clause">
+                  <h5 className="doc-subheading2">{c.heading}</h5>
+                  <p>{c.text}</p>
+                </div>
+              ))}
+            </div>
+          ),
+        })
+      }
+
+      // Group into pages: a new page card starts right before any item whose
+      // own "Page Break" box is checked (the very first item never starts a
+      // fresh one — it's already at the top of the first page in this flow).
+      const pages: React.ReactNode[][] = []
+      let current: React.ReactNode[] = []
+      items.forEach((item, idx) => {
+        if (idx > 0 && item.breakBefore) {
+          pages.push(current)
+          current = []
+        }
+        current.push(<React.Fragment key={item.key}>{item.node}</React.Fragment>)
+      })
+      if (current.length > 0) pages.push(current)
+
+      return pages.map((page, i) => (
+        <div className="doc-flow" key={i}>{page}</div>
+      ))
+      })()}
 
       <style jsx>{`
-        .doc-preview { background: var(--nv-surface-page); padding: 24px 0; border-radius: 12px; }
+        /* NUVCL-132: .doc-page/.doc-flow are sized to real A4 width (210mm)
+           with the same 15mm/14mm padding the print stylesheet uses (see
+           globals.css's @media print), instead of an arbitrary 680px "web
+           card" — so the Preview & Save step (and everywhere else this
+           renders) shows line-wrapping and margins that actually match the
+           generated PDF, not just a same-content-different-shape preview.
+           Each .doc-page/.doc-flow card gets a generous 28px gap below it
+           (bumped up from 18px) so a stack of these cards — cover, letter,
+           and now every "Page Break"-separated .doc-flow group from the
+           page-grouping logic in the main return statement — reads
+           unambiguously as separate physical
+           pages, matching the client-facing document, rather than looking
+           like a single sheet with an odd seam partway down it. */
+        .doc-preview { background: var(--nv-surface-page); padding: 24px 0; border-radius: 12px; overflow-x: auto; }
         .doc-page {
-          background: white; max-width: 680px; margin: 0 auto 18px; padding: 40px 48px;
+          background: white; width: 210mm; max-width: 100%; min-height: 297mm; margin: 0 auto 28px; padding: 15mm 14mm;
           border-radius: 4px; box-shadow: var(--nv-shadow-sm); font-family: var(--font-raleway);
-          font-size: 13px; line-height: 1.7; color: var(--nv-text-body);
+          font-size: 13px; line-height: 1.7; color: var(--nv-text-body); box-sizing: border-box;
         }
         .doc-page p { margin-bottom: 18px; } /* NUVCL-124: single-line spacing after each paragraph */
-        /* NUVCL-120: Background..Appendix render inside ONE .doc-flow card
-           (instead of one .doc-page card each) so the on-screen preview is a
-           single continuous sheet, matching what actually prints — no
-           per-section shadow/rounded-corner "card" that the real PDF never
-           had. .doc-section is just a content block inside that shared card,
-           with only enough margin to visually separate it from the next one. */
-        .doc-flow {
-          background: white; max-width: 680px; margin: 0 auto 18px; padding: 40px 48px;
+        /* NUVCL-120: Background..Appendix render inside .doc-flow cards
+           (instead of one .doc-page card each) so sections with no "Page
+           Break" checked between them still share a single continuous
+           sheet, matching what actually prints — no per-section shadow/
+           rounded-corner "card" that the real PDF never had. .doc-section
+           is just a content block inside its .doc-flow card, with only
+           enough margin to visually separate it from the next one. A
+           checked "Page Break" starts a whole new .doc-flow card instead
+           (see the page-grouping IIFE in the return statement below)
+           rather than just adding a class
+           with no on-screen effect. */
+        :global(.doc-flow) {
+          background: white; width: 210mm; max-width: 100%; min-height: 297mm; margin: 0 auto 28px; padding: 15mm 14mm;
           border-radius: 4px; box-shadow: var(--nv-shadow-sm); font-family: var(--font-raleway);
-          font-size: 13px; line-height: 1.7; color: var(--nv-text-body);
+          font-size: 13px; line-height: 1.7; color: var(--nv-text-body); box-sizing: border-box;
         }
-        .doc-flow p { margin-bottom: 18px; } /* NUVCL-124: single-line spacing after each paragraph */
-        .doc-section { margin-bottom: 32px; }
-        .doc-section:last-child { margin-bottom: 0; }
+        :global(.doc-flow p) { margin-bottom: 18px; } /* NUVCL-124: single-line spacing after each paragraph */
+        :global(.doc-section) { margin-bottom: 32px; }
+        :global(.doc-section):last-child { margin-bottom: 0; }
         .doc-cover {
           position: relative;
-          height: 460px; background-image: var(--doc-cover-url, none); background-size: cover; background-position: center;
+          height: 297mm; background-image: var(--doc-cover-url, none); background-size: cover; background-position: center;
           background-color: var(--nv-blue-slate); display: flex; align-items: flex-end; padding: 0;
           /* Clip the scrim overlay (below) to this box's own border-radius —
              otherwise its square corners sit flush on top of the rounded
@@ -524,9 +622,20 @@ export function ProposalDocument({ model, beforeAppendix }: {
         .doc-cover-circles__meta strong { color: rgba(255,255,255,0.95); text-transform: none; letter-spacing: 0; font-size: 12px; }
         .doc-cover-circles__footer { z-index: 1; font-size: 11px; color: rgba(255,255,255,0.5); padding: 0 44px 40px; }
 
+        /* Hero/content used to split 58%/30% of .doc-cover's total height,
+           tuned for the old on-screen preview's arbitrary 460px cover box.
+           Now that .doc-cover is a true A4 sheet (297mm ~= 1122px) on
+           screen too (see .doc-cover's height rule above), those same
+           percentages blow the content panel (and the divider inside it)
+           up to ~370px of empty cream space around a few lines of text
+           instead of a compact caption bar under the photo -- the "broken
+           divider" complaint. Fixed by making content/footer size to their
+           own content (flex: 0 0 auto) and letting hero (the photo, which
+           only benefits from more room) absorb 100% of whatever height is
+           left over, at any total cover height. */
         .doc-cover--split { background-image: none; background-color: transparent; flex-direction: column; align-items: stretch; padding: 0; }
         .doc-cover-split__hero {
-          flex: 1 1 58%; position: relative; background-color: var(--nv-platinum);
+          flex: 1 1 auto; position: relative; background-color: var(--nv-platinum);
           background-size: cover; background-position: center; overflow: hidden;
           display: flex; align-items: center; justify-content: center;
         }
@@ -536,7 +645,7 @@ export function ProposalDocument({ model, beforeAppendix }: {
           background: linear-gradient(to bottom, rgba(20,40,50,0.55), rgba(20,40,50,0));
         }
         .doc-cover-split__hero-placeholder { width: 30px; height: 30px; border: 1.5px dashed var(--nv-border); border-radius: 4px; }
-        .doc-cover-split__content { flex: 1 1 30%; padding: 24px 28px 20px; background: #EEF3F5; display: flex; flex-direction: column; justify-content: center; }
+        .doc-cover-split__content { flex: 0 0 auto; padding: 28px 28px 24px; background: #EEF3F5; display: flex; flex-direction: column; justify-content: center; }
         .doc-cover-split__category { font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--nv-steel-blue); font-weight: 700; margin-bottom: 8px; }
         .doc-cover-split__heading { font-family: var(--font-comfortaa); font-size: 25px; font-weight: 700; color: var(--nv-blue-slate); margin-bottom: 18px; }
         .doc-cover-split__divider { height: 1px; background: var(--nv-border-hair); margin-bottom: 12px; }
@@ -580,14 +689,12 @@ export function ProposalDocument({ model, beforeAppendix }: {
         .doc-letterhead__logo { flex-shrink: 0; }
         .doc-date    { font-size: 12px; color: var(--nv-text-muted); margin-top: 6px; }
         .doc-nuvho-address { font-size: 11.5px; color: var(--nv-text-muted); text-align: right; line-height: 1.5; }
-        .doc-business-number { margin-top: 6px; font-size: 10.5px; color: var(--nv-text-muted); } /* NUVCL-124, relocated per NUVCL-131 */
+        /* NUVCL-132: centered — this is now the ONLY place this text
+           renders in the whole document (the duplicate near Fee Structure/
+           Appendix, .doc-legal-footer, has been removed entirely). */
+        .doc-business-number { margin-top: 6px; font-size: 10.5px; color: var(--nv-text-muted); text-align: center; }
         .doc-signature-hr { border: none; border-top: 1px solid var(--nv-border-hair); margin: 18px 0 8px; } /* NUVCL-131 */
         .doc-address { margin-bottom: 48px; } /* NUVCL-124: more spacing below client address */
-        .doc-legal-footer {
-          margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--nv-border-hair);
-          font-size: 10.5px; line-height: 1.6; color: var(--nv-text-muted);
-        }
-        /* NUVCL-124 (2026-08-24): .doc-letter-footer removed with the block it styled — see doc-business-number above. */
         .doc-re      { font-weight: 700; margin-bottom: 22px; } /* NUVCL-124: more spacing below reference */
         .doc-salutation { margin-bottom: 20px; } /* NUVCL-124: single line space below "Dear xxx," */
         .doc-toc     { margin: 18px 0; padding-left: 4px; }
@@ -598,38 +705,71 @@ export function ProposalDocument({ model, beforeAppendix }: {
         .doc-toc__item:hover, .doc-toc__item:focus-visible { color: var(--nv-blue-slate); text-decoration: underline; }
         .doc-sender  { margin-top: 4px; }
 
-        .doc-heading {
-          font-family: var(--font-comfortaa); font-size: 16px; font-weight: 700; color: var(--nv-text-heading);
+        /* NUVCL-132: the border/spacing that used to live on .doc-heading
+           itself now lives on the row wrapping it, so an inline "Page
+           Break" checkbox can sit at the right of the same heading without
+           the border only running under the heading text. */
+        /* NUVCL-141: SectionHeading is a nested function INSIDE this
+           component, but it's invoked as <SectionHeading .../> -- a real,
+           separate React component render as far as styled-jsx's babel
+           transform is concerned. Styled-jsx only auto-tags literal JSX
+           elements written directly in the tree of the function that
+           contains this <style jsx> block; it does not, and cannot, reach
+           into a child component's own returned elements (SectionHeading
+           never receives or forwards a className prop). That's why every
+           previous fix to .doc-heading-row/.doc-pagebreak-toggle here was
+           correct in source yet never visibly applied in the browser --
+           the scoped selectors literally never matched those DOM nodes.
+           :global() opts these specific rules out of scoping so they match
+           on class name alone, regardless of which function rendered the
+           element. */
+        :global(.doc-heading-row) {
+          display: flex; align-items: center; justify-content: space-between; gap: 16px;
           margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid var(--nv-border-hair);
         }
-        .doc-subheading  { font-family: var(--font-comfortaa); font-size: 13px; font-weight: 700; margin: 16px 0 8px; color: var(--nv-blue-slate); }
-        .doc-subheading2 { font-size: 12px; font-weight: 700; margin: 12px 0 6px; }
-        .doc-bullet { position: relative; padding-left: 14px; margin-bottom: 6px; font-size: 12.5px; }
-        .doc-bullet::before { content: '•'; position: absolute; left: 0; color: var(--nv-blue-slate); }
-        .doc-service-block { margin-bottom: 8px; }
-        .doc-empty { color: var(--nv-text-muted); font-style: italic; }
+        :global(.doc-heading) {
+          font-family: var(--font-comfortaa); font-size: 16px; font-weight: 700; color: var(--nv-text-heading);
+        }
+        :global(.doc-pagebreak-toggle) {
+          display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+          font-family: var(--font-raleway); font-size: 11px; font-weight: 600; color: var(--nv-text-muted);
+          white-space: nowrap; cursor: pointer;
+        }
+        /* Space between the checkbox and its "Page Break" label is set two
+           ways on purpose: flex gap on the row above AND a direct
+           margin-right on the input itself. Belt-and-braces -- margin-right
+           alone guarantees the visible gap regardless of how a given
+           browser treats gap next to a bare JSX text/span node. */
+        :global(.doc-pagebreak-toggle input) { width: 15px; height: 15px; margin: 0 6px 0 0; cursor: pointer; }
+        :global(.doc-pagebreak-toggle__label) { margin-left: 2px; }
+        :global(.doc-subheading)  { font-family: var(--font-comfortaa); font-size: 13px; font-weight: 700; margin: 16px 0 8px; color: var(--nv-blue-slate); }
+        :global(.doc-subheading2) { font-size: 12px; font-weight: 700; margin: 12px 0 6px; }
+        :global(.doc-bullet) { position: relative; padding-left: 14px; margin-bottom: 6px; font-size: 12.5px; }
+        :global(.doc-bullet)::before { content: '•'; position: absolute; left: 0; color: var(--nv-blue-slate); }
+        :global(.doc-service-block) { margin-bottom: 8px; }
+        :global(.doc-empty) { color: var(--nv-text-muted); font-style: italic; }
 
-        .doc-fee-table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
-        .doc-fee-table th { text-align: left; background: var(--nv-blue-slate); color: white; padding: 6px 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
-        .doc-fee-table td { padding: 6px 8px; border-bottom: 1px solid var(--nv-border-hair); }
-        .doc-fee-table__group td { background: var(--nv-platinum); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
-        .doc-fee-total { text-align: right; margin-top: 10px; font-weight: 700; color: var(--nv-blue-slate); }
-        .doc-footnotes { margin-top: 12px; padding-left: 18px; font-size: 11px; color: var(--nv-text-muted); }
+        :global(.doc-fee-table) { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
+        :global(.doc-fee-table th) { text-align: left; background: var(--nv-blue-slate); color: white; padding: 6px 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+        :global(.doc-fee-table td) { padding: 6px 8px; border-bottom: 1px solid var(--nv-border-hair); }
+        :global(.doc-fee-table__group td) { background: var(--nv-platinum); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+        :global(.doc-fee-total) { text-align: right; margin-top: 10px; font-weight: 700; color: var(--nv-blue-slate); }
+        :global(.doc-footnotes) { margin-top: 12px; } /* NUVCL-132: item styling now comes from .doc-bullet, matching Scope of Works */
 
         .doc-rich-text :global(p) { margin: 0 0 18px; } /* NUVCL-124: single-line spacing after each paragraph */
         .doc-rich-text :global(ul), .doc-rich-text :global(ol) { margin: 0 0 10px 20px; }
-        .doc-signature__mark { padding-bottom: 8px; min-height: 60px; display: flex; align-items: flex-end; margin-top: 10px; }
-        .doc-signature__script { font-family: var(--font-signature); font-size: 36px; color: var(--nv-text-heading); }
-        .doc-signature__img { max-height: 80px; }
+        :global(.doc-signature__mark) { padding-bottom: 8px; min-height: 60px; display: flex; align-items: flex-end; margin-top: 10px; }
+        :global(.doc-signature__script) { font-family: var(--font-signature); font-size: 36px; color: var(--nv-text-heading); }
+        :global(.doc-signature__img) { max-height: 80px; }
 
-        .doc-clause { margin-bottom: 14px; }
+        :global(.doc-clause) { margin-bottom: 14px; }
 
         /* NUVCL-131: client's captured signature, printed at the top of
            Terms & Conditions once the proposal has been signed. */
-        .doc-client-acceptance {
+        :global(.doc-client-acceptance) {
           margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--nv-border-hair);
         }
-        .doc-client-acceptance__meta { font-size: 11.5px; color: var(--nv-text-muted); line-height: 1.5; }
+        :global(.doc-client-acceptance__meta) { font-size: 11.5px; color: var(--nv-text-muted); line-height: 1.5; }
       `}</style>
     </div>
   )
