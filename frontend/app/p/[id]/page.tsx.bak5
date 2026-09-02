@@ -156,7 +156,6 @@ export default function PublicProposalPage() {
       <div className="public-doc-wrap">
         <ProposalDocument
           model={docModel}
-          sectionPages
           beforeAppendix={!signed && !isExpired ? (
             <div className="public-sign-form-wrap no-print">
                 <div className="public-sign-form">
@@ -314,19 +313,7 @@ export default function PublicProposalPage() {
         .public-doc-wrap { padding: 32px 24px 0; }
 
         .public-body {
-          /* NUVCL-146 fix (2026-09-02): this used to also set
-             max-width: 820px, which capped this wrapper's CONTENT box at
-             820 - 48 (padding) = 772px — narrower than .public-sign-section's
-             own width: 210mm (~793.7px @ 96dpi), so the confirmation card
-             still rendered visibly narrower than every document page above
-             it despite that width:210mm rule already being correct. Removed
-             the max-width entirely so .public-sign-section's own sizing
-             controls its width, exactly like .public-doc-wrap (which never
-             had a max-width of its own) lets ProposalDocument's .doc-flow/
-             .doc-page control theirs. .public-body has exactly one use
-             (this post-signing/expired confirmation section, see the JSX
-             below) so there's no other content relying on the old 820px
-             reading-width cap. */
+          max-width: 820px;
           width: 100%;
           margin: 0 auto;
           padding: 0 24px 48px;
@@ -360,19 +347,12 @@ export default function PublicProposalPage() {
         }
 
         /* Signing — container styled to match <ProposalDocument>'s .doc-page
-           (NUVCL-98): same white card, 40/48 padding, 4px radius, and
-           shadow-sm, so the signature box looks like the next page of the
-           proposal instead of a separate bordered widget. Width updated
-           2026-09-01 to 210mm (matching .doc-page/.doc-flow's real A4
-           width) — this rule still said 680px, a leftover from before
-           NUVCL-120 switched the document itself from an arbitrary "web
-           card" width to real A4 sizing, so the post-signing confirmation
-           card had drifted narrower than every page above it. */
+           (NUVCL-98): same white card, 680px width, 40/48 padding, 4px
+           radius, and shadow-sm, so the signature box looks like the next
+           page of the proposal instead of a separate bordered widget. */
         .public-sign-section {
           background: white;
-          width: 210mm;
-          max-width: 100%;
-          box-sizing: border-box;
+          max-width: 680px;
           margin: 0 auto;
           padding: 40px 48px;
           border-radius: 4px;
@@ -429,11 +409,6 @@ export default function PublicProposalPage() {
           text-align: center;
           padding: 20px;
         }
-        /* Tailwind's Preflight sets svg { display: block }, which makes the
-           parent's text-align:center above have no effect on it (that only
-           centers inline/inline-block content) — the checkmark was sitting
-           flush left instead of centered above the heading. */
-        .public-signed svg { display: block; margin: 0 auto; }
         .public-signed h3, .public-expired h3 {
           font-family: var(--font-comfortaa);
           font-size: 22px;

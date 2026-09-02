@@ -99,7 +99,12 @@ export interface ProposalDocModel {
   // Per-category forced-page-break flags from the wizard's Preview & Save
   // step (Step7Preview) — see the matching field on ProposalTerms (lib/
   // types.ts) for the key convention. Honoured by <ProposalDocument> in
-  // print/PDF output only; no effect on the on-screen preview layout itself.
+  // print/PDF output (public/print-rules.css's `.doc-section--break`) and,
+  // via that same stylesheet, by the Preview & Save step's Paged.js
+  // pagination preview (PaginatedPreview.tsx) — no effect on
+  // <ProposalDocument>'s own on-screen rendering, which is always a single
+  // continuous .doc-flow regardless of these flags (see that component's
+  // comment on why).
   pageBreaks:        Record<string, boolean>
   // The CLIENT's own e-signature, captured via the public sign page's
   // POST /p/:id/sign and stored in dedicated proposal_terms.client_* columns
@@ -112,6 +117,32 @@ export interface ProposalDocModel {
   clientSignatureMethod:  'type' | 'draw'
   clientSignatureDataUrl: string
   clientSignedAt:         string
+}
+
+// Which of ProposalDocument's category sections currently have content to
+// show — Background/Scope of Works/Fee Structure disappear together when
+// the wizard's Services step was skipped, "Nuvho Pty Ltd" always shows, and
+// Terms & Conditions needs both Services AND at least one clause. This is
+// the SAME visibility logic <ProposalDocument> derives internally (showBackground/
+// showScope/showFees/showAppendix — see that component), pulled out here as
+// one shared, pure source of truth so anything that needs the same list
+// OUTSIDE ProposalDocument's own JSX can't quietly drift out of sync with
+// what it actually renders. Used by PaginatedPreview.tsx's "Page Break"
+// toggle strip: Paged.js renders ProposalDocument's content into its own
+// cloned/paginated page boxes, which have no React event handlers at all,
+// so the wizard's per-section "Page Break" checkboxes can't live inline
+// inside that paginated output the way they used to — this list is what
+// lets that strip render only the checkboxes that actually correspond to a
+// section the document will show.
+export function getVisibleSections(model: ProposalDocModel): { key: string; label: string }[] {
+  const showServices = model.services.length > 0
+  const sections: { key: string; label: string }[] = []
+  if (showServices) sections.push({ key: 'background', label: 'Background' })
+  if (showServices) sections.push({ key: 'scope', label: 'Scope of Works' })
+  sections.push({ key: 'nuvho', label: model.companyName || 'Nuvho Pty Ltd' })
+  if (showServices) sections.push({ key: 'fees', label: 'Fee Structure' })
+  if (showServices && model.clauses.length > 0) sections.push({ key: 'appendix', label: 'Terms & Conditions' })
+  return sections
 }
 
 // "Central Reservations" + "Marketing Services" → "Central Reservations & Marketing Services"

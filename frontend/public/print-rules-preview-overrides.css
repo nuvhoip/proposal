@@ -1,0 +1,45 @@
+/* Nuvho Proposal System — Paged.js on-screen preview overrides.
+ *
+ * Passed to Paged.js's Previewer.preview() stylesheets array AFTER
+ * print-rules.css (see components/proposal/PaginatedPreview.tsx), never
+ * used by the real print/PDF pipeline. It exists to cancel exactly two
+ * rules from print-rules.css that make sense for a real window.print()
+ * call but actively break the isolated Paged.js iframe preview:
+ *
+ * 1. `body * { visibility: hidden } / #proposal-print-root, ... {
+ *    visibility: visible }` — this trick hides the rest of the wizard
+ *    chrome during a real print, relying on `#proposal-print-root`'s id
+ *    still being present on every visible element. Confirmed via a
+ *    Playwright reproduction (2026-09-01) that Paged.js's own page-
+ *    chunking does NOT reliably keep that id on every per-page clone —
+ *    it survived on page 1 but was gone by page 2 onward — so most of
+ *    the paginated preview stayed invisible even though pagination itself
+ *    (page count, breaks) was computed correctly. Inside this iframe
+ *    there is no wizard chrome to hide in the first place (the iframe's
+ *    document contains nothing but the proposal content), so the whole
+ *    rule serves no purpose here and only had a chance to break things.
+ *
+ * 2. `#proposal-print-root { position: absolute; top: 0; left: 0; ... }`
+ *    — needed for real print so the content overlays the full physical
+ *    page regardless of where the wizard chrome put it in normal flow.
+ *    Taking the root out of flow this way was ALSO confirmed (same
+ *    reproduction) to feed Paged.js's own internal flow-height
+ *    measurement a broken number, producing wildly wrong pagination
+ *    (39 short clauses were split across 37 pages, nearly one per
+ *    clause). Restoring normal `position: static` flow made the exact
+ *    same content paginate into a sane 6 pages.
+ *
+ * If you add a similar print-only isolation/positioning rule to
+ * print-rules.css in the future, add its cancellation here too — see
+ * that file's own pointer comment next to each rule above. */
+
+body,
+body * {
+  visibility: visible !important;
+}
+
+#proposal-print-root {
+  position: static !important;
+  top: auto !important;
+  left: auto !important;
+}

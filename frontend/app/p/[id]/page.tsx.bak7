@@ -314,19 +314,7 @@ export default function PublicProposalPage() {
         .public-doc-wrap { padding: 32px 24px 0; }
 
         .public-body {
-          /* NUVCL-146 fix (2026-09-02): this used to also set
-             max-width: 820px, which capped this wrapper's CONTENT box at
-             820 - 48 (padding) = 772px — narrower than .public-sign-section's
-             own width: 210mm (~793.7px @ 96dpi), so the confirmation card
-             still rendered visibly narrower than every document page above
-             it despite that width:210mm rule already being correct. Removed
-             the max-width entirely so .public-sign-section's own sizing
-             controls its width, exactly like .public-doc-wrap (which never
-             had a max-width of its own) lets ProposalDocument's .doc-flow/
-             .doc-page control theirs. .public-body has exactly one use
-             (this post-signing/expired confirmation section, see the JSX
-             below) so there's no other content relying on the old 820px
-             reading-width cap. */
+          max-width: 820px;
           width: 100%;
           margin: 0 auto;
           padding: 0 24px 48px;

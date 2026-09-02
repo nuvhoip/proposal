@@ -56,7 +56,7 @@ function getBusinessNumberLine(footerText: string): string {
   return (footerText || '').split('\n')[0]?.trim() || ''
 }
 
-export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onTogglePageBreak, sectionPages }: {
+export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onTogglePageBreak }: {
   model: ProposalDocModel
   // Rendered inside .doc-flow immediately before the Terms & Conditions /
   // Appendix section (or at the end of .doc-flow if there's no Appendix to
@@ -76,23 +76,6 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
   // .no-print as a second line of defense).
   pageBreakEditable?: boolean
   onTogglePageBreak?: (sectionKey: string, checked: boolean) => void
-  // NUVCL-146: when true, renders Background/Scope of Works/Nuvho Pty Ltd/
-  // Fee Structure/Terms & Conditions as separate A4-styled .doc-flow boxes
-  // (one per section) instead of the single shared .doc-flow card below —
-  // used ONLY by the public sign page (app/p/[id]/page.tsx) so a client
-  // sees the same "separate A4 page" look as the cover/letter pages
-  // instead of one long continuous scroll. The `beforeAppendix` slot (the
-  // interactive Accept & Sign form) is deliberately kept in the SAME box
-  // as the Appendix/Terms & Conditions section that follows it, preserving
-  // its current "directly above Terms & Conditions" position and the
-  // .public-sign-form-wrap CSS that expects to be a child of a .doc-flow
-  // card. Defaults to false/undefined so the Proposal Details page, the
-  // real print/PDF export, and the wizard's Paged.js Preview & Save step
-  // (which reads #proposal-print-root's outerHTML regardless of how many
-  // .doc-flow boxes are inside it) are all completely unaffected — see the
-  // "single, continuous .doc-flow" comment further down for why this stays
-  // gated behind an opt-in prop rather than a default-behavior change.
-  sectionPages?: boolean
 }) {
   const multiSvc = model.services.length > 1
   // A step that was skipped (left with no usable content) drops both its
@@ -327,20 +310,12 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
         </div>
         {/* NUVCL-131: Business Number moved from the letterhead top-right
             (NUVCL-124) down to directly below the sign-off, separated by a
-            horizontal rule, per Odysseus's reference image. Wrapped in
-            .doc-letter-footer (added later) so it can be pushed to the
-            bottom of the page box via margin-top:auto on a flex .doc-letter
-            — see that rule below for why, and .doc-page.doc-letter's own
-            rule for the flex column it depends on. Requested by Odysseus:
-            on a short cover letter this used to sit right under the
-            sign-off with a large, awkward gap of blank page below it;
-            it now always sits flush with the bottom of the page instead,
-            regardless of how much (or little) content is above it. */}
+            horizontal rule, per Odysseus's reference image. */}
         {getBusinessNumberLine(model.footerText) && (
-          <div className="doc-letter-footer">
+          <>
             <hr className="doc-signature-hr" />
             <div className="doc-business-number">{getBusinessNumberLine(model.footerText)}</div>
-          </div>
+          </>
         )}
       </div>
 
@@ -551,34 +526,6 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
       // step, or the browser's own print engine for Download PDF/Word
       // export. Do not reintroduce a second, parallel on-screen
       // pagination system here — see PaginatedPreview.tsx instead.
-      if (sectionPages) {
-        // NUVCL-146: group into one .doc-flow box per section instead of
-        // one shared box. `beforeAppendix` (the interactive Accept & Sign
-        // form) is merged into the SAME box as the `appendix` item right
-        // after it — never given a box of its own — so it keeps rendering
-        // directly above Terms & Conditions inside a .doc-flow card, which
-        // is what .public-sign-form-wrap's CSS (a border-top divider styled
-        // as a child of a .doc-flow card) expects.
-        const boxes: FlowItem[][] = []
-        for (const item of items) {
-          const prevBox = boxes[boxes.length - 1]
-          if (item.key === 'appendix' && prevBox && prevBox.some(i => i.key === 'beforeAppendix')) {
-            prevBox.push(item)
-          } else {
-            boxes.push([item])
-          }
-        }
-        return (
-          <>
-            {boxes.map(box => (
-              <div className="doc-flow" key={box[0].key}>
-                {box.map(item => <React.Fragment key={item.key}>{item.node}</React.Fragment>)}
-              </div>
-            ))}
-          </>
-        )
-      }
-
       return (
         <div className="doc-flow">
           {items.map(item => <React.Fragment key={item.key}>{item.node}</React.Fragment>)}
@@ -608,16 +555,6 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
           border-radius: 4px; box-shadow: var(--nv-shadow-sm); font-family: var(--font-raleway);
           font-size: 13px; line-height: 1.7; color: var(--nv-text-body); box-sizing: border-box;
         }
-        /* .doc-letter as a flex column purely so .doc-letter-footer (the
-           ABN/registration line below the sign-off) can be pushed to the
-           bottom of the page via margin-top:auto, instead of sitting right
-           under the sign-off with a big gap of blank page beneath it on a
-           short letter. min-height above (not height) means a genuinely
-           long intro message still just grows the box past one page,
-           pushing the footer down with it, rather than overflowing/
-           clipping against a hard-capped height. */
-        .doc-page.doc-letter { display: flex; flex-direction: column; }
-        .doc-letter-footer { margin-top: auto; }
         .doc-page p { margin-bottom: 18px; } /* NUVCL-124: single-line spacing after each paragraph */
         /* NUVCL-120: Background..Appendix render inside ONE shared
            .doc-flow card — no per-section shadow/rounded-corner "card"
@@ -761,7 +698,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
            renders in the whole document (the duplicate near Fee Structure/
            Appendix, .doc-legal-footer, has been removed entirely). */
         .doc-business-number { margin-top: 6px; font-size: 10.5px; color: var(--nv-text-muted); text-align: center; }
-        .doc-signature-hr { border: none; border-top: 1px solid var(--nv-border-hair); margin: 0 0 8px; } /* NUVCL-131 — top margin removed, .doc-letter-footer's margin-top:auto handles that spacing now */
+        .doc-signature-hr { border: none; border-top: 1px solid var(--nv-border-hair); margin: 18px 0 8px; } /* NUVCL-131 */
         .doc-address { margin-bottom: 48px; } /* NUVCL-124: more spacing below client address */
         .doc-re      { font-weight: 700; margin-bottom: 22px; } /* NUVCL-124: more spacing below reference */
         .doc-salutation { margin-bottom: 20px; } /* NUVCL-124: single line space below "Dear xxx," */

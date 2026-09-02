@@ -11,7 +11,17 @@ import {
   initFootnotes, initTerms, generateRowId, deriveFeeSummary,
 } from '@/lib/serviceCatalog'
 import { buildDocModelFromDraft, parseCoverUrl, buildCoverUrl, buildDefaultIntroMessage } from '@/lib/documentModel'
-import { ProposalDocument } from '@/components/proposal/ProposalDocument'
+import dynamic from 'next/dynamic'
+
+// The Preview & Save step's A4 pagination preview (PaginatedPreview.tsx)
+// runs the document through Paged.js, a browser-only library — ssr:false
+// keeps any part of it from ever being evaluated during `next build`'s
+// server bundle, and dynamic() code-splits it into its own chunk so it
+// isn't pulled into every other step of the wizard that never renders it.
+const PaginatedPreview = dynamic(
+  () => import('@/components/proposal/PaginatedPreview').then(m => m.PaginatedPreview),
+  { ssr: false, loading: () => <p className="step-desc">Loading page preview…</p> },
+)
 import { RichTextEditor } from '@/components/proposal/RichTextEditor'
 import { setNavigationGuard } from '@/lib/navigationGuard'
 import { useSession } from '@/components/auth/AuthGuard'
@@ -3010,12 +3020,15 @@ function Step7Preview({ draft, setDraft, errors, staff = [] }: StepProps) {
   const total = draft.services.reduce((acc, s) => acc + s.monthlyFee * s.term + s.setupFee, 0)
   const model = buildDocModelFromDraft(draft, staff)
 
-  // NUVCL-132: "Page Break" checkboxes now render INLINE at the right of
-  // each category heading, inside ProposalDocument itself (pageBreakEditable
-  // + onTogglePageBreak below) — replacing the earlier separate panel above
-  // the whole preview, per Odysseus's reference image. Toggling a checkbox
-  // writes straight into draft.terms.pageBreaks, which buildDocModelFromDraft
-  // /documentModel already thread through to model.pageBreaks.
+  // NUVCL-132 originally rendered "Page Break" checkboxes INLINE at the
+  // right of each category heading, inside ProposalDocument itself. A
+  // 2026-09 revision moved them into PaginatedPreview.tsx's own toggle
+  // strip instead: that component now runs the document through Paged.js
+  // for a real A4 pagination preview, and Paged.js's paginated output has
+  // no React event handlers at all, so an inline checkbox there would be
+  // unclickable. Toggling a checkbox still writes straight into
+  // draft.terms.pageBreaks, which buildDocModelFromDraft/documentModel
+  // already thread through to model.pageBreaks — unchanged.
   function togglePageBreak(key: string, checked: boolean) {
     setDraft(d => ({
       ...d,
@@ -3054,14 +3067,16 @@ function Step7Preview({ draft, setDraft, errors, staff = [] }: StepProps) {
         <div>
           <h3 className="preview-doc-heading">Document Preview</h3>
           <p className="step-desc">
-            This is the structure the generated proposal document will follow, shown at actual A4
-            size so line-wrapping and margins match the generated PDF. Check a category's "Page
-            Break" box to force it onto a new page. Downloading a PDF or Word copy is available
-            once it&apos;s saved — from the proposal&apos;s detail page.
+            This is the actual page-by-page layout the generated proposal document will follow —
+            real, fixed A4 pages, so you can see exactly how many pages it runs to and whether a
+            long Scope of Works or Terms &amp; Conditions section spills onto extra pages before
+            you save. Use &quot;Force a page break before&quot; to start a category on its own
+            page regardless. Downloading a PDF or Word copy is available once it&apos;s saved —
+            from the proposal&apos;s detail page.
           </p>
         </div>
       </div>
-      <ProposalDocument model={model} pageBreakEditable onTogglePageBreak={togglePageBreak} />
+      <PaginatedPreview model={model} onTogglePageBreak={togglePageBreak} />
 
       <style jsx>{`
         .preview-summary {

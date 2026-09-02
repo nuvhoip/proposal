@@ -1,0 +1,215 @@
+'use client'
+
+import React, { useEffect, useRef, useState } from 'react'
+import { ProposalDocument } from './ProposalDocument'
+import { getVisibleSections } from '@/lib/documentModel'
+import type { ProposalDocModel } from '@/lib/documentModel'
+
+/*
+  PaginatedPreview — wraps <ProposalDocument> for the wizard's Preview &
+  Save step (Step7Preview) and runs its rendered markup through Paged.js
+  (https://pagedjs.org), a CSS Paged Media engine, so the preview shown
+  before saving is made of real, fixed-size A4 page boxes — including
+  automatically spilling a too-long Terms & Conditions list or Scope of
+  Works onto as many additional pages as it actually needs. Plain
+  <ProposalDocument> can't do this on its own: it always renders Background
+  through Appendix as a single, unbounded-height .doc-flow (see that
+  component's own comment on that div) — fine for the Proposal Details page
+  and the public client sign page, which just scroll, but not good enough
+  for a step whose whole job is "does this fit before I save it".
+
+  How it works: ProposalDocument renders its completely normal markup,
+  unchanged, into a hidden "source" container kept in the live DOM (moved
+  off-screen with position/left, not display:none, so images and fonts
+  still load and lay out normally — some browsers skip layout entirely for
+  display:none subtrees). A debounced effect then hands a fresh HTML
+  snapshot of that container to Paged.js's Previewer, together with
+  public/print-rules.css — the EXACT SAME stylesheet the real printed/
+  exported PDF and Word doc are built against (see that file's header
+  comment) — so pagination here is governed by the identical break rules
+  (.doc-section--break, page-break-inside: avoid on bullets/clauses/fee
+  rows, etc.) as the real output, not a second, separately-maintained
+  approximation that could quietly drift from it. Paged.js renders the
+  resulting `.pagedjs_page` boxes — real 210mm x 297mm pages, hard-set by
+  its own @page-driven layout rather than a min-height that can grow past
+  A4 — into a second, visible container that this component doesn't
+  otherwise touch.
+
+  Why the "Page Break" checkboxes moved out of the document itself: Paged.js
+  parses an HTML *string* snapshot and lays its own clone of that content
+  out into its page boxes — none of React's event handlers travel with it,
+  so a checkbox rendered inside that paginated output would be permanently
+  frozen and unclickable. The checkboxes now live in their own small toggle
+  strip above the page preview (still driven by the exact same
+  model.pageBreaks / onTogglePageBreak the wizard already had), which stays
+  a normal, fully interactive part of this React tree.
+
+  Client-only by construction: PaginatedPreview is always loaded from
+  Step7Preview via next/dynamic(..., { ssr: false }), and the `pagedjs`
+  package itself is additionally only ever imported inside useEffect (never
+  at module top level) — so no part of it is evaluated during a Next.js
+  server build or SSR pass, and a build failure here can't come from this
+  file touching `window`/`document` too early.
+*/
+
+export function PaginatedPreview({ model, onTogglePageBreak }: {
+  model: ProposalDocModel
+  onTogglePageBreak?: (sectionKey: string, checked: boolean) => void
+}) {
+  const sourceRef = useRef<HTMLDivElement>(null)
+  const targetRef = useRef<HTMLDivElement>(null)
+  const tokenRef = useRef(0)
+  const [pageCount, setPageCount] = useState<number | null>(null)
+  const [status, setStatus] = useState<'measuring' | 'ready' | 'error'>('measuring')
+
+  // JSON.stringify(model) as a dependency key: this is only recomputed once
+  // per debounced pagination pass below (never per keystroke directly), and
+  // model is plain, JSON-safe data (strings/numbers/booleans/arrays), so
+  // this is a cheap and correct way to re-paginate whenever any part of the
+  // document actually changes, without hand-listing every field that could
+  // affect layout.
+  const modelKey = JSON.stringify(model)
+
+  useEffect(() => {
+    let cancelled = false
+    const token = ++tokenRef.current
+    setStatus('measuring')
+
+    // Debounce: the wizard's rich-text/clause editors fire a model change on
+    // every keystroke, and a Paged.js layout pass genuinely re-lays-out the
+    // whole document — not something to redo on every character.
+    const timer = window.setTimeout(async () => {
+      if (cancelled || token !== tokenRef.current) return
+      const sourceEl = sourceRef.current
+      const targetEl = targetRef.current
+      if (!sourceEl || !targetEl) return
+
+      try {
+        const { Previewer } = await import('pagedjs')
+        if (cancelled || token !== tokenRef.current) return
+
+        const html = sourceEl.outerHTML
+        // Paged.js's own docs don't describe a supported "re-render in
+        // place" call, so the safe pattern is: clear the target and hand
+        // it a brand new Previewer instance every pass, matching Paged.js's
+        // own usage examples rather than relying on undocumented internal
+        // re-use behaviour.
+        targetEl.innerHTML = ''
+        const previewer = new Previewer()
+        const flow = await previewer.preview(html, ['/print-rules.css'], targetEl)
+        if (cancelled || token !== tokenRef.current) return
+        setPageCount(typeof flow?.total === 'number' ? flow.total : null)
+        setStatus('ready')
+      } catch (err) {
+        if (cancelled || token !== tokenRef.current) return
+        // eslint-disable-next-line no-console
+        console.error('PaginatedPreview: Paged.js pagination failed', err)
+        setStatus('error')
+      }
+    }, 400)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelKey])
+
+  const visibleSections = getVisibleSections(model)
+
+  return (
+    <div className="paginated-preview">
+      {onTogglePageBreak && visibleSections.length > 0 && (
+        <div className="paginated-preview__breaks no-print">
+          <span className="paginated-preview__breaks-label">Force a page break before:</span>
+          {visibleSections.map(section => (
+            <label key={section.key} className="paginated-preview__break-toggle">
+              <input
+                type="checkbox"
+                checked={!!model.pageBreaks?.[section.key]}
+                onChange={e => onTogglePageBreak(section.key, e.target.checked)}
+              />
+              <span>{section.label}</span>
+            </label>
+          ))}
+        </div>
+      )}
+
+      {status === 'error' && (
+        <div className="paginated-preview__banner paginated-preview__banner--error">
+          Couldn&apos;t generate an accurate page-by-page preview — showing the plain document
+          below instead. This doesn&apos;t affect the actual PDF/Word export.
+        </div>
+      )}
+      {status === 'measuring' && (
+        <div className="paginated-preview__banner">Laying out A4 pages…</div>
+      )}
+      {status === 'ready' && pageCount !== null && (
+        <div className="paginated-preview__banner">
+          This document will print as <strong>{pageCount}</strong> page{pageCount === 1 ? '' : 's'}.
+        </div>
+      )}
+
+      {/* Real, paginated A4 pages render here — Paged.js owns this
+          container's contents imperatively, cleared and rebuilt on every
+          pagination pass above; React never reconciles its children. */}
+      {status !== 'error' && (
+        <div ref={targetRef} className="paginated-preview__pages" aria-live="polite" />
+      )}
+
+      {/* Hidden source: ProposalDocument's normal, unbounded-height markup,
+          rendered off-screen (not display:none — see file comment above)
+          purely so Paged.js has real, laid-out DOM to snapshot. On a
+          pagination error, this is shown in place instead (moved on-screen,
+          scrollable) so the step never just goes blank. pageBreakEditable
+          is left off here on purpose — see this file's top comment for why
+          the checkboxes moved to the toggle strip above instead of
+          rendering (non-interactively, and pointlessly) inside this
+          source/paginated content. */}
+      <div
+        ref={sourceRef}
+        className="paginated-preview__source"
+        style={status === 'error' ? undefined : { position: 'absolute', top: 0, left: '-99999px', pointerEvents: 'none' }}
+      >
+        <ProposalDocument model={model} />
+      </div>
+
+      <style jsx>{`
+        .paginated-preview__breaks {
+          display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px;
+          background: var(--nv-surface-card); border: 1px solid var(--nv-border-hair); border-radius: 10px;
+          padding: 12px 16px; margin-bottom: 16px; font-size: 13px; color: var(--nv-text-body);
+        }
+        .paginated-preview__breaks-label { color: var(--nv-text-muted); margin-right: 4px; }
+        .paginated-preview__break-toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+        .paginated-preview__break-toggle input { accent-color: var(--nv-blue-slate); cursor: pointer; }
+        .paginated-preview__banner {
+          font-size: 13px; color: var(--nv-text-muted); text-align: center; padding: 10px 0 16px;
+        }
+        .paginated-preview__banner--error {
+          color: var(--nv-error); background: rgba(152,38,73,0.08); border: 1px solid var(--nv-error);
+          border-radius: 8px; padding: 10px 14px; text-align: left;
+        }
+        .paginated-preview__source { max-width: 100%; overflow-x: auto; }
+        /* Cosmetic chrome around Paged.js's own .pagedjs_page boxes only —
+           deliberately kept OUT of print-rules.css, which must stay
+           identical to what the real PDF uses. Paged.js already gives each
+           .pagedjs_page real, hard-set A4 dimensions (210mm x 297mm) on its
+           own; this just wraps them in the same tinted-background /
+           white-card look the rest of this app's document preview uses,
+           with clear space between pages so several pages read
+           unambiguously as separate physical sheets rather than one long
+           scroll. */
+        :global(.paginated-preview__pages) {
+          background: var(--nv-surface-page); padding: 24px 0; border-radius: 12px; overflow-x: auto;
+        }
+        :global(.paginated-preview__pages .pagedjs_pages) {
+          display: flex; flex-direction: column; align-items: center; gap: 28px;
+        }
+        :global(.paginated-preview__pages .pagedjs_page) {
+          background: white; box-shadow: var(--nv-shadow-sm); border-radius: 4px; flex-shrink: 0;
+        }
+      `}</style>
+    </div>
+  )
+}
