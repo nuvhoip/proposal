@@ -67,6 +67,12 @@ export interface ProposalRow {
   valid_until:         string | null
   hubspot_deal_id:     string | null
   asana_project_gid:   string | null
+  ms_team_id:          string | null
+  ms_team_web_url:     string | null
+  ms_channel_id:       string | null
+  ms_channel_web_url:  string | null
+  ms_team_created_at:  string | null
+  ms_team_error:       string | null
   signing_token:       string | null
   view_count:          number
   created_at:          string

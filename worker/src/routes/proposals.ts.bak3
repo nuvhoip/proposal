@@ -1443,8 +1443,8 @@ async function triggerTeamsWorkspace(proposal: ProposalRow, env: Env) {
     return
   }
 
-  let teamId: string | null = null
   try {
+    let teamId: string
     const existingTeam = await findTeamByName(env, hotelGroupName)
     if (existingTeam) {
       teamId = existingTeam.id
@@ -1463,19 +1463,6 @@ async function triggerTeamsWorkspace(proposal: ProposalRow, env: Env) {
     }
     const teamWebUrl = `https://teams.microsoft.com/l/team/${encodeURIComponent(teamId)}`
 
-    // Persist the Team reference as soon as we have it — BEFORE attempting
-    // the channel creation below. Previously this was written only after
-    // both steps succeeded, which meant a channel-creation failure (e.g.
-    // the missing-Channel.Create-permission 403 hit on 2026-09-02's live
-    // test) silently discarded a team that had, in fact, been created —
-    // losing the reference even though findTeamByName() would still locate
-    // it by name on the next proposal for this hotel group.
-    await env.DB.prepare(`
-      UPDATE proposals
-      SET ms_team_id = ?, ms_team_web_url = ?, ms_team_created_at = datetime('now'), ms_team_error = NULL
-      WHERE id = ?
-    `).bind(teamId, teamWebUrl, proposal.id).run()
-
     const { channelId, webUrl: channelWebUrl } = await createPropertyChannel(
       env,
       teamId,
@@ -1485,8 +1472,11 @@ async function triggerTeamsWorkspace(proposal: ProposalRow, env: Env) {
     )
 
     await env.DB.prepare(`
-      UPDATE proposals SET ms_channel_id = ?, ms_channel_web_url = ? WHERE id = ?
-    `).bind(channelId, channelWebUrl, proposal.id).run()
+      UPDATE proposals
+      SET ms_team_id = ?, ms_team_web_url = ?, ms_channel_id = ?, ms_channel_web_url = ?,
+          ms_team_created_at = datetime('now'), ms_team_error = NULL
+      WHERE id = ?
+    `).bind(teamId, teamWebUrl, channelId, channelWebUrl, proposal.id).run()
 
     console.log(
       `[Automation] Teams: ${existingTeam ? 'reused' : 'created'} team ${teamId} for hotel group ` +
@@ -1494,13 +1484,6 @@ async function triggerTeamsWorkspace(proposal: ProposalRow, env: Env) {
       (missing.length ? ` (skipped: ${missing.join(', ')} — no m365_user_id on file)` : '')
     )
   } catch (e: any) {
-    // teamId may already be persisted above (see comment) even though we
-    // land here — e.g. the channel step failed after a successful team
-    // create/reuse. recordError() only touches ms_team_error, so it never
-    // clobbers that.
-    await recordError(
-      (teamId ? `Team ${teamId} ready, but channel step failed: ` : '') +
-      (e?.message || 'Unknown error creating Microsoft Teams workspace')
-    )
+    await recordError(e?.message || 'Unknown error creating Microsoft Teams workspace')
   }
 }

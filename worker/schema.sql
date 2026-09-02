@@ -76,6 +76,27 @@ CREATE TABLE IF NOT EXISTS proposals (
   asana_project_gid    TEXT,
   xero_quote_id        TEXT,
   sharepoint_folder    TEXT,
+  -- NUVCL: Microsoft Teams client workspace, created/updated by
+  -- triggerTeamsWorkspace() (worker/src/routes/proposals.ts) on the
+  -- 'created' automation event — i.e. as soon as the wizard's "Generate &
+  -- Save" runs, not on sign. One Team per Hotel Group (ms_team_id/
+  -- ms_team_web_url — reused across every proposal/property generated
+  -- under that hgid, via findTeamByName()), with one PRIVATE channel per
+  -- Property underneath it (ms_channel_id/ms_channel_web_url — one per
+  -- proposal). The proposal's sender + account manager (via their
+  -- staff.m365_user_id) are added as Team owners the first time a hotel
+  -- group's Team is created, as plain Team members if it already existed,
+  -- and as owners of the new Property channel either way. ms_team_error is
+  -- populated instead of the other four when creation fails at any step,
+  -- so a failure is visible on the proposal itself rather than only in
+  -- Worker logs (the class of silent-failure bug seen with registry status
+  -- sync — see project notes).
+  ms_team_id           TEXT,
+  ms_team_web_url      TEXT,
+  ms_channel_id        TEXT,
+  ms_channel_web_url   TEXT,
+  ms_team_created_at   TEXT,
+  ms_team_error        TEXT,
   view_count           INTEGER NOT NULL DEFAULT 0,
   last_viewed_at       TEXT,
   signing_token        TEXT UNIQUE,
