@@ -12,13 +12,6 @@ export interface Env {
   AZURE_CLIENT_ID:     string
   ASANA_WORKSPACE_GID: string
   REGISTRY_BASE_URL:   string   // e.g. https://register.nuvho.com
-  // v2.0 Teams restructure: fixed geo Team ids (see lib/graph.ts's
-  // resolveGeoTeamId). Not secrets — Team ids aren't sensitive, same as
-  // ASANA_WORKSPACE_GID above — but left unset in wrangler.toml until
-  // Odysseus creates the 4 geo Teams in Teams admin and provides their ids.
-  MS_TEAM_ID_AU?:       string
-  MS_TEAM_ID_UK?:       string
-  MS_TEAM_ID_IE?:       string
   // Secrets
   AZURE_CLIENT_SECRET: string
   HUBSPOT_API_KEY:     string

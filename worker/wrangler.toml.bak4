@@ -27,15 +27,6 @@ AZURE_CLIENT_ID = "f5f35997-177f-4f24-9069-cc1f31113ae7"
 ASANA_WORKSPACE_GID = "1143618526084997"
 REGISTRY_BASE_URL = "https://register.nuvho.com"
 
-# v2.0 Teams restructure (see worker/src/lib/graph.ts's resolveGeoTeamId):
-# fill these in with the real Team ids AFTER creating "Nuvho — AU",
-# "Nuvho — UK" and "Nuvho — IE" in Teams admin — `list_teams` will show
-# them once created. Left blank/commented until then; triggerTeamsWorkspace
-# records a clear ms_team_error (not a crash) for any geo whose var is unset.
-# MS_TEAM_ID_AU = "<team-id-for-Nuvho — AU>"
-# MS_TEAM_ID_UK = "<team-id-for-Nuvho — UK>"
-# MS_TEAM_ID_IE = "<team-id-for-Nuvho — IE>"
-
 # Secrets — set via `wrangler secret put <NAME>`, never committed here:
 #   AZURE_CLIENT_SECRET, HUBSPOT_API_KEY, ASANA_PAT, JWT_SECRET,
 #   RESEND_API_KEY, XERO_CLIENT_ID, XERO_CLIENT_SECRET, ANTHROPIC_API_KEY,

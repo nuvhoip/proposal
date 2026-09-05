@@ -11,9 +11,8 @@ import {
 } from '../lib/registry'
 import { formatNpIdLocal } from '../lib/npId'
 import {
-  sendMailViaGraph, resolveGeoTeamId, createOrUpdatePropertyChannel,
+  sendMailViaGraph, createClientTeam, findTeamByName, addExistingTeamMember, createPropertyChannel,
 } from '../lib/graph'
-import { buildChannelDisplayName } from '../lib/teamsNaming'
 
 /* ─── List proposals ───────────────────────────────────────── */
 export async function listProposals(request: Request, env: Env, session: Session): Promise<Response> {
@@ -1356,24 +1355,31 @@ async function triggerXero(proposal: ProposalRow, services: ServiceRow[], env: E
 }
 
 /**
- * v2.0 REWORK (2026-09-03) — superseded the previous "one Team per Hotel
- * Group, one private channel per Property" design (kept in this file's git
- * history only). Per the new Microsoft Teams spec: 4 fixed Teams already
- * exist per geo (Nuvho — AU/UK/IE, plus Internal — not used here), and the
- * channel now lives at the PROPERTY level inside whichever geo Team the
- * property belongs to, as a STANDARD channel (visible to the whole Team —
- * see lib/graph.ts's createOrUpdatePropertyChannel for why this drops the
- * old private-channel owner logic entirely). Still fires on 'created' (the
- * wizard's "Generate & Save"), and still re-runs safely if a channel
- * already exists for this property — except now it also REFRESHES that
- * channel's description every time, so a property's "Active: <EIDs>" list
- * grows as later proposals/engagements land against the same property.
+ * Creates (or reuses) a Microsoft Team for the proposal's Hotel Group, and
+ * adds a private channel under it for this specific Property — one Team
+ * per Hotel Group, one private channel per Property/proposal underneath
+ * it, matching how the wizard's own Step 1 already structures a client
+ * (Hotel Group first, Property second). Fires on 'created' — the wizard's
+ * "Generate & Save" — not on sign, so the workspace exists the moment a
+ * proposal is generated, not only once it's won.
  *
- * Requires the proposal to be linked to a real registered Property (pid),
- * not just a Hotel Group — the property's pid is what keys "every EID for
- * this property" (see the activeEids query below), and its geo is what
- * selects the Team. A Hotel-Group-only link (no property chosen /
- * registered yet) is not enough here, unlike the old design.
+ * The proposal's sender and (if set) Account Manager are added: as Team
+ * OWNERS the first time a Hotel Group's Team is created, as plain Team
+ * MEMBERS if the Team already exists (reused from an earlier proposal
+ * under the same hgid — they still need at least member-level Team
+ * membership to be added to a private channel below), and as OWNERS of the
+ * new private Property channel either way — private-channel membership is
+ * independent of Team-level roles, so this step is required regardless of
+ * whether the Team itself was just created or reused.
+ *
+ * Requires staff.m365_user_id to be populated for those staff members
+ * (existing "Sync M365 Staff" action, POST /staff/sync-m365) — a staff
+ * member who has never been synced is silently skipped from the id list,
+ * not treated as fatal, so the workspace still gets created for whichever
+ * of the two people we do have an id for. If neither resolves, or the
+ * proposal has no Hotel Group (hgid) linked yet, the whole step is skipped
+ * and recorded in ms_team_error rather than failing silently — see
+ * schema.sql's comment on these columns.
  *
  * Like the other A1–A9 triggers, failures here are caught by the caller
  * (triggerAutomations) and must never block proposal creation itself.
@@ -1385,27 +1391,18 @@ async function triggerTeamsWorkspace(proposal: ProposalRow, env: Env) {
       .bind(message, proposal.id).run()
   }
 
-  // All bundled service lines share the same client/property, so any one
-  // row's hgid/geo/pid will do. pid is required now (see JSDoc above) —
-  // it's only populated once a real registered Property is linked (see
-  // createProposal's Engagement-sync block).
+  // All bundled service lines share the same client, so any one row's hgid
+  // (set from the wizard's Step 1 Hotel Group picker — see
+  // worker/src/lib/registry.ts's Hotel Group section) will do.
   const link = await env.DB.prepare(
-    'SELECT hgid, geo, pid FROM proposal_registry_links WHERE proposal_id = ? AND pid IS NOT NULL LIMIT 1'
-  ).bind(proposal.id).first<{ hgid: string; geo: string; pid: string }>()
+    'SELECT hgid FROM proposal_registry_links WHERE proposal_id = ? AND hgid IS NOT NULL LIMIT 1'
+  ).bind(proposal.id).first<{ hgid: string }>()
 
-  if (!link?.pid) {
+  if (!link?.hgid) {
     await recordError(
-      'No registered Property (pid) linked to this proposal yet — the v2.0 Teams channel is keyed ' +
-      'by property, so link/register a Property in Step 1 before this can run.'
+      'No Hotel Group (hgid) linked to this proposal — the wizard requires selecting one in Step 1, ' +
+      'so this should not normally happen.'
     )
-    return
-  }
-
-  let teamId: string
-  try {
-    teamId = resolveGeoTeamId(env, link.geo)
-  } catch (e: any) {
-    await recordError(e?.message || `Could not resolve a geo Team for geo "${link.geo}"`)
     return
   }
 
@@ -1418,47 +1415,92 @@ async function triggerTeamsWorkspace(proposal: ProposalRow, env: Env) {
     return
   }
 
+  type StaffM365 = { name: string; m365_user_id: string | null }
+
+  const sender = await env.DB.prepare('SELECT name, m365_user_id FROM staff WHERE id = ?')
+    .bind(proposal.sender_staff_id).first<StaffM365>()
+
   const accountManager = proposal.account_manager_stf_id
-    ? await env.DB.prepare('SELECT name FROM staff WHERE id = ?')
-        .bind(proposal.account_manager_stf_id).first<{ name: string }>()
+    ? await env.DB.prepare('SELECT name, m365_user_id FROM staff WHERE id = ?')
+        .bind(proposal.account_manager_stf_id).first<StaffM365>()
     : null
 
-  // Every EID ever linked to this property (across every proposal that's
-  // been generated for it, not just this one) — see migration 0014's
-  // pid/eid columns on proposal_registry_links. Not filtered by registry
-  // engagement status: this table doesn't reliably cache that status
-  // locally, so "Active" here means "a real Engagement record exists",
-  // which is the honest thing this Worker can assert without an extra
-  // live registry call per channel refresh.
-  const eidRows = await env.DB.prepare(
-    'SELECT DISTINCT eid_display FROM proposal_registry_links ' +
-    'WHERE pid = ? AND eid_display IS NOT NULL ORDER BY eid_display'
-  ).bind(link.pid).all<{ eid_display: string }>()
-  const activeEids = (eidRows.results || []).map(r => r.eid_display)
+  const missing: string[] = []
+  const memberIds: string[] = []
+  if (sender?.m365_user_id) memberIds.push(sender.m365_user_id)
+  else missing.push(sender ? `sender "${sender.name}"` : 'sender')
 
-  const displayName = buildChannelDisplayName(hotelGroupName, proposal.hotel_name)
-  const description = [
-    `Active: ${activeEids.length ? activeEids.join(' | ') : '(none yet)'}`,
-    `${link.pid} | ${link.hgid} | Account Manager: ${accountManager?.name || 'Unassigned'}`,
-  ].join('\n')
+  if (proposal.account_manager_stf_id) {
+    if (accountManager?.m365_user_id) memberIds.push(accountManager.m365_user_id)
+    else missing.push(accountManager ? `account manager "${accountManager.name}"` : 'account manager')
+  }
 
+  if (!memberIds.length) {
+    await recordError(
+      `No Microsoft 365 user id available for ${missing.join(' or ')} — ` +
+      `run "Sync M365 Staff" in Settings, then re-trigger this automation.`
+    )
+    return
+  }
+
+  let teamId: string | null = null
   try {
-    const { channelId, webUrl: channelWebUrl, created } = await createOrUpdatePropertyChannel(
-      env, teamId, displayName, description
+    const existingTeam = await findTeamByName(env, hotelGroupName)
+    if (existingTeam) {
+      teamId = existingTeam.id
+      for (const uid of new Set(memberIds)) {
+        await addExistingTeamMember(env, teamId, uid, 'member')
+      }
+    } else {
+      const created = await createClientTeam(
+        env,
+        hotelGroupName,
+        `Client workspace for ${hotelGroupName} — created automatically from the first proposal ` +
+          `generated for this hotel group.`,
+        memberIds
+      )
+      teamId = created.teamId
+    }
+    const teamWebUrl = `https://teams.microsoft.com/l/team/${encodeURIComponent(teamId)}`
+
+    // Persist the Team reference as soon as we have it — BEFORE attempting
+    // the channel creation below. Previously this was written only after
+    // both steps succeeded, which meant a channel-creation failure (e.g.
+    // the missing-Channel.Create-permission 403 hit on 2026-09-02's live
+    // test) silently discarded a team that had, in fact, been created —
+    // losing the reference even though findTeamByName() would still locate
+    // it by name on the next proposal for this hotel group.
+    await env.DB.prepare(`
+      UPDATE proposals
+      SET ms_team_id = ?, ms_team_web_url = ?, ms_team_created_at = datetime('now'), ms_team_error = NULL
+      WHERE id = ?
+    `).bind(teamId, teamWebUrl, proposal.id).run()
+
+    const { channelId, webUrl: channelWebUrl } = await createPropertyChannel(
+      env,
+      teamId,
+      proposal.hotel_name,
+      `Proposal workspace for ${proposal.hotel_name} — created automatically when the proposal was generated.`,
+      memberIds
     )
 
     await env.DB.prepare(`
-      UPDATE proposals
-      SET ms_team_id = ?, ms_channel_id = ?, ms_channel_web_url = ?,
-          ms_team_created_at = datetime('now'), ms_team_error = NULL
-      WHERE id = ?
-    `).bind(teamId, channelId, channelWebUrl, proposal.id).run()
+      UPDATE proposals SET ms_channel_id = ?, ms_channel_web_url = ? WHERE id = ?
+    `).bind(channelId, channelWebUrl, proposal.id).run()
 
     console.log(
-      `[Automation] Teams: ${created ? 'created' : 'reused'} channel "${displayName}" ` +
-      `(${channelId}) in geo Team ${teamId} for property "${proposal.hotel_name}"`
+      `[Automation] Teams: ${existingTeam ? 'reused' : 'created'} team ${teamId} for hotel group ` +
+      `"${hotelGroupName}", channel ${channelId} for property "${proposal.hotel_name}"` +
+      (missing.length ? ` (skipped: ${missing.join(', ')} — no m365_user_id on file)` : '')
     )
   } catch (e: any) {
-    await recordError(e?.message || 'Unknown error creating/updating the Microsoft Teams property channel')
+    // teamId may already be persisted above (see comment) even though we
+    // land here — e.g. the channel step failed after a successful team
+    // create/reuse. recordError() only touches ms_team_error, so it never
+    // clobbers that.
+    await recordError(
+      (teamId ? `Team ${teamId} ready, but channel step failed: ` : '') +
+      (e?.message || 'Unknown error creating Microsoft Teams workspace')
+    )
   }
 }
