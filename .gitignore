@@ -9,6 +9,10 @@ frontend/out/
 frontend/build/
 frontend/node_modules/
 
+# Self-hosted TinyMCE (GPL) mirrored from node_modules by scripts/copy-tinymce.mjs
+# on postinstall — regenerated locally/in CI, never committed.
+frontend/public/tinymce/
+
 
 # ── TypeScript ────────────────────────────────────────────────────────────────
 *.tsbuildinfo
@@ -40,8 +44,7 @@ worker/node_modules/
 .dev.vars
 
 # ── Backup files (created during edits) ──────────────────────────────────────
-*.bak
-*.bak2
+*.bak*
 
 # ── OS / editor ───────────────────────────────────────────────────────────────
 .DS_Store

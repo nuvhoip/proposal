@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "postinstall": "node scripts/copy-tinymce.mjs"
   },
   "dependencies": {
     "@azure/msal-browser": "^3.14.0",
@@ -20,7 +21,6 @@
     "jose": "^5.6.3",
     "lucide-react": "^0.383.0",
     "next": "14.2.5",
-    "pagedjs": "^0.4.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.52.1",

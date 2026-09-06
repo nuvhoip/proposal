@@ -353,3 +353,19 @@ a.nv-sidebar-subnav-item.nv-sidebar-subnav-item--active {
    applied here for print media only via the @import at the very top
    of this file. Do not re-add an inline @media print block here —
    edit public/print-rules.css instead. */
+
+/* Explicit A4 sheets shared by the editor and saved document. */
+.a4-sheet {
+  box-sizing: border-box; width: 210mm; height: 297mm; padding: 15mm 14mm;
+  background: white; color: var(--nv-text-body); font-family: var(--font-raleway), Arial, sans-serif;
+  font-size: 13px; line-height: 1.7; flex-shrink: 0;
+  box-shadow: 0 0 0 1px #d1d5db, 0 3px 10px rgba(0,0,0,.12);
+  overflow: auto;
+}
+.a4-sheet p { margin: 0 0 14px; }
+.a4-sheet img { max-width: 100%; }
+.a4-sheet table { width: 100%; border-collapse: collapse; }
+.a4-sheet td, .a4-sheet th { padding: 6px; vertical-align: top; }
+.a4-sheet--cover { padding: 0; }
+.a4-sheet .doc-cover { margin: 0; width: 210mm; max-width: none; height: 297mm; min-height: 0; box-shadow: none; border-radius: 0; }
+.a4-saved-pages { display: flex; flex-direction: column; align-items: center; gap: 40px; padding: 24px 16px; background: #e5e7eb; }

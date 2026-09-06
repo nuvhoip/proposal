@@ -273,3 +273,13 @@
   .no-print {
     display: none !important;
   }
+
+/* Authored sheets retain their explicit page boundaries in browser PDF export. */
+#proposal-print-root .a4-saved-pages { display: block; padding: 0; background: white; }
+#proposal-print-root .a4-sheet {
+  width: 210mm; height: 297mm; min-height: 297mm; max-width: none;
+  margin: 0; box-shadow: none; border-radius: 0; overflow: visible;
+  break-after: page; page-break-after: always;
+}
+#proposal-print-root .a4-sheet:last-child { break-after: auto; page-break-after: auto; }
+#proposal-print-root .a4-sheet .doc-cover { break-after: auto; page-break-after: auto; }

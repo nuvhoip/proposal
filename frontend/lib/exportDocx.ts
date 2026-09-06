@@ -1,3 +1,5 @@
+import { readA4Document } from './a4Document'
+import { exportA4Docx } from './exportA4Docx'
 // ─── Word (.docx) export ──────────────────────────────────────────────────────
 // Builds a real .docx Blob straight from the same ProposalDocModel that
 // <ProposalDocument> renders for the on-screen/print preview, using the pure-JS
@@ -63,6 +65,8 @@ function getFirstName(fullName: string): string {
 }
 
 export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
+  const authored = readA4Document(model.pageBreaks)
+  if (authored) return exportA4Docx(authored)
   const multiSvc = model.services.length > 1
   const children: (Paragraph | Table)[] = []
 

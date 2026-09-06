@@ -1,3 +1,4 @@
+import type { PageLayoutSettings } from './a4Document'
 // ─── Proposal Document Model ─────────────────────────────────────────────────
 // A normalized, presentation-ready shape that both the wizard's Preview & Send
 // step (working from an in-progress ProposalDraft) and the Proposal Details
@@ -105,7 +106,7 @@ export interface ProposalDocModel {
   // <ProposalDocument>'s own on-screen rendering, which is always a single
   // continuous .doc-flow regardless of these flags (see that component's
   // comment on why).
-  pageBreaks:        Record<string, boolean>
+  pageBreaks:        PageLayoutSettings
   // The CLIENT's own e-signature, captured via the public sign page's
   // POST /p/:id/sign and stored in dedicated proposal_terms.client_* columns
   // — deliberately separate from signatureMethod/signatoryName/

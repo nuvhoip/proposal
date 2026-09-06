@@ -1,3 +1,4 @@
+import type { PageLayoutSettings } from './a4Document'
 // ─── Proposal System Types ───────────────────────────────────────────────────
 
 export type ProposalStatus = 'draft' | 'generated' | 'sent' | 'signed' | 'expired' | 'fully_signed'
@@ -231,7 +232,8 @@ export interface ProposalTerms {
   // ProposalDocument.tsx's buildTocItems() uses: 'background' | 'scope' |
   // 'nuvho' | 'fees' | 'appendix'. Missing/false = no forced break (default
   // flowing layout, unchanged from before this existed).
-  pageBreaks:        Record<string, boolean>
+  // _document stores authored A4 pages alongside legacy section-break flags.
+  pageBreaks:        PageLayoutSettings
 }
 
 // Proposal generator wizard state (nested per-step structure)

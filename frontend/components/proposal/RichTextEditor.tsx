@@ -15,15 +15,16 @@ interface RichTextEditorProps {
  * custom message that renders above the Quote Approval signature block
  * (see lib/documentModel.ts's `signatureMessage` / ProposalDocument.tsx).
  *
- * Uses TinyMCE Cloud. Set NEXT_PUBLIC_TINYMCE_API_KEY in .env.local (a free
- * tier is available at https://www.tiny.cloud) for a production deployment
- * to remove the "This domain is not registered" notice — the editor is
- * fully functional either way, the notice is cosmetic only.
+ * Self-hosted via public/tinymce (see scripts/copy-tinymce.mjs, which
+ * mirrors node_modules/tinymce there on `npm install`) — same setup as
+ * the per-page editors in TinyMcePageEditor.tsx. No TinyMCE Cloud account,
+ * no API key, no "This domain is not registered" notice.
  */
 export function RichTextEditor({ value, onChange, placeholder, height = 220 }: RichTextEditorProps) {
   return (
     <Editor
-      apiKey={process.env.NEXT_PUBLIC_TINYMCE_API_KEY || undefined}
+      tinymceScriptSrc="/tinymce/tinymce.min.js"
+      licenseKey="gpl"
       value={value}
       onEditorChange={onChange}
       init={{
@@ -33,7 +34,6 @@ export function RichTextEditor({ value, onChange, placeholder, height = 220 }: R
         plugins: 'lists link autolink',
         toolbar: 'bold italic underline | bullist numlist | link | removeformat',
         placeholder,
-        branding: false,
         content_style: `
           body {
             font-family: 'Raleway', Arial, sans-serif;

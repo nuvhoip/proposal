@@ -1,0 +1,8 @@
+{
+  "/auth/callback/page": "app/auth/callback/page.js",
+  "/page": "app/page.js",
+  "/(app)/dashboard/page": "app/(app)/dashboard/page.js",
+  "/(auth)/login/page": "app/(auth)/login/page.js",
+  "/(app)/proposals/new/page": "app/(app)/proposals/new/page.js",
+  "/(app)/proposals/[id]/page": "app/(app)/proposals/[id]/page.js"
+}

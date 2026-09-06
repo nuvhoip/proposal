@@ -13,15 +13,12 @@ import {
 import { buildDocModelFromDraft, parseCoverUrl, buildCoverUrl, buildDefaultIntroMessage } from '@/lib/documentModel'
 import dynamic from 'next/dynamic'
 
-// The Preview & Save step's A4 pagination preview (PaginatedPreview.tsx)
-// runs the document through Paged.js, a browser-only library — ssr:false
-// keeps any part of it from ever being evaluated during `next build`'s
-// server bundle, and dynamic() code-splits it into its own chunk so it
-// isn't pulled into every other step of the wizard that never renders it.
-const PaginatedPreview = dynamic(
-  () => import('@/components/proposal/PaginatedPreview').then(m => m.PaginatedPreview),
-  { ssr: false, loading: () => <p className="step-desc">Loading page preview…</p> },
+// The page editor uses native browser selection and editable A4 sheets.
+const A4DocumentEditor = dynamic(
+  () => import('@/components/proposal/A4DocumentEditor').then(m => m.A4DocumentEditor),
+  { ssr: false, loading: () => <p className="step-desc">Loading page editor…</p> },
 )
+import type { A4Document } from '@/lib/a4Document'
 import { RichTextEditor } from '@/components/proposal/RichTextEditor'
 import { setNavigationGuard } from '@/lib/navigationGuard'
 import { useSession } from '@/components/auth/AuthGuard'
@@ -65,6 +62,7 @@ const EMPTY_DRAFT: ProposalDraft = {
 }
 
 export default function NewProposalPage() {
+  const [documentReady, setDocumentReady] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
   const editId = searchParams.get('edit')
@@ -675,7 +673,7 @@ export default function NewProposalPage() {
               entities={entities} entitiesLoading={entitiesLoading} />
           )}
           {step === 7 && (
-            <Step7Preview draft={draft} setDraft={setDraft} errors={errors} staff={staff} />
+            <Step7Preview draft={draft} setDraft={setDraft} errors={errors} staff={staff} onDocumentReady={setDocumentReady} />
           )}
 
           {errors.submit && (
@@ -704,7 +702,7 @@ export default function NewProposalPage() {
                   <button
                     className="nv-btn nv-btn--outlined nv-btn--md"
                     onClick={handleSaveDraft}
-                    disabled={saving || savingDraft}
+                    disabled={saving || savingDraft || !documentReady}
                     aria-busy={savingDraft}
                   >
                     {savingDraft ? 'Saving…' : 'Save as Draft'}
@@ -712,7 +710,7 @@ export default function NewProposalPage() {
                   <button
                     className="nv-btn nv-btn--solid nv-btn--md"
                     onClick={handleSubmit}
-                    disabled={saving || savingDraft}
+                    disabled={saving || savingDraft || !documentReady}
                     aria-busy={saving}
                   >
                     {saving ? 'Saving…' : 'Save Document'}
@@ -3017,121 +3015,16 @@ function TermsEditor({ clauses, onChange }: { clauses: TermsClause[]; onChange: 
    see "Signature not yet captured" on the letter. */
 
 /* ─── Step 7: Preview & Save ─── */
-function Step7Preview({ draft, setDraft, errors, staff = [] }: StepProps) {
-  const [layoutRevision, setLayoutRevision] = useState(0)
-  function moveBlock(path: string[], direction: -1 | 1) {
-    // Reorder the same arrays already persisted by the deployed worker.
-    function move<T extends { id: string; enabled?: boolean }>(items: T[], id: string) {
-      const from = items.findIndex(item => item.id === id)
-      if (from < 0) return items
-      let to = from + direction
-      while (to >= 0 && to < items.length && items[to].enabled === false) to += direction
-      if (to < 0 || to >= items.length) return items
-      const result = [...items]
-      const [item] = result.splice(from, 1)
-      result.splice(to, 0, item)
-      return result
-    }
-    setDraft(d => {
-      if (path[0] === 'clause') return { ...d, terms: { ...d.terms, clauses: move(d.terms.clauses, path[1]) } }
-      if (path[0] === 'scope') return { ...d, services: d.services.map(s => s.code === path[1]
-        ? { ...s, scopeItems: move(s.scopeItems, path[2]) } : s) }
-      return d
-    })
-    setLayoutRevision(n => n + 1)
-  }
-  const total = draft.services.reduce((acc, s) => acc + s.monthlyFee * s.term + s.setupFee, 0)
+function Step7Preview({ draft, setDraft, staff = [], onDocumentReady }: StepProps) {
   const model = buildDocModelFromDraft(draft, staff)
-
-  function editField(path: string[], value: string) {
-    setDraft(d => {
-      const [group, key, id, field] = path
-      if (group === 'hotel' && ['name', 'contactName', 'contactTitle', 'contactEmail', 'contactPhone', 'propertyAddress'].includes(key))
-        return { ...d, hotel: { ...d.hotel, [key]: value } }
-      if (group === 'sender' && key === 'message') return { ...d, sender: { ...d.sender, message: value } }
-      if (group === 'regionSettings' && key === 'aboutNuvho') return { ...d, regionSettings: { ...d.regionSettings, aboutNuvho: value } }
-      if (group === 'clause' && ['heading', 'text'].includes(id))
-        return { ...d, terms: { ...d.terms, clauses: d.terms.clauses.map(c => c.id === key ? { ...c, [id]: value } : c) } }
-      if (group === 'footnote') return { ...d, services: d.services.map(s => ({ ...s, footnotes: s.footnotes.map(f => f.id === key ? { ...f, text: value } : f) })) }
-      if (group === 'scope' && field === 'text') return { ...d, services: d.services.map(s => s.code === key ? { ...s, scopeItems: s.scopeItems.map(i => i.id === id ? { ...i, text: value } : i) } : s) }
-      if (group === 'fee' && ['component', 'note', 'fee', 'term'].includes(field)) {
-        const next = ['fee', 'term'].includes(field) ? (value === '' ? '' : Number(value)) : value
-        if (typeof next === 'number' && (!Number.isFinite(next) || next < 0)) return d
-        return { ...d, services: d.services.map(s => {
-          if (s.code !== key) return s
-          const feeRows = s.feeRows.map(r => r.id === id ? { ...r, [field]: next } : r)
-          return { ...s, feeRows, ...deriveFeeSummary(feeRows) }
-        }) }
-      }
-      return d
-    })
+  function savePages(document: A4Document) {
+    setDraft(d => ({ ...d, terms: { ...d.terms, pageBreaks: { ...d.terms.pageBreaks, _document: document } } }))
   }
-
-  function togglePageBreak(key: string, checked: boolean) {
-    setDraft(d => ({
-      ...d,
-      terms: { ...d.terms, pageBreaks: { ...(d.terms.pageBreaks || {}), [key]: checked } },
-    }))
-  }
-
-  return (
-    <div className="step-content">
-      <h2 className="step-title">Preview & Save</h2>
-      <p className="step-desc">Click the document text to edit property details, the introduction, scope, company description, pricing and terms. Select a content block to start it on the next page or remove its page break. Scope items and terms clauses can also move earlier or later in their section. Use Reflow pages after adding text, then save below.</p>
-
-      <PaginatedPreview model={model} onTogglePageBreak={togglePageBreak} onEdit={editField} onMoveBlock={moveBlock} layoutRevision={layoutRevision} />
-      <details>
-        <summary>Proposal details</summary>
-      <div className="preview-summary">
-        <SummaryRow label="Property" value={draft.hotel.name || '—'} />
-        <SummaryRow label="Contact"  value={`${draft.hotel.contactName} — ${draft.hotel.contactEmail}`} />
-        <SummaryRow label="Services" value={draft.services.map(s => s.code).join(', ') || '—'} />
-        <SummaryRow label="Total value" value={`$${total.toLocaleString('en-AU')}`} bold />
-        <SummaryRow label="Sending as" value={draft.sender.staffId || '—'} />
-        <SummaryRow label="Terms validity" value={`${draft.terms.validityDays} days`} />
-        <SummaryRow label="Signature" value={
-          !draft.terms.signatureRequired
-            ? 'Not required'
-            : draft.terms.signatureMethod === 'draw'
-              ? (draft.terms.signatureDataUrl ? 'Drawn signature captured' : 'Required')
-              : (draft.terms.signatoryName || 'Required')
-        } />
-      </div>
-
-      </details>
-      <p className="preview-note">Save Document saves your edits. You can download the PDF or Word document from the saved proposal.</p>
-
-      <style jsx>{`
-        .preview-summary {
-          border: 1px solid var(--nv-border-hair);
-          border-radius: 10px;
-          overflow: hidden;
-          margin-bottom: 24px;
-        }
-        .preview-note {
-          margin-top: 16px;
-          padding: 12px 16px;
-          background: rgba(40,104,127,0.05);
-          border-radius: 10px;
-          font-size: 13px;
-          color: var(--nv-text-muted);
-          line-height: 1.6;
-        }
-        .preview-doc-header {
-          margin-top: 28px;
-          display: flex;
-          align-items: flex-end;
-          justify-content: space-between;
-          gap: 16px;
-        }
-        .preview-doc-heading {
-          font-family: var(--font-comfortaa);
-          font-size: 15px;
-          color: var(--nv-text-heading);
-        }
-      `}</style>
-    </div>
-  )
+  return <div className="step-content">
+    <h2 className="step-title">Preview & Save</h2>
+    <p className="step-desc">Edit directly on each A4 sheet — content flows onto the next page automatically as you type or delete, just like Word. Use each page’s own toolbar for a manual page break or a precise move. Save Document below saves the pages exactly as arranged.</p>
+    <A4DocumentEditor model={model} onChange={savePages} onReady={onDocumentReady!} />
+  </div>
 }
 
 function SummaryRow({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
@@ -3159,6 +3052,7 @@ interface M365Staff {
 }
 
 interface StepProps {
+  onDocumentReady?: (ready: boolean) => void
   draft: ProposalDraft
   setDraft: React.Dispatch<React.SetStateAction<ProposalDraft>>
   errors: Record<string, string>

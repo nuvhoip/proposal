@@ -1,6 +1,8 @@
 'use client'
 
 import React from 'react'
+import { readA4Document } from '@/lib/a4Document'
+import { A4Pages } from './A4Pages'
 import { NuvhoLogo, NuvhoIconMark } from '@/components/ui/NuvhoLogo'
 import { FEE_TYPES } from '@/lib/serviceCatalog'
 import { parseCoverUrl, getVisibleSections } from '@/lib/documentModel'
@@ -56,8 +58,9 @@ function getBusinessNumberLine(footerText: string): string {
   return (footerText || '').split('\n')[0]?.trim() || ''
 }
 
-export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onTogglePageBreak, sectionPages }: {
+export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onTogglePageBreak, sectionPages, ignorePageLayout = false }: {
   model: ProposalDocModel
+  ignorePageLayout?: boolean
   // Rendered inside .doc-flow immediately before the Terms & Conditions /
   // Appendix section (or at the end of .doc-flow if there's no Appendix to
   // show). Used by the public sign page to place its interactive Accept &
@@ -94,6 +97,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
   // gated behind an opt-in prop rather than a default-behavior change.
   sectionPages?: boolean
 }) {
+  const savedPages = ignorePageLayout ? null : readA4Document(model.pageBreaks)
   const field = (...path: string[]) => ({ 'data-edit-field': JSON.stringify(path) })
   const block = (key: string, label: string, move?: string[]) => ({
     'data-doc-block': key,
@@ -176,6 +180,16 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
 
   return (
     <div className="doc-preview" id="proposal-print-root">
+      {savedPages ? <>
+        <A4Pages document={savedPages} />
+        {beforeAppendix}
+        {model.clientSignedAt && <div className="doc-client-acceptance">
+          <h4>Client Acceptance</h4>
+          {model.clientSignatureMethod === 'draw' && model.clientSignatureDataUrl && <img src={model.clientSignatureDataUrl} alt="Client signature" className="doc-signature__img" />}
+          <strong>{model.clientSignatoryName}</strong> {model.clientSignatoryTitle}<br />
+          Signed {model.clientSignedAt}
+        </div>}
+      </> : <>
       {/* Cover — NUVCL-102: full-bleed A4 image. The "Nuvho PTY LTD" wordmark
           and a "Date of Issue" label were never actually rendered here (both
           already live on the Letter page below); the date VALUE that was
@@ -593,7 +607,8 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
       )
       })()}
 
-      <style jsx>{`
+      </>}
+      <style jsx global>{`
         /* NUVCL-132: .doc-page/.doc-flow are sized to real A4 width (210mm)
            with the same 15mm/14mm padding print-rules.css uses, instead of
            an arbitrary 680px "web card" — so wherever this component
