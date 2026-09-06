@@ -94,6 +94,13 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
   // gated behind an opt-in prop rather than a default-behavior change.
   sectionPages?: boolean
 }) {
+  const field = (...path: string[]) => ({ 'data-edit-field': JSON.stringify(path) })
+  const block = (key: string, label: string, move?: string[]) => ({
+    'data-doc-block': key,
+    'data-block-label': label,
+    'data-block-move': move ? JSON.stringify(move) : undefined,
+    'data-manual-page-break': model.pageBreaks?.[key] ? 'true' : undefined,
+  })
   const multiSvc = model.services.length > 1
   // A step that was skipped (left with no usable content) drops both its
   // Table of Contents entry and its own page below — an empty "Scope of
@@ -183,7 +190,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
           </div>
           <div className="doc-cover-circles__body">
             <div className="doc-cover-circles__category">{model.title || 'Proposal'}</div>
-            <div className="doc-cover-circles__heading">{model.hotelName || '[Property Name]'}</div>
+            <div {...field("hotel", "name")} className="doc-cover-circles__heading">{model.hotelName || '[Property Name]'}</div>
             <div className="doc-cover-circles__meta">
               <span>Issued</span>
               <strong>{model.dateIssued}</strong>
@@ -206,7 +213,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
           </div>
           <div className="doc-cover-split__content">
             <div className="doc-cover-split__category">{model.title || 'Proposal'}</div>
-            <div className="doc-cover-split__heading">{model.hotelName || '[Property Name]'}</div>
+            <div {...field("hotel", "name")} className="doc-cover-split__heading">{model.hotelName || '[Property Name]'}</div>
             <div className="doc-cover-split__divider" />
             <div className="doc-cover-split__meta">
               <span>Issued</span>
@@ -229,7 +236,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
           <div className="doc-cover-editorial__body">
             <NuvhoLogo variant="primary" height={70} />
             <div className="doc-cover-editorial__title">{model.title}</div>
-            <div className="doc-cover-editorial__hotel">{model.hotelName || '[Property Name]'}</div>
+            <div {...field("hotel", "name")} className="doc-cover-editorial__hotel">{model.hotelName || '[Property Name]'}</div>
             {tocItems.length > 0 && (
               <ul className="doc-cover-editorial__toc">
                 {tocItems.map(item => <li key={item.id}>{item.label}</li>)}
@@ -247,7 +254,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
           </div>
           <div className="doc-cover-sidebar__main">
             <div className="doc-cover-editorial__title">{model.title}</div>
-            <div className="doc-cover-editorial__hotel">{model.hotelName || '[Property Name]'}</div>
+            <div {...field("hotel", "name")} className="doc-cover-editorial__hotel">{model.hotelName || '[Property Name]'}</div>
           </div>
         </div>
       )}
@@ -258,7 +265,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
           <div className="doc-cover__scrim">
             <NuvhoLogo variant="white" height={120} />
             <div className="doc-cover__title">{model.title}</div>
-            <div className="doc-cover__hotel">{model.hotelName || '[Property Name]'}</div>
+            <div {...field("hotel", "name")} className="doc-cover__hotel">{model.hotelName || '[Property Name]'}</div>
           </div>
         </div>
       )}
@@ -284,21 +291,21 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
             staff on the Proposal Details sidebar, but were dropped from the
             generated document entirely — added here. */}
         <div className="doc-address">
-          {model.contactName || '[Client Name]'}
-          {model.contactTitle && <>, {model.contactTitle}</>}<br />
-          {model.hotelName || '[Property Name]'}<br />
-          {model.propertyAddress || '[Property Address]'}
+          <span {...field('hotel', 'contactName')}>{model.contactName || '[Client Name]'}</span>
+          {model.contactTitle && <>, <span {...field('hotel', 'contactTitle')}>{model.contactTitle}</span></>}<br />
+          <span {...field('hotel', 'name')}>{model.hotelName || '[Property Name]'}</span><br />
+          <span {...field('hotel', 'propertyAddress')}>{model.propertyAddress || '[Property Address]'}</span>
           {(model.contactEmail || model.contactPhone) && <>
             <br />
-            {model.contactEmail}{model.contactEmail && model.contactPhone && ' · '}{model.contactPhone}
+            <span {...field('hotel', 'contactEmail')}>{model.contactEmail}</span>{model.contactEmail && model.contactPhone && ' · '}<span {...field('hotel', 'contactPhone')}>{model.contactPhone}</span>
           </>}
         </div>
         <div className="doc-re">RE: {model.title}</div>
         <p className="doc-salutation">Dear {getFirstName(model.contactName) || '[Client Name]'},</p>
         {/* introMessage is authored via the rich-text editor on wizard Step 1 (since NUVCL-118) — always HTML */}
-        <div className="doc-rich-text" dangerouslySetInnerHTML={{ __html: model.introMessage }} />
+        <div {...block("block:intro", "Introduction")} {...field("sender", "message")} data-edit-html="true" className="doc-rich-text" dangerouslySetInnerHTML={{ __html: model.introMessage }} />
 
-        <div className="doc-toc">
+        <div {...block("block:toc", "Contents")} className="doc-toc">
           {tocItems.map(item => (
             <a key={item.id} href={`#${item.id}`} className="doc-toc__item"
               onClick={e => jumpTo(e, item.id)}>
@@ -307,8 +314,8 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
           ))}
         </div>
 
-        <p>If you require further information or wish to discuss this proposal, please don&apos;t hesitate to contact me.</p>
-        <p>Yours sincerely,</p>
+        <p {...block("block:contact", "Contact paragraph")}>If you require further information or wish to discuss this proposal, please don&apos;t hesitate to contact me.</p>
+        <p {...block("block:signoff", "Sign-off")}>Yours sincerely,</p>
         {model.signatureRequired && (
           <div className="doc-signature__mark">
             {model.signatureMethod === 'draw'
@@ -320,7 +327,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
                   : <span className="doc-empty">Signature not yet captured</span>)}
           </div>
         )}
-        <div className="doc-sender">
+        <div {...block("block:sender", "Sender details")} className="doc-sender">
           <strong>{model.senderName || '[Sender Name]'}</strong><br />
           {model.senderRoleLabel || '[Sending team member not yet selected]'}
           {model.senderEmail && <><br />e: {model.senderEmail}</>}
@@ -381,7 +388,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
           node: (
             <div className={`doc-section${breakClass('background')}`} id="doc-section-background">
               <SectionHeading text="Background" sectionKey="background" />
-              <p>
+              <p {...block("block:background", "Background paragraph")}>
                 {model.hotelName || 'The property'} has engaged Nuvho to deliver {model.title.toLowerCase()}, with a
                 strong focus on maximising commercial performance and elevating the guest experience. This proposal
                 outlines our recommended scope of works, fee structure and terms of engagement.
@@ -398,7 +405,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
           node: (
             <div className={`doc-section${breakClass('scope')}`} id="doc-section-scope">
               <SectionHeading text="Scope of Works" sectionKey="scope" />
-              <p>
+              <p {...block("block:scope-intro", "Scope introduction")}>
                 We develop a long-term and collaborative partnership with our clients, delivering services and value
                 across the spectrum of hotel operations.
               </p>
@@ -411,10 +418,10 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
                       const showHeading = it.sectionHeading !== lastSection
                       lastSection = it.sectionHeading
                       return (
-                        <React.Fragment key={it.id}>
+                        <div key={it.id} {...block(`block:scope:${JSON.stringify([s.code, it.id])}`, it.sectionHeading || "Scope item", ["scope", s.code, it.id])}>
                           {showHeading && <h5 className="doc-subheading2">{it.sectionHeading}</h5>}
-                          <div className="doc-bullet">{it.text || '—'}</div>
-                        </React.Fragment>
+                          <div {...field("scope", s.code, it.id, "text")} className="doc-bullet">{it.text || '—'}</div>
+                        </div>
                       )
                     })}
                   </div>
@@ -431,7 +438,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
         node: (
           <div className={`doc-section${breakClass('nuvho')}`} id="doc-section-nuvho">
             <SectionHeading text={model.companyName || 'Nuvho Pty Ltd'} sectionKey="nuvho" />
-            <p>
+            <p {...block("block:about", "Company description")} {...field("regionSettings", "aboutNuvho")}>
               {model.aboutNuvho || (
                 'Nuvho is a new breed of hotel services company, providing tailored solutions to clients from a ' +
                 'services, systems and operational perspective. We partner with independent and boutique hotels to ' +
@@ -449,11 +456,11 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
           node: (
             <div className={`doc-section${breakClass('fees')}`} id="doc-section-fees">
               <SectionHeading text="Fee Structure" sectionKey="fees" />
-              <p>
+              <p {...block("block:fees-intro", "Pricing introduction")}>
                 The following table outlines the associated fee structure of our services. Our fees exclude GST, which
                 will be charged in addition where applicable.
               </p>
-              <table className="doc-fee-table">
+              <table {...block("block:fees-table", "Pricing table")} className="doc-fee-table">
                 <thead>
                   <tr><th>Component</th><th>Fee Type</th><th>Amount</th><th>Months</th><th>Note</th></tr>
                 </thead>
@@ -465,11 +472,11 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
                       )}
                       {s.feeRows.map(row => (
                         <tr key={row.id}>
-                          <td>{row.component || '—'}</td>
+                          <td {...field("fee", s.code, row.id, "component")}>{row.component || '—'}</td>
                           <td>{FEE_TYPES.find(f => f.value === row.feeType)?.label || row.feeType}</td>
-                          <td>{row.fee === '' ? '—' : `${model.currencySymbol}${Number(row.fee).toLocaleString()}`}</td>
-                          <td>{row.term === '' ? '—' : row.term}</td>
-                          <td>{row.note || ''}</td>
+                          <td {...field("fee", s.code, row.id, "fee")} data-edit-number="true">{row.fee === '' ? '—' : `${model.currencySymbol}${Number(row.fee).toLocaleString()}`}</td>
+                          <td {...field("fee", s.code, row.id, "term")} data-edit-number="true">{row.term === '' ? '—' : row.term}</td>
+                          <td {...field("fee", s.code, row.id, "note")}>{row.note || ''}</td>
                         </tr>
                       ))}
                     </React.Fragment>
@@ -481,7 +488,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
               )}
               {model.footnotes.length > 0 && (
                 <div className="doc-footnotes">
-                  {model.footnotes.map(f => <div key={f.id} className="doc-bullet">{f.text}</div>)}
+                  {model.footnotes.map(f => <div key={f.id} {...block(`block:footnote:${f.id}`, "Pricing footnote")} {...field("footnote", f.id)} className="doc-bullet">{f.text}</div>)}
                 </div>
               )}
             </div>
@@ -520,9 +527,9 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
               )}
               <SectionHeading text="Terms & Conditions" sectionKey="appendix" />
               {model.clauses.map(c => (
-                <div key={c.id} className="doc-clause">
-                  <h5 className="doc-subheading2">{c.heading}</h5>
-                  <p>{c.text}</p>
+                <div key={c.id} {...block(`block:clause:${c.id}`, c.heading || "Terms clause", ["clause", c.id])} className="doc-clause">
+                  <h5 {...field("clause", c.id, "heading")} className="doc-subheading2">{c.heading}</h5>
+                  <p {...field("clause", c.id, "text")}>{c.text}</p>
                 </div>
               ))}
             </div>

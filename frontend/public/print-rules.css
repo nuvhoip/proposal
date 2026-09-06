@@ -206,6 +206,7 @@
      reads the same model.pageBreaks map to start a new on-screen .doc-flow
      "page" card at the same point, so this now has a matching on-screen
      effect too — this rule here only governs the print/PDF pagination. */
+  #proposal-print-root [data-manual-page-break="true"],
   #proposal-print-root .doc-section--break {
     page-break-before: always;
     break-before: page;

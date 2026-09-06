@@ -66,6 +66,12 @@ export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
   const multiSvc = model.services.length > 1
   const children: (Paragraph | Table)[] = []
 
+  function startBlock(key: string) {
+    if (model.pageBreaks?.[key]) children.push(new Paragraph({
+      pageBreakBefore: true, spacing: { before: 0, after: 0, line: 1 },
+    }))
+  }
+
   // Cover / title block
   children.push(new Paragraph({ text: model.title, heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER, spacing: { after: 100 } }))
   children.push(new Paragraph({ text: model.hotelName || '[Property Name]', alignment: AlignmentType.CENTER, spacing: { after: 40 } }))
@@ -87,12 +93,16 @@ export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
   children.push(new Paragraph({ children: [new TextRun({ text: `RE: ${model.title}`, bold: true })], spacing: { after: 200 } }))
   children.push(body(`Dear ${getFirstName(model.contactName) || '[Client Name]'},`))
   // introMessage is authored via the rich-text editor on wizard Step 1 (since NUVCL-118) — always HTML.
+  startBlock("block:intro")
   htmlToParagraphs(model.introMessage).forEach(line => children.push(body(line)))
 
+  startBlock('block:toc')
   ;['Background', 'Scope of Works', 'Nuvho Pty Ltd', 'Fee Structure', 'Terms & Conditions']
     .forEach(item => children.push(new Paragraph({ children: [new TextRun({ text: item, bold: true })], spacing: { after: 40 } })))
 
+  startBlock('block:contact')
   children.push(body('If you require further information or wish to discuss this proposal, please don’t hesitate to contact me.'))
+  startBlock('block:signoff')
   children.push(body('Yours sincerely,'))
   if (model.signatureRequired) {
     if (model.signatureMethod === 'draw' && model.signatureDataUrl) {
@@ -108,6 +118,7 @@ export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
       children.push(italic('Signature not yet captured'))
     }
   }
+  startBlock('block:sender')
   children.push(new Paragraph({ children: [new TextRun({ text: model.senderName || '[Sender Name]', bold: true })] }))
   if (model.senderRoleLabel) children.push(new Paragraph({ text: model.senderRoleLabel }))
   if (model.senderEmail) children.push(new Paragraph({ text: `e: ${model.senderEmail}` }))
@@ -117,7 +128,9 @@ export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
   children.push(new Paragraph({ text: '', spacing: { after: 300 } }))
 
   // Background
+  startBlock('background')
   children.push(heading('Background'))
+  startBlock('block:background')
   children.push(body(
     `${model.hotelName || 'The property'} has engaged Nuvho to deliver ${model.title.toLowerCase()}, with a strong ` +
     `focus on maximising commercial performance and elevating the guest experience. This proposal outlines our ` +
@@ -125,12 +138,15 @@ export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
   ))
 
   // Scope of Works
+  startBlock('scope')
   children.push(heading('Scope of Works'))
+  startBlock('block:scope-intro')
   children.push(body('We develop a long-term and collaborative partnership with our clients, delivering services and value across the spectrum of hotel operations.'))
   model.services.forEach(s => {
     if (multiSvc) children.push(subheading(s.label))
     let lastSection: string | null = null
     s.scopeItems.filter(it => it.enabled).forEach(it => {
+      startBlock(`block:scope:${JSON.stringify([s.code, it.id])}`)
       if (it.sectionHeading !== lastSection) {
         lastSection = it.sectionHeading
         children.push(new Paragraph({ children: [new TextRun({ text: it.sectionHeading, bold: true })], spacing: { before: 150, after: 60 } }))
@@ -141,7 +157,9 @@ export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
   if (model.services.length === 0) children.push(italic('No services selected yet.'))
 
   // Nuvho Pty Ltd (Company Name + About — Settings → Region Settings)
+  startBlock('nuvho')
   children.push(heading(model.companyName || 'Nuvho Pty Ltd'))
+  startBlock('block:about')
   children.push(body(
     model.aboutNuvho ||
     'Nuvho is a new breed of hotel services company, providing tailored solutions to clients from a services, ' +
@@ -150,7 +168,9 @@ export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
   ))
 
   // Fee Structure
+  startBlock('fees')
   children.push(heading('Fee Structure'))
+  startBlock('block:fees-intro')
   children.push(body('The following table outlines the associated fee structure of our services. Our fees exclude GST, which will be charged in addition where applicable.'))
 
   if (model.services.length > 0) {
@@ -180,6 +200,7 @@ export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
         ] }))
       })
     })
+    startBlock('block:fees-table')
     children.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows }))
     if (model.grandTotalMonthly > 0) {
       children.push(new Paragraph({
@@ -187,7 +208,7 @@ export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
         children: [new TextRun({ text: `Combined monthly total: ${model.currencySymbol}${model.grandTotalMonthly.toLocaleString()}`, bold: true })],
       }))
     }
-    model.footnotes.forEach(f => children.push(bullet(f.text)))
+    model.footnotes.forEach(f => { startBlock(`block:footnote:${f.id}`); children.push(bullet(f.text)) })
   } else {
     children.push(italic('No pricing configured yet.'))
   }
@@ -202,15 +223,17 @@ export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
   }
 
   // Appendix — Terms & Conditions
+  startBlock('appendix')
   children.push(heading('Terms & Conditions'))
   if (model.clauses.length === 0) {
     children.push(italic('No clauses selected.'))
   }
   model.clauses.forEach(c => {
+    startBlock(`block:clause:${c.id}`)
     children.push(subheading(c.heading))
     children.push(body(c.text))
   })
 
-  const doc = new Document({ sections: [{ children }] })
+  const doc = new Document({ sections: [{ properties: { page: { size: { width: 11906, height: 16838 } } }, children }] })
   return Packer.toBlob(doc)
 }

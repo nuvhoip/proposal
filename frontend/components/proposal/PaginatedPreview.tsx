@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { ProposalDocument } from './ProposalDocument'
 import { getVisibleSections } from '@/lib/documentModel'
 import type { ProposalDocModel } from '@/lib/documentModel'
@@ -107,33 +108,105 @@ import type { ProposalDocModel } from '@/lib/documentModel'
   #1's id-loss. Neither showed up in `tsc`/lint — same lesson as round 1.
 */
 
-export function PaginatedPreview({ model, onTogglePageBreak }: {
+export function PaginatedPreview({ model, onTogglePageBreak, onEdit, onMoveBlock, layoutRevision = 0 }: {
   model: ProposalDocModel
+  onMoveBlock?: (path: string[], direction: -1 | 1) => void
+  layoutRevision?: number
+  onEdit?: (path: string[], value: string) => void
   onTogglePageBreak?: (sectionKey: string, checked: boolean) => void
 }) {
+  const layoutRef = useRef<HTMLDivElement>(null)
+  const controlsSlotRef = useRef<HTMLDivElement>(null)
+  const controlsRef = useRef<HTMLElement>(null)
+  const [floating, setFloating] = useState<{
+    left: number; top: number; width: number; maxHeight: number; visible: boolean; wide: boolean
+  } | null>(null)
+  const editable = !!onEdit
+  const floatingMounted = floating !== null
+  const updateFloatingRef = useRef<() => void>(() => {})
+
+  useEffect(() => {
+    if (!editable) { setFloating(null); return }
+    let frame = 0
+    function positionControls() {
+      frame = 0
+      const slot = controlsSlotRef.current
+      const layout = layoutRef.current
+      if (!slot || !layout) return
+      const bounds = slot.getBoundingClientRect()
+      const documentBounds = layout.getBoundingClientRect()
+      const viewportHeight = window.innerHeight
+      const panelHeight = controlsRef.current?.getBoundingClientRect().height || 0
+      // Reserve the floating panel's original space, including on mobile.
+      if (panelHeight) slot.style.minHeight = `${panelHeight}px`
+      const next = {
+        left: bounds.left,
+        top: Math.max(16, Math.min(bounds.top, documentBounds.bottom - panelHeight - 16)),
+        width: bounds.width,
+        maxHeight: Math.max(120, viewportHeight - 32),
+        visible: documentBounds.bottom > 16 && documentBounds.top < viewportHeight,
+        wide: documentBounds.width >= 900,
+      }
+      setFloating(previous => previous && JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
+    }
+    function schedulePosition() {
+      if (!frame) frame = window.requestAnimationFrame(positionControls)
+    }
+    updateFloatingRef.current = schedulePosition
+    // Capture scrolls from both the window and nested app scroll containers.
+    document.addEventListener('scroll', schedulePosition, true)
+    window.addEventListener('resize', schedulePosition)
+    const observer = new ResizeObserver(schedulePosition)
+    if (layoutRef.current) observer.observe(layoutRef.current)
+    if (controlsSlotRef.current) observer.observe(controlsSlotRef.current)
+    positionControls()
+    return () => {
+      updateFloatingRef.current = () => {}
+      document.removeEventListener('scroll', schedulePosition, true)
+      window.removeEventListener('resize', schedulePosition)
+      observer.disconnect()
+      window.cancelAnimationFrame(frame)
+    }
+  }, [editable])
+
+  // Selecting a different block or expanding section controls can resize the panel.
+  useEffect(() => {
+    const panel = controlsRef.current
+    if (!panel) return
+    const observer = new ResizeObserver(() => updateFloatingRef.current())
+    observer.observe(panel)
+    return () => observer.disconnect()
+  }, [floatingMounted])
+
+  const editRef = useRef(onEdit)
+  editRef.current = onEdit
+  const [selection, setSelection] = useState<{ key: string; label: string; move?: string[] } | null>(null)
+  const [reflowRevision, setReflowRevision] = useState(0)
   const sourceRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const tokenRef = useRef(0)
   const [pageCount, setPageCount] = useState<number | null>(null)
   const [status, setStatus] = useState<'measuring' | 'ready' | 'error'>('measuring')
 
-  // JSON.stringify(model) as a dependency key: this is only recomputed once
-  // per debounced pagination pass below (never per keystroke directly), and
-  // model is plain, JSON-safe data (strings/numbers/booleans/arrays), so
-  // this is a cheap and correct way to re-paginate whenever any part of the
-  // document actually changes, without hand-listing every field that could
-  // affect layout.
-  const modelKey = JSON.stringify(model)
+  // Keep the same editable DOM for the entire editing session. Draft
+  // updates must not destroy the iframe, selection, focus or undo history.
+  // Only an explicit page-break change rebuilds editable pages. Read-only
+  // previews still follow all model changes.
+  const layoutKey = onEdit
+    ? JSON.stringify(model.pageBreaks || {})
+    : JSON.stringify(model)
 
   useEffect(() => {
     let cancelled = false
     const token = ++tokenRef.current
     setStatus('measuring')
+    const scrollY = window.scrollY
     let activeIframe: HTMLIFrameElement | null = null
 
     function cleanupIframe() {
       window.removeEventListener('message', onMessage)
       if (activeIframe && activeIframe.parentNode) {
+        if (containerRef.current) containerRef.current.style.minHeight = `${activeIframe.getBoundingClientRect().height}px`
         activeIframe.parentNode.removeChild(activeIframe)
       }
       activeIframe = null
@@ -144,6 +217,16 @@ export function PaginatedPreview({ model, onTogglePageBreak }: {
       const data = event.data
       if (!data || typeof data !== 'object') return
 
+      if (data.type === 'pagedjs-select' && typeof data.key === 'string' && data.key.startsWith('block:')) {
+        setSelection({ key: data.key, label: String(data.label || 'Content block'), move: Array.isArray(data.move) ? data.move : undefined })
+        return
+      }
+      if (data.type === 'pagedjs-edit') {
+        if (Array.isArray(data.path) && data.path.every((part: unknown) => typeof part === 'string') && typeof data.value === 'string') {
+          editRef.current?.(data.path, data.value)
+        }
+        return
+      }
       if (data.type === 'pagedjs-ready') {
         // Send #proposal-print-root's own outerHTML — NOT
         // sourceRef.current.outerHTML (the off-screen wrapper div around
@@ -161,7 +244,7 @@ export function PaginatedPreview({ model, onTogglePageBreak }: {
         // x ≈ -99999px, entirely outside the visible viewport.
         const rootEl = sourceRef.current?.querySelector<HTMLElement>('#proposal-print-root')
         activeIframe?.contentWindow?.postMessage(
-          { type: 'pagedjs-render', content: rootEl ? rootEl.outerHTML : '' },
+          { type: 'pagedjs-render', content: rootEl ? rootEl.outerHTML : '', editable: !!editRef.current },
           '*',
         )
         return
@@ -172,6 +255,8 @@ export function PaginatedPreview({ model, onTogglePageBreak }: {
         activeIframe.style.height = `${Math.ceil(data.height) + 1}px`
         setPageCount(typeof data.total === 'number' ? data.total : null)
         setStatus('ready')
+        if (containerRef.current) containerRef.current.style.minHeight = ''
+        window.scrollTo({ top: scrollY, behavior: 'instant' as ScrollBehavior })
         return
       }
 
@@ -190,6 +275,7 @@ export function PaginatedPreview({ model, onTogglePageBreak }: {
       if (cancelled || token !== tokenRef.current) return
       const container = containerRef.current
       if (!container) return
+      container.style.minHeight = `${container.getBoundingClientRect().height}px`
 
       window.addEventListener('message', onMessage)
 
@@ -234,8 +320,25 @@ ${headStyles}
      gives each .pagedjs_page real, hard-set A4 dimensions (210mm x 297mm)
      via print-rules.css's @page rule; this just stacks them with visible
      space between so several pages read as separate physical sheets. */
-  .pagedjs_pages { display: flex; flex-direction: column; align-items: center; gap: 28px; padding: 24px 0; background: #F5F8F9; }
-  .pagedjs_page { background: white; box-shadow: 0 2px 8px rgba(40,104,127,0.15); flex-shrink: 0; }
+  /* Physical sheets on a neutral desk: the break is empty space outside
+     the paper, never a colored marker inside the document content. */
+  html, body { background: #e5e7eb; }
+  .pagedjs_pages { display: flex; flex-direction: column; align-items: center; gap: 40px; padding: 24px 16px 40px; background: #e5e7eb; }
+  [data-selected-block] { outline: 1px dashed #9ca3af; outline-offset: 4px; }
+  [contenteditable] { cursor: text; white-space: pre-wrap; }
+  [contenteditable]:hover { outline: 1px dashed #28687f; }
+  [contenteditable]:focus { outline: 2px solid #28687f; outline-offset: 3px; }
+  .pagedjs_page {
+    position: relative; background: #fff; flex-shrink: 0;
+    box-shadow: 0 0 0 1px #d1d5db, 0 3px 10px rgba(0,0,0,.12);
+  }
+  .pagedjs_page::after {
+    content: "Page " attr(data-page-number);
+    position: absolute; top: 100%; left: 0; right: 0;
+    padding-top: 10px; text-align: center;
+    font: 11px/16px Arial, sans-serif; color: #6b7280;
+    pointer-events: none;
+  }
 </style>
 </head><body>
 <div id="target"></div>
@@ -244,13 +347,57 @@ ${headStyles}
     function post(msg) { window.parent.postMessage(msg, '*'); }
     window.addEventListener('message', function (event) {
       var data = event.data;
-      if (!data || data.type !== 'pagedjs-render') return;
+      if (event.source !== window.parent || !data || data.type !== 'pagedjs-render') return;
       (async function () {
         try {
           var target = document.getElementById('target');
           target.innerHTML = '';
           var previewer = new window.Paged.Previewer();
           var flow = await previewer.preview(data.content, ['/print-rules.css', '/print-rules-preview-overrides.css'], target);
+          if (data.editable) {
+            function selectBlock(event) {
+              var block = event.target.closest('[data-doc-block]');
+              if (!block) return;
+              target.querySelectorAll('[data-selected-block]').forEach(function (node) { node.removeAttribute('data-selected-block'); });
+              block.setAttribute('data-selected-block', 'true');
+              post({ type: 'pagedjs-select', key: block.dataset.docBlock, label: block.dataset.blockLabel,
+                move: block.dataset.blockMove ? JSON.parse(block.dataset.blockMove) : undefined });
+            }
+            target.addEventListener('click', selectBlock);
+            target.addEventListener('focusin', selectBlock);
+            target.querySelectorAll('[data-doc-block]').forEach(function (block) {
+              block.tabIndex = 0;
+              block.setAttribute('aria-label', block.dataset.blockLabel + ': select to arrange');
+            });
+            target.querySelectorAll('[data-edit-field]').forEach(function (el) {
+              el.contentEditable = 'plaintext-only';
+              el.setAttribute('role', 'textbox');
+              el.setAttribute('aria-label', 'Edit ' + JSON.parse(el.dataset.editField).join(' '));
+              el.addEventListener('input', function () {
+                // Join fragments when a field spans multiple physical pages.
+                var parts = Array.from(target.querySelectorAll('[data-edit-field]')).filter(function (node) {
+                  return node.dataset.editField === el.dataset.editField;
+                });
+                // Repeated table headers are not editable. Repeated hotel names
+                // are separate appearances of one field, not split paragraphs.
+                var path = JSON.parse(el.dataset.editField);
+                var text = path[0] === 'hotel' ? el.innerText : parts.map(function (node) { return node.innerText; }).join('');
+                if (path[0] === 'hotel') {
+                  parts.forEach(function (node) { if (node !== el) node.textContent = text; });
+                }
+                if (el.dataset.editNumber) {
+                  text = text.replace(/[^0-9.-]/g, '');
+                  if (text && (!Number.isFinite(Number(text)) || Number(text) < 0)) return;
+                }
+                if (el.dataset.editHtml) {
+                  var safe = document.createElement('div');
+                  text.split('\\n').forEach(function (line) { var p = document.createElement('p'); p.textContent = line; safe.appendChild(p); });
+                  text = safe.innerHTML;
+                }
+                post({ type: 'pagedjs-edit', path: path, value: text });
+              });
+            });
+          }
           post({ type: 'pagedjs-done', total: flow.total, height: document.body.scrollHeight });
         } catch (e) {
           post({ type: 'pagedjs-error', message: String((e && e.message) || e) });
@@ -273,12 +420,41 @@ ${headStyles}
       cleanupIframe()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelKey])
+  }, [layoutKey, layoutRevision, reflowRevision])
 
   const visibleSections = getVisibleSections(model)
 
   return (
     <div className="paginated-preview">
+      <div ref={layoutRef} className={`paginated-preview__layout${onEdit ? " paginated-preview__layout--editable" : ""}`}>
+      {onEdit && <div ref={controlsSlotRef} className="paginated-preview__controls-slot" />}
+      {onEdit && floating && createPortal(
+        <aside ref={controlsRef}
+          className={`paginated-preview__arrange no-print${floating.wide ? ' paginated-preview__arrange--wide' : ''}`}
+          style={{ position: 'fixed', left: floating.left, top: floating.top, width: floating.width,
+            maxHeight: floating.maxHeight, visibility: floating.visible ? 'visible' : 'hidden' }}
+          aria-label="Arrange document content">
+          <h3>Arrange content</h3>
+          <span>{selection ? selection.label : 'Select a paragraph, scope item, table or clause to arrange it.'}</span>
+          <div className="paginated-preview__actions">
+            <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm"
+              disabled={!selection || status !== 'ready' || !!model.pageBreaks?.[selection.key]}
+              onClick={() => selection && onTogglePageBreak?.(selection.key, true)}>Start on next page</button>
+            <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm"
+              disabled={!selection || status !== 'ready' || !model.pageBreaks?.[selection.key]}
+              onClick={() => selection && onTogglePageBreak?.(selection.key, false)}>Remove page break</button>
+            {selection?.move && onMoveBlock && <>
+              <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm" disabled={status !== 'ready'}
+                onClick={() => onMoveBlock(selection.move!, -1)}>Move earlier</button>
+              <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm" disabled={status !== 'ready'}
+                onClick={() => onMoveBlock(selection.move!, 1)}>Move later</button>
+            </>}
+            <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm" disabled={status !== 'ready'}
+              onClick={() => setReflowRevision(n => n + 1)}>Reflow pages</button>
+          </div>
+          <small>Text stays in place while you type. Reflow pages after adding text; remove a break to let content flow back.</small>
+          <details className="paginated-preview__section-breaks">
+            <summary>Section page breaks</summary>
       {onTogglePageBreak && visibleSections.length > 0 && (
         <div className="paginated-preview__breaks no-print">
           <span className="paginated-preview__breaks-label">Force a page break before:</span>
@@ -294,7 +470,10 @@ ${headStyles}
           ))}
         </div>
       )}
-
+          </details>
+        </aside>, document.body
+      )}
+      <div className="paginated-preview__document">
       {status === 'error' && (
         <div className="paginated-preview__banner paginated-preview__banner--error">
           Couldn&apos;t generate an accurate page-by-page preview — showing the plain document
@@ -306,7 +485,7 @@ ${headStyles}
       )}
       {status === 'ready' && pageCount !== null && (
         <div className="paginated-preview__banner">
-          This document will print as <strong>{pageCount}</strong> page{pageCount === 1 ? '' : 's'}.
+          Initial A4 layout: <strong>{pageCount}</strong> page{pageCount === 1 ? '' : 's'}. {onEdit && 'Final pagination is applied when printing or exporting.'}
         </div>
       )}
 
@@ -333,15 +512,38 @@ ${headStyles}
         <ProposalDocument model={model} />
       </div>
 
+      </div>
+      </div>
       <style jsx>{`
-        .paginated-preview__breaks {
-          display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px;
-          background: var(--nv-surface-card); border: 1px solid var(--nv-border-hair); border-radius: 10px;
-          padding: 12px 16px; margin-bottom: 16px; font-size: 13px; color: var(--nv-text-body);
+        .paginated-preview { container-type: inline-size; }
+        .paginated-preview__layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
+        .paginated-preview__document { min-width: 0; }
+        .paginated-preview__arrange {
+          z-index: 45; padding: 18px; box-sizing: border-box;
+          background: var(--nv-surface-card); border: 1px solid var(--nv-border-hair); border-radius: 12px;
+          box-shadow: 0 6px 24px rgba(0,0,0,.10); font-size: 13px;
+          display: flex; flex-direction: column; gap: 12px;
+          max-height: calc(100dvh - 32px); overflow-y: auto;
         }
-        .paginated-preview__breaks-label { color: var(--nv-text-muted); margin-right: 4px; }
-        .paginated-preview__break-toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
-        .paginated-preview__break-toggle input { accent-color: var(--nv-blue-slate); cursor: pointer; }
+        .paginated-preview__arrange h3 { margin: 0; font-size: 14px; font-weight: 700; }
+        .paginated-preview__arrange span { overflow-wrap: anywhere; }
+        .paginated-preview__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+        .paginated-preview__arrange--wide .paginated-preview__actions { flex-direction: column; }
+        .paginated-preview__arrange small { color: var(--nv-text-muted); line-height: 1.5; }
+        .paginated-preview__section-breaks { border-top: 1px solid var(--nv-border-hair); padding-top: 12px; }
+        .paginated-preview__section-breaks summary { cursor: pointer; font-weight: 600; }
+        .paginated-preview__breaks {
+          display: flex; flex-direction: column; gap: 10px;
+          padding-top: 12px; font-size: 12px; color: var(--nv-text-body);
+        }
+        .paginated-preview__breaks-label { color: var(--nv-text-muted); }
+        .paginated-preview__break-toggle { display: inline-flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+        .paginated-preview__break-toggle input { accent-color: var(--nv-blue-slate); cursor: pointer; margin-top: 2px; }
+        @container (min-width: 900px) {
+          .paginated-preview__layout--editable { grid-template-columns: minmax(0, 1fr) 240px; gap: 24px; }
+          .paginated-preview__layout--editable .paginated-preview__document { grid-column: 1; grid-row: 1; }
+          .paginated-preview__controls-slot { grid-column: 2; grid-row: 1; }
+        }
         .paginated-preview__banner {
           font-size: 13px; color: var(--nv-text-muted); text-align: center; padding: 10px 0 16px;
         }
@@ -350,9 +552,9 @@ ${headStyles}
           border-radius: 8px; padding: 10px 14px; text-align: left;
         }
         .paginated-preview__source { max-width: 100%; overflow-x: auto; }
-        :global(.paginated-preview__pages) { border-radius: 12px; overflow: hidden; }
+        :global(.paginated-preview__pages) { border-radius: 12px; overflow-x: auto; background: #e5e7eb; }
         :global(.paginated-preview__iframe) {
-          display: block; width: 100%; border: 0; min-height: 200px;
+          display: block; width: 100%; min-width: calc(210mm + 32px); border: 0; min-height: 200px;
         }
       `}</style>
     </div>

@@ -618,7 +618,7 @@ export default function NewProposalPage() {
   }
 
   return (
-    <div className="wizard-page">
+    <div className={`wizard-page${step === 7 ? " wizard-page--preview" : ""}`}>
       {editId && (
         <div style={{ marginBottom: 16, fontSize: 13, color: 'var(--nv-text-muted)' }}>
           Editing existing proposal
@@ -715,7 +715,7 @@ export default function NewProposalPage() {
                     disabled={saving || savingDraft}
                     aria-busy={saving}
                   >
-                    {saving ? 'Generating…' : 'Generate Document'}
+                    {saving ? 'Saving…' : 'Save Document'}
                   </button>
                 </div>}
           </div>
@@ -724,6 +724,7 @@ export default function NewProposalPage() {
 
       <style jsx>{`
         .wizard-page { padding: 32px 40px; max-width: 900px; }
+        .wizard-page--preview { max-width: 1440px; }
         @media (max-width: 768px) { .wizard-page { padding: 16px; } }
 
         .wizard-steps {
@@ -3017,18 +3018,55 @@ function TermsEditor({ clauses, onChange }: { clauses: TermsClause[]; onChange: 
 
 /* ─── Step 7: Preview & Save ─── */
 function Step7Preview({ draft, setDraft, errors, staff = [] }: StepProps) {
+  const [layoutRevision, setLayoutRevision] = useState(0)
+  function moveBlock(path: string[], direction: -1 | 1) {
+    // Reorder the same arrays already persisted by the deployed worker.
+    function move<T extends { id: string; enabled?: boolean }>(items: T[], id: string) {
+      const from = items.findIndex(item => item.id === id)
+      if (from < 0) return items
+      let to = from + direction
+      while (to >= 0 && to < items.length && items[to].enabled === false) to += direction
+      if (to < 0 || to >= items.length) return items
+      const result = [...items]
+      const [item] = result.splice(from, 1)
+      result.splice(to, 0, item)
+      return result
+    }
+    setDraft(d => {
+      if (path[0] === 'clause') return { ...d, terms: { ...d.terms, clauses: move(d.terms.clauses, path[1]) } }
+      if (path[0] === 'scope') return { ...d, services: d.services.map(s => s.code === path[1]
+        ? { ...s, scopeItems: move(s.scopeItems, path[2]) } : s) }
+      return d
+    })
+    setLayoutRevision(n => n + 1)
+  }
   const total = draft.services.reduce((acc, s) => acc + s.monthlyFee * s.term + s.setupFee, 0)
   const model = buildDocModelFromDraft(draft, staff)
 
-  // NUVCL-132 originally rendered "Page Break" checkboxes INLINE at the
-  // right of each category heading, inside ProposalDocument itself. A
-  // 2026-09 revision moved them into PaginatedPreview.tsx's own toggle
-  // strip instead: that component now runs the document through Paged.js
-  // for a real A4 pagination preview, and Paged.js's paginated output has
-  // no React event handlers at all, so an inline checkbox there would be
-  // unclickable. Toggling a checkbox still writes straight into
-  // draft.terms.pageBreaks, which buildDocModelFromDraft/documentModel
-  // already thread through to model.pageBreaks — unchanged.
+  function editField(path: string[], value: string) {
+    setDraft(d => {
+      const [group, key, id, field] = path
+      if (group === 'hotel' && ['name', 'contactName', 'contactTitle', 'contactEmail', 'contactPhone', 'propertyAddress'].includes(key))
+        return { ...d, hotel: { ...d.hotel, [key]: value } }
+      if (group === 'sender' && key === 'message') return { ...d, sender: { ...d.sender, message: value } }
+      if (group === 'regionSettings' && key === 'aboutNuvho') return { ...d, regionSettings: { ...d.regionSettings, aboutNuvho: value } }
+      if (group === 'clause' && ['heading', 'text'].includes(id))
+        return { ...d, terms: { ...d.terms, clauses: d.terms.clauses.map(c => c.id === key ? { ...c, [id]: value } : c) } }
+      if (group === 'footnote') return { ...d, services: d.services.map(s => ({ ...s, footnotes: s.footnotes.map(f => f.id === key ? { ...f, text: value } : f) })) }
+      if (group === 'scope' && field === 'text') return { ...d, services: d.services.map(s => s.code === key ? { ...s, scopeItems: s.scopeItems.map(i => i.id === id ? { ...i, text: value } : i) } : s) }
+      if (group === 'fee' && ['component', 'note', 'fee', 'term'].includes(field)) {
+        const next = ['fee', 'term'].includes(field) ? (value === '' ? '' : Number(value)) : value
+        if (typeof next === 'number' && (!Number.isFinite(next) || next < 0)) return d
+        return { ...d, services: d.services.map(s => {
+          if (s.code !== key) return s
+          const feeRows = s.feeRows.map(r => r.id === id ? { ...r, [field]: next } : r)
+          return { ...s, feeRows, ...deriveFeeSummary(feeRows) }
+        }) }
+      }
+      return d
+    })
+  }
+
   function togglePageBreak(key: string, checked: boolean) {
     setDraft(d => ({
       ...d,
@@ -3039,8 +3077,11 @@ function Step7Preview({ draft, setDraft, errors, staff = [] }: StepProps) {
   return (
     <div className="step-content">
       <h2 className="step-title">Preview & Save</h2>
-      <p className="step-desc">Review proposal details before generating the document. Sending happens afterwards, from the proposal&apos;s detail page.</p>
+      <p className="step-desc">Click the document text to edit property details, the introduction, scope, company description, pricing and terms. Select a content block to start it on the next page or remove its page break. Scope items and terms clauses can also move earlier or later in their section. Use Reflow pages after adding text, then save below.</p>
 
+      <PaginatedPreview model={model} onTogglePageBreak={togglePageBreak} onEdit={editField} onMoveBlock={moveBlock} layoutRevision={layoutRevision} />
+      <details>
+        <summary>Proposal details</summary>
       <div className="preview-summary">
         <SummaryRow label="Property" value={draft.hotel.name || '—'} />
         <SummaryRow label="Contact"  value={`${draft.hotel.contactName} — ${draft.hotel.contactEmail}`} />
@@ -3057,26 +3098,8 @@ function Step7Preview({ draft, setDraft, errors, staff = [] }: StepProps) {
         } />
       </div>
 
-      <div className="preview-note">
-        Clicking <strong>Generate Document</strong> will create and save the proposal — it will
-        not be sent yet. Open it from the Proposals list afterwards to review, then use its
-        <strong> Send</strong> button (which always asks you to confirm) when you&apos;re ready to send it.
-      </div>
-
-      <div className="preview-doc-header">
-        <div>
-          <h3 className="preview-doc-heading">Document Preview</h3>
-          <p className="step-desc">
-            This is the actual page-by-page layout the generated proposal document will follow —
-            real, fixed A4 pages, so you can see exactly how many pages it runs to and whether a
-            long Scope of Works or Terms &amp; Conditions section spills onto extra pages before
-            you save. Use &quot;Force a page break before&quot; to start a category on its own
-            page regardless. Downloading a PDF or Word copy is available once it&apos;s saved —
-            from the proposal&apos;s detail page.
-          </p>
-        </div>
-      </div>
-      <PaginatedPreview model={model} onTogglePageBreak={togglePageBreak} />
+      </details>
+      <p className="preview-note">Save Document saves your edits. You can download the PDF or Word document from the saved proposal.</p>
 
       <style jsx>{`
         .preview-summary {
