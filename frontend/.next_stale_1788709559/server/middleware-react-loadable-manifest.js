@@ -1,1 +1,0 @@
-self.__REACT_LOADABLE_MANIFEST="{\"app/(app)/proposals/new/page.tsx -> @/components/proposal/A4DocumentEditor\":{\"id\":\"app/(app)/proposals/new/page.tsx -> @/components/proposal/A4DocumentEditor\",\"files\":[\"static/chunks/_app-pages-browser_components_proposal_A4DocumentEditor_tsx.js\"]}}"

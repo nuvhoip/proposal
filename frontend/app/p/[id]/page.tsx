@@ -415,7 +415,11 @@ export default function PublicProposalPage() {
           color: var(--nv-text-heading);
           padding: 6px 14px 10px;
           border-bottom: 1.5px solid var(--nv-border);
-          max-width: 420px;
+          /* Was max-width: 420px, which made the sign-here line noticeably
+             narrower than the A4 page (.public-sign-section, 210mm) it sits
+             on — width: 100% lets it span the same content width as the
+             sign-fields inputs above it, matching the rest of the page. */
+          width: 100%;
         }
 
         .approval-check {
