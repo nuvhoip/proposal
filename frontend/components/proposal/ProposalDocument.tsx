@@ -182,13 +182,35 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
     <div className="doc-preview" id="proposal-print-root">
       {savedPages ? <>
         <A4Pages document={savedPages} />
-        {beforeAppendix}
-        {model.clientSignedAt && <div className="doc-client-acceptance">
-          <h4>Client Acceptance</h4>
-          {model.clientSignatureMethod === 'draw' && model.clientSignatureDataUrl && <img src={model.clientSignatureDataUrl} alt="Client signature" className="doc-signature__img" />}
-          <strong>{model.clientSignatoryName}</strong> {model.clientSignatoryTitle}<br />
-          Signed {model.clientSignedAt}
-        </div>}
+        {/* NUVCL fix (2026-09-10): beforeAppendix (the public sign page's
+            "Accept This Proposal" form) and the client-acceptance note used
+            to render bare here, as a direct sibling of <A4Pages>'s own
+            .a4-saved-pages wrapper — inheriting the full width of
+            .doc-preview/.public-doc-wrap instead of the document's real
+            210mm page width, and with none of .doc-flow's white
+            background/padding/shadow, so it looked like a plain, overly
+            wide strip of text below the actual A4 pages rather than another
+            page of the document. This only ever showed up once a proposal
+            had saved A4-editor page data (the `savedPages` branch) — the
+            classic branch below already wraps the same content in a
+            .doc-flow card via the sectionPages box-grouping logic. Reusing
+            the existing :global(.doc-flow) rule here (same white card,
+            210mm width, 15mm/14mm padding, shadow — see its definition
+            further down this file) makes both branches consistent, and it
+            already has real print/no-print handling in print-rules.css
+            (#proposal-print-root .doc-flow / .no-print), so nothing else
+            needs to change for Download PDF. */}
+        {(beforeAppendix || model.clientSignedAt) && (
+          <div className="doc-flow">
+            {beforeAppendix}
+            {model.clientSignedAt && <div className="doc-client-acceptance">
+              <h4>Client Acceptance</h4>
+              {model.clientSignatureMethod === 'draw' && model.clientSignatureDataUrl && <img src={model.clientSignatureDataUrl} alt="Client signature" className="doc-signature__img" />}
+              <strong>{model.clientSignatoryName}</strong> {model.clientSignatoryTitle}<br />
+              Signed {model.clientSignedAt}
+            </div>}
+          </div>
+        )}
       </> : <>
       {/* Cover — NUVCL-102: full-bleed A4 image. The "Nuvho PTY LTD" wordmark
           and a "Date of Issue" label were never actually rendered here (both
