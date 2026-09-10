@@ -28,6 +28,23 @@ export function sanitizePageHtml(html: string): string {
   const styles = new Set('color background-color background-image background-size background-position font-size font-family font-weight font-style text-align text-decoration line-height margin margin-top margin-bottom margin-left margin-right padding padding-top padding-bottom padding-left padding-right width height max-width max-height border border-bottom border-top border-radius --doc-cover-url'.split(' '))
   function clean(parent: Element) {
     for (const el of Array.from(parent.children)) {
+      // doc-heading-row (SectionHeading's wrapper around a section's <h3>,
+      // ProposalDocument.tsx) is a `display:flex` row — meant for a "Page
+      // Break" checkbox to sit beside the heading in the wizard, which
+      // never renders inside the A4 editor's hidden source. Left in place
+      // as a live editable block there, pressing Enter inside the <h3>
+      // splits it into two <h3> siblings that stay inside that flex row —
+      // with no flex-direction set, the second one renders BESIDE the
+      // first instead of below it (looks like the new line "indenting" or
+      // jumping to the right). Unwrapping it here — on every sanitize call,
+      // not just first-load chunking — means this also retroactively fixes
+      // a page whose HTML was already saved with the wrapper baked in from
+      // before this fix existed, not just newly-chunked documents.
+      if (el.tagName === 'DIV' && el.classList.contains('doc-heading-row')) {
+        clean(el)
+        el.replaceWith(...Array.from(el.childNodes))
+        continue
+      }
       if (!tags.has(el.tagName.toLowerCase())) {
         if (['SCRIPT','STYLE','IFRAME','OBJECT','EMBED','FORM','INPUT','BUTTON','LINK','META'].includes(el.tagName)) el.remove()
         else { clean(el); el.replaceWith(...Array.from(el.childNodes)) }

@@ -77,6 +77,10 @@ function TinyMcePageEditorImpl({ page, onNode, onDirty, onFocus, onBreak, onMove
           img { max-width: 100%; }
           table { width: 100%; border-collapse: collapse; }
           td, th { padding: 6px; vertical-align: top; }
+          ul, ol { margin: 0 0 14px 20px; padding: 0; }
+          ul { list-style: disc; }
+          ol { list-style: decimal; }
+          li { margin-bottom: 4px; }
         `,
         // Route every paste through the same allowlist sanitizer the rest
         // of the document pipeline uses (a4Document.ts), instead of trusting

@@ -34,7 +34,12 @@ function estimatePageCount(source: Element): number {
       if (el.tagName === 'STYLE') return
       if (el.classList.contains('doc-cover')) { flush(); count++; return }
       if (el.classList.contains('doc-letter')) { flush(); Array.from(el.children).forEach(add); flush(); return }
-      if (['doc-flow', 'doc-section', 'doc-service-block'].some(c => el.classList.contains(c))) { Array.from(el.children).forEach(add); return }
+      // doc-heading-row is a flex-row wrapper (heading + an optional,
+      // here-never-rendered "Page Break" checkbox) — flattened here too
+      // so the editable page only ever holds the plain <h3> underneath it,
+      // never the flex row itself. See the matching comment on the other
+      // add() below for why that distinction matters once this is live-editable.
+      if (['doc-flow', 'doc-section', 'doc-service-block', 'doc-heading-row'].some(c => el.classList.contains(c))) { Array.from(el.children).forEach(add); return }
       const html = el.outerHTML
       measurement.innerHTML = chunks.join('') + html
       if (measurement.scrollHeight > measurement.clientHeight + 2 && chunks.length) flush()
@@ -68,6 +73,23 @@ export function A4DocumentEditor({ model, onChange, onReady }: {
   const [error, setError] = useState('')
   const rangeRef = useRef<Range | null>(null)
   const activeRef = useRef<string | null>(null)
+  // Set by moveContent() right before its commit(), consumed by the very
+  // next reflow() pass (the cascading useEffect([pages]) below re-runs
+  // publish()/reflow() on every commit — including this one). Without this,
+  // reflowBackward() — which exists purely to pull content back up when a
+  // page shrinks (e.g. the user deleting text) — runs immediately after a
+  // manual "move to next/previous page" and, whenever the page the user
+  // moved FROM now has room, silently pulls the just-moved block (and
+  // often more besides) straight back — undoing the user's explicit action
+  // and, once the resulting back-and-forth reaches a hard breakBefore page
+  // (a section boundary), can leave a freshly-inserted near-empty page
+  // sitting between real content (reflowForward's "no usable next page"
+  // fallback) — the "huge blank space after moving content" bug. Forward
+  // reflow (genuine overflow correction) is unaffected and still runs on
+  // every pass; only the ONE backward pass immediately following a manual
+  // move is skipped, so ordinary auto-compaction resumes on the very next
+  // edit.
+  const suppressBackwardRef = useRef(false)
 
   function checkOverflow() {
     const ids = pageList.current.filter(p => { const el = nodes.current.get(p.id); return el && el.scrollHeight > el.clientHeight + 2 }).map(p => p.id)
@@ -81,6 +103,17 @@ export function A4DocumentEditor({ model, onChange, onReady }: {
     readyRef.current(pageList.current.length > 0 && ids.length === 0 && !imagesLoading)
   }
   function pageOverflows(node: HTMLElement) { return node.scrollHeight > node.clientHeight + 2 }
+  // A page that has nothing but the `<p><br></p>` placeholder used when a
+  // page is created empty (addPage(), a fresh page inserted by
+  // reflowForward) isn't "real" content — it must never survive being
+  // pushed ahead of, or left sitting in front of, whatever real content
+  // subsequently lands on that page. Detected structurally (one child,
+  // that child textless and medialess) rather than by comparing against
+  // the literal '<p><br></p>' string, so it still matches after the
+  // editor's own normalisation of an empty paragraph.
+  function isBlankPlaceholder(el: Element): boolean {
+    return el.tagName === 'P' && !el.textContent?.trim() && !el.querySelector('img,svg,table')
+  }
   // A moved block can carry the live caret with it (typing right at the
   // bottom of a page that just overflowed). Re-locate whichever mounted page
   // now contains the remembered Range and refocus there so typing continues
@@ -125,7 +158,16 @@ export function A4DocumentEditor({ model, onChange, onReady }: {
     while (i < pageList.current.length && guard < 300) {
       const page = pageList.current[i]
       const node = page.kind === 'cover' ? undefined : nodes.current.get(page.id)
-      if (!node || !pageOverflows(node)) { i++; continue }
+      if (!node) { i++; continue }
+      // A blank placeholder left over once the page also holds real
+      // content has no purpose — drop it before measuring/pushing, so it
+      // can never be mistaken for "the content to push forward" nor sit
+      // as a stray empty line ahead of content that lands here later.
+      if (node.children.length > 1) {
+        const blank = Array.from(node.children).find(isBlankPlaceholder)
+        if (blank) blank.remove()
+      }
+      if (!pageOverflows(node)) { i++; continue }
       const lastChild = node.lastElementChild
       if (!lastChild || node.children.length <= 1) { i++; continue }
       guard++
@@ -139,6 +181,11 @@ export function A4DocumentEditor({ model, onChange, onReady }: {
       }
       const destNode = nodes.current.get(dest.id)
       if (!destNode) return 'restructured'
+      // Same rule on the receiving side: a page that's still just the
+      // empty placeholder gets it cleared first, so the incoming content
+      // becomes the page's real first line instead of appearing after a
+      // blank one.
+      if (destNode.children.length === 1 && isBlankPlaceholder(destNode.firstElementChild!)) destNode.innerHTML = ''
       destNode.insertBefore(lastChild, destNode.firstChild)
       resyncFocusAfterMove()
     }
@@ -159,7 +206,13 @@ export function A4DocumentEditor({ model, onChange, onReady }: {
         if (!next || next.kind === 'cover' || next.breakBefore) break
         const nextNode = nodes.current.get(next.id)
         if (!nextNode) break
-        const firstChild = nextNode.firstElementChild
+        // Treat a page holding only the empty placeholder the same as a
+        // truly empty one — it gets removed outright rather than having
+        // that placeholder pulled up as if it were real content (which
+        // left a stray blank line ahead of whatever real content reflowed
+        // onto that page afterwards).
+        const onlyChild = nextNode.children.length === 1 ? nextNode.firstElementChild : null
+        const firstChild = onlyChild && isBlankPlaceholder(onlyChild) ? null : nextNode.firstElementChild
         if (!firstChild) {
           if (pageList.current.length > 1 && !nextNode.textContent?.trim()) {
             guard++
@@ -182,6 +235,7 @@ export function A4DocumentEditor({ model, onChange, onReady }: {
   function reflow(): 'restructured' | 'done' {
     const forwarded = reflowForward()
     if (forwarded === 'restructured') return forwarded
+    if (suppressBackwardRef.current) { suppressBackwardRef.current = false; return 'done' }
     return reflowBackward()
   }
   function publish() {
@@ -243,7 +297,18 @@ export function A4DocumentEditor({ model, onChange, onReady }: {
               hardBreakPending = true
               return
             }
-            if (['doc-flow','doc-section','doc-service-block'].some(c => el.classList.contains(c))) { Array.from(el.children).forEach(add); return }
+            // Same flatten list as estimatePageCount()'s add(), plus
+            // doc-heading-row: SectionHeading renders its <h3> inside a
+            // `display:flex` row (for a "Page Break" checkbox that never
+            // actually renders here — ignorePageLayout means pageBreakEditable
+            // is always false on this hidden source). Left un-flattened, that
+            // row would become a live top-level block in the editor, and
+            // TinyMCE splitting the <h3> on Enter would leave both halves as
+            // flex siblings — rendered side by side (looks like the new line
+            // "indented" or jumped to the right) instead of stacking as two
+            // separate lines. Flattening drops the row and keeps just the
+            // plain, block-level <h3>.
+            if (['doc-flow','doc-section','doc-service-block','doc-heading-row'].some(c => el.classList.contains(c))) { Array.from(el.children).forEach(add); return }
             const html = sanitizePageHtml(el.outerHTML)
             measurement.innerHTML = chunks.join('') + html
             if (measurement.scrollHeight > measurement.clientHeight + 2 && chunks.length) flush()
@@ -365,11 +430,15 @@ export function A4DocumentEditor({ model, onChange, onReady }: {
     if (target.kind === 'cover') { setError('Move body content to a body page, not the cover.'); return }
     const destination = nodes.current.get(target.id)
     if (destination) {
+      if (destination.children.length === 1 && isBlankPlaceholder(destination.firstElementChild!)) destination.innerHTML = ''
       destination.insertAdjacentHTML(direction === 1 ? 'afterbegin' : 'beforeend', sanitizePageHtml(html))
       target.html = sanitizePageHtml(destination.innerHTML)
     } else target.html = sanitizePageHtml(html) || '<p><br></p>'
     // Existing sheets remain mounted and retain their editor history.
     pendingFocus.current = target.id
+    // See suppressBackwardRef's declaration above: protects this exact
+    // placement from being immediately pulled back by reflowBackward.
+    suppressBackwardRef.current = true
     commit(next); focusPage(target.id); rangeRef.current = null
   }
   function removeEmptyPage() {

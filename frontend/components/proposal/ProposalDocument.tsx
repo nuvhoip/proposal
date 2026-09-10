@@ -640,6 +640,20 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
            clipping against a hard-capped height. */
         .doc-page.doc-letter { display: flex; flex-direction: column; }
         .doc-letter-footer { margin-top: auto; }
+        /* The A4 editor (A4DocumentEditor.tsx) doesn't keep .doc-letter's
+           own wrapper — its children are flattened into the page's general
+           flow so each paragraph/etc. can reflow independently — which
+           orphans the rule above: .doc-letter-footer still carries
+           margin-top:auto, but with no flex-column ancestor left it has
+           nothing to push against, so the ABN/registration line just sits
+           wherever it lands instead of at the bottom of the page. This
+           re-creates that flex-column context directly on whichever
+           .a4-sheet page actually contains the footer. Matching on the
+           footer being present (rather than requiring .doc-letter itself)
+           means it works retroactively too, on a page whose HTML was
+           already saved before this fix existed, not just newly-chunked
+           documents. */
+        .a4-sheet:has(> .doc-letter-footer) { display: flex; flex-direction: column; }
         .doc-page p { margin-bottom: 18px; } /* NUVCL-124: single-line spacing after each paragraph */
         /* NUVCL-120: Background..Appendix render inside ONE shared
            .doc-flow card — no per-section shadow/rounded-corner "card"

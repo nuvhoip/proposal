@@ -366,6 +366,10 @@ a.nv-sidebar-subnav-item.nv-sidebar-subnav-item--active {
 .a4-sheet img { max-width: 100%; }
 .a4-sheet table { width: 100%; border-collapse: collapse; }
 .a4-sheet td, .a4-sheet th { padding: 6px; vertical-align: top; }
+.a4-sheet ul, .a4-sheet ol { margin: 0 0 14px 20px; padding: 0; }
+.a4-sheet ul { list-style: disc; }
+.a4-sheet ol { list-style: decimal; }
+.a4-sheet li { margin-bottom: 4px; }
 .a4-sheet--cover { padding: 0; }
 .a4-sheet .doc-cover { margin: 0; width: 210mm; max-width: none; height: 297mm; min-height: 0; box-shadow: none; border-radius: 0; }
 .a4-saved-pages { display: flex; flex-direction: column; align-items: center; gap: 40px; padding: 24px 16px; background: #e5e7eb; }
