@@ -7,13 +7,16 @@ import { ulid, randomToken } from '../lib/ulid'
 import {
   createRegistryProposal, updateRegistryProposal, reserveNpId, RegistryError,
   createEngagement, updateEngagement, toRegistryServiceLine, getHotelGroup,
+  listPropertiesByHgid,
   type RegistryProposalStatus, type RegistryEngagementStatus,
 } from '../lib/registry'
 import { formatNpIdLocal } from '../lib/npId'
 import {
-  sendMailViaGraph, resolveGeoTeamId, createOrUpdatePropertyChannel,
+  sendMailViaGraph, createClientTeam, findTeamByName, addExistingTeamMember,
+  createOrUpdateHotelGroupChannel,
+  addStandardChannelTabs, hotelGroupChannelOwnerIds, HOTEL_GROUP_CHANNEL_OWNERS,
+  sendChannelMessage,
 } from '../lib/graph'
-import { buildChannelDisplayName } from '../lib/teamsNaming'
 
 /* ─── List proposals ───────────────────────────────────────── */
 export async function listProposals(request: Request, env: Env, session: Session): Promise<Response> {
@@ -160,7 +163,7 @@ export async function getProposal(proposalId: string, env: Env, session: Session
 }
 
 /* ─── Create proposal ──────────────────────────────────────── */
-export async function createProposal(request: Request, env: Env, session: Session): Promise<Response> {
+export async function createProposal(request: Request, env: Env, session: Session, ctx: ExecutionContext): Promise<Response> {
   const body = await request.json() as any
   const { hotel, sender, cover, regionSettings } = body
   // Services are optional — the wizard's Services/Scope/Pricing steps are
@@ -351,7 +354,6 @@ export async function createProposal(request: Request, env: Env, session: Sessio
   await auditLog(env, proposalId, 'created', session.email, { hotelName: hotel.name })
 
   // Trigger background automations (non-blocking)
-  const ctx = (globalThis as any).__executionContext
   if (ctx?.waitUntil) {
     ctx.waitUntil(triggerAutomations(proposalId, 'created', env))
   }
@@ -458,6 +460,116 @@ export async function deleteProposal(proposalId: string, env: Env, session: Sess
 
   await env.DB.prepare('DELETE FROM proposals WHERE id = ?').bind(proposalId).run()
   return ok({ deleted: true })
+}
+
+/* ─── Retry Teams workspace automation ────────────────────────
+ * Ad-hoc re-run of triggerTeamsWorkspace() for an EXISTING proposal. Added
+ * 2026-09-18: several proposals (Retreat East, Nuvho Test 4, ...) have a
+ * stale ms_team_error from before a graph.ts/proposals.ts fix shipped, and
+ * there was previously no way to re-trigger the automation for them short
+ * of creating a throwaway new proposal (triggerTeamsWorkspace only runs on
+ * the 'created' automation event). This lets staff retry an existing
+ * proposal directly once the underlying bug is fixed and deployed.
+ *
+ * Safe to call repeatedly / on an already-succeeded proposal:
+ * createClientTeam/findTeamByName and createOrUpdateHotelGroupChannel are
+ * both find-or-create/reuse, so this never creates duplicate Teams or
+ * channels — at worst it refreshes a channel's description and re-tries
+ * adding any owners that previously failed.
+ */
+export async function retryTeamsWorkspace(proposalId: string, env: Env, session: Session): Promise<Response> {
+  const proposal = await env.DB.prepare('SELECT * FROM proposals WHERE id = ?')
+    .bind(proposalId).first<ProposalRow>()
+  if (!proposal) return err('Proposal not found', 404)
+
+  await triggerTeamsWorkspace(proposal, env, false) // full retry budget: this is a synchronous request, not a backgrounded waitUntil() task
+
+  const updated = await env.DB.prepare(
+    'SELECT ms_team_id, ms_channel_id, ms_channel_web_url, ms_team_error FROM proposals WHERE id = ?'
+  ).bind(proposalId).first<{
+    ms_team_id: string | null
+    ms_channel_id: string | null
+    ms_channel_web_url: string | null
+    ms_team_error: string | null
+  }>()
+
+  return ok({
+    retried:            true,
+    ms_team_id:         updated?.ms_team_id ?? null,
+    ms_channel_id:      updated?.ms_channel_id ?? null,
+    ms_channel_web_url: updated?.ms_channel_web_url ?? null,
+    ms_team_error:      updated?.ms_team_error ?? null,
+  })
+}
+
+/* ─── Scheduled sweep: finish half-created Teams workspaces ───
+ * Added 2026-09-18 (bug #10). A brand-new Microsoft Team takes the Teams
+ * service 1-3 minutes to finish provisioning before channels can be added
+ * to it, which is far longer than Cloudflare will let a backgrounded
+ * ctx.waitUntil() task run (observed live: force-cancelled ~30-45s after
+ * the HTTP response, mid-retry, with nothing written to D1). So for any
+ * NEW Hotel Group the channels simply cannot be created in the same
+ * invocation that creates the Team — the create-time automation now gives
+ * up fast (fastMode) and records why, and this cron-driven sweep finishes
+ * the job a few minutes later when Microsoft is actually ready.
+ *
+ * Runs with the FULL retry budget (fastMode = false): a scheduled handler
+ * is not a backgrounded continuation of a request, so it isn't subject to
+ * that cancellation window.
+ *
+ * Scope is deliberately narrow:
+ *   - only proposals with no ms_channel_id yet (nothing to do otherwise),
+ *   - only the last 7 days, so this never churns through old history,
+ *   - skips anything already diagnosed as permanently stuck, since those
+ *     need a human to delete the broken Team in Entra ID first and would
+ *     otherwise burn the whole sweep budget failing every 5 minutes,
+ *   - a small batch per run, so one bad Hotel Group can't starve the rest.
+ * triggerTeamsWorkspace is find-or-create throughout, so re-running it is
+ * always safe and never duplicates a Team or channel.
+ */
+const TEAMS_SWEEP_BATCH_SIZE = 3
+
+/* Marks an ms_team_error that a RETRY CANNOT CLEAR — it needs a person to
+ * do something first (link a Hotel Group in the wizard, delete a broken
+ * Team in Entra ID). Added 2026-09-18 after a "Vision Gazi" proposal with
+ * no hgid would otherwise have been re-attempted by the cron sweep every 5
+ * minutes for a week, failing identically each time and burning a slot in
+ * the batch that a genuinely-pending proposal could have used. Anything
+ * NOT wearing this prefix is treated as transient and worth retrying.
+ * Note the prefix is matched with SQL LIKE below — square brackets are not
+ * wildcards in SQLite, so it matches literally. */
+export const BLOCKED_PREFIX = '[BLOCKED] '
+
+export async function sweepPendingTeamsWorkspaces(env: Env): Promise<{ attempted: string[] }> {
+  const { results } = await env.DB.prepare(`
+    SELECT * FROM proposals
+    WHERE ms_channel_id IS NULL
+      AND created_at >= datetime('now', '-7 days')
+      AND (ms_team_error IS NULL OR (
+            ms_team_error NOT LIKE '[BLOCKED]%'
+        AND ms_team_error NOT LIKE '%appears permanently stuck%'
+      ))
+    ORDER BY created_at DESC
+    LIMIT ?
+  `).bind(TEAMS_SWEEP_BATCH_SIZE).all<ProposalRow>()
+
+  const attempted: string[] = []
+  for (const proposal of results || []) {
+    attempted.push(proposal.id)
+    try {
+      await triggerTeamsWorkspace(proposal, env, false)
+    } catch (e: any) {
+      // triggerTeamsWorkspace records its own errors to ms_team_error and
+      // has its own outer backstop; this is only here so one proposal's
+      // failure can't abandon the rest of the batch.
+      console.error(`[Teams sweep] Unexpected error finishing proposal ${proposal.id}:`, e)
+    }
+  }
+
+  if (attempted.length) {
+    console.log(`[Teams sweep] Attempted ${attempted.length} pending proposal(s): ${attempted.join(', ')}`)
+  }
+  return { attempted }
 }
 
 /* ─── Attachments (wizard Step 5 — Sender) ───────────────────
@@ -623,7 +735,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 }
 
 /* ─── Send proposal ────────────────────────────────────────── */
-export async function sendProposal(proposalId: string, env: Env, session: Session): Promise<Response> {
+export async function sendProposal(proposalId: string, env: Env, session: Session, ctx: ExecutionContext): Promise<Response> {
   const proposal = await env.DB.prepare('SELECT * FROM proposals WHERE id = ?')
     .bind(proposalId).first<ProposalRow>()
   if (!proposal) return err('Proposal not found', 404)
@@ -659,7 +771,6 @@ export async function sendProposal(proposalId: string, env: Env, session: Sessio
   await syncRegistryStatus(env, proposalId, 'sent', { sent_at: new Date().toISOString() })
 
   // Trigger A1/A2 automations
-  const ctx = (globalThis as any).__executionContext
   if (ctx?.waitUntil) {
     ctx.waitUntil(triggerAutomations(proposalId, 'sent', env))
   }
@@ -835,7 +946,7 @@ export async function getDashboardStats(env: Env, session: Session): Promise<Res
 }
 
 /* ─── Public: get proposal by signing token ────────────────── */
-export async function getPublicProposal(token: string, env: Env): Promise<Response> {
+export async function getPublicProposal(token: string, request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const proposal = await env.DB.prepare(
     'SELECT * FROM proposals WHERE signing_token = ?'
   ).bind(token).first<ProposalRow>()
@@ -850,6 +961,36 @@ export async function getPublicProposal(token: string, env: Env): Promise<Respon
   await env.DB.prepare(
     "UPDATE proposals SET view_count = view_count + 1, last_viewed_at = datetime('now') WHERE id = ?"
   ).bind(proposal.id).run()
+
+  // NUVCL: log a detailed activity-log entry for every open of the public
+  // Copy Link, so staff can see who looked at a proposal and from where.
+  // Cloudflare puts the visitor's real IP on CF-Connecting-IP and rich
+  // edge-derived geolocation on request.cf, so no external geo-IP lookup
+  // is needed here. Link-preview/unfurl bots (Slack, Teams, Outlook Safe
+  // Links, etc.) hit this exact same endpoint, so they're recorded under a
+  // separate event name ('link_previewed') rather than 'viewed', keeping
+  // the human-facing Activity Log meaningful. Reuses the existing
+  // audit_log.meta JSON-blob convention rather than adding new columns.
+  const ip       = request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || null
+  const ua       = request.headers.get('User-Agent')
+  const referer  = request.headers.get('Referer') || request.headers.get('Referrer') || null
+  const uaInfo   = classifyUserAgent(ua)
+  const cf       = request.cf
+  await auditLog(env, proposal.id, uaInfo.isBot ? 'link_previewed' : 'viewed', ip || 'unknown', {
+    ip,
+    userAgent:  ua,
+    browser:    uaInfo.browser,
+    os:         uaInfo.os,
+    deviceType: uaInfo.deviceType,
+    referer,
+    country:    cf?.country    ?? null,
+    region:     cf?.region     ?? null,
+    city:       cf?.city       ?? null,
+    postalCode: cf?.postalCode ?? null,
+    timezone:   cf?.timezone   ?? null,
+    latitude:   cf?.latitude   ?? null,
+    longitude:  cf?.longitude  ?? null,
+  }, { ctx, proposal })
 
   const { results: services } = await env.DB.prepare(
     'SELECT * FROM proposal_services WHERE proposal_id = ?'
@@ -873,7 +1014,7 @@ export async function getPublicProposal(token: string, env: Env): Promise<Respon
 }
 
 /* ─── Public: sign proposal ────────────────────────────────── */
-export async function signProposal(token: string, request: Request, env: Env): Promise<Response> {
+export async function signProposal(token: string, request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const body = await request.json() as {
     signerName?:       string   // legacy field — kept for backward compatibility
     signatureMethod?:  'type' | 'draw'
@@ -948,7 +1089,7 @@ export async function signProposal(token: string, request: Request, env: Env): P
     clientSignedAt:         new Date().toISOString(),
   })
 
-  await auditLog(env, proposal.id, 'signed', proposal.contact_email, { signatoryName, signatureMethod })
+  await auditLog(env, proposal.id, 'signed', proposal.contact_email, { signatoryName, signatureMethod }, { ctx, proposal })
 
   // Sync status to every linked registry proposal record (best-effort).
   //
@@ -984,7 +1125,6 @@ export async function signProposal(token: string, request: Request, env: Env): P
   })
 
   // Trigger A3–A9 automations
-  const ctx = (globalThis as any).__executionContext
   if (ctx?.waitUntil) {
     ctx.waitUntil(triggerAutomations(proposal.id, 'signed', env))
   }
@@ -1156,12 +1296,134 @@ async function upsertTerms(env: Env, proposalId: string, terms: any): Promise<vo
   ).run()
 }
 
+/**
+ * Lightweight, dependency-free User-Agent classifier for the "viewed"
+ * activity-log entries — good enough to show "Chrome · macOS · Desktop"
+ * in the Activity Log without pulling in a UA-parsing library. The raw
+ * userAgent string is always stored alongside this in audit_log.meta too,
+ * so nothing is lost if a case isn't recognized here.
+ */
+function classifyUserAgent(ua: string | null): {
+  browser: string; os: string; deviceType: string; isBot: boolean
+} {
+  if (!ua) return { browser: 'Unknown', os: 'Unknown', deviceType: 'Unknown', isBot: false }
+
+  const isBot = /bot|crawl|spider|slurp|facebookexternalhit|Slackbot|TeamsPreview|WhatsApp|LinkedInBot|Discordbot|SkypeUriPreview|Outlook/i.test(ua)
+
+  let browser = 'Unknown'
+  if (/Edg\//.test(ua))                                browser = 'Edge'
+  else if (/OPR\//.test(ua))                            browser = 'Opera'
+  else if (/Chrome\//.test(ua) && !/Chromium/.test(ua)) browser = 'Chrome'
+  else if (/Firefox\//.test(ua))                        browser = 'Firefox'
+  else if (/Safari\//.test(ua) && !/Chrome/.test(ua))   browser = 'Safari'
+
+  let os = 'Unknown'
+  if (/Windows/.test(ua))                    os = 'Windows'
+  else if (/Mac OS X/.test(ua))               os = 'macOS'
+  else if (/Android/.test(ua))                os = 'Android'
+  else if (/iPhone|iPad|iPod/.test(ua))       os = 'iOS'
+  else if (/Linux/.test(ua))                  os = 'Linux'
+
+  const deviceType = /iPad|Tablet/.test(ua) ? 'Tablet' : /Mobi|Android|iPhone/.test(ua) ? 'Mobile' : 'Desktop'
+
+  return { browser, os, deviceType, isBot }
+}
+
+type TeamsProposalRef = Pick<ProposalRow, 'id' | 'np_id' | 'hotel_name' | 'ms_team_id' | 'ms_channel_id'>
+
+const TEAMS_EVENT_LABELS: Record<string, string> = {
+  created:       'Proposal created',
+  sent:          'Proposal sent',
+  resent:        'Proposal re-sent',
+  resend_failed: 'Proposal re-send FAILED',
+  edited:        'Proposal edited',
+  signed:        'Proposal SIGNED',
+  viewed:        'Proposal link opened',
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+/**
+ * Renders one activity-log entry as the HTML body of a Teams channel post.
+ * Hotel names, actors and User-Agent-derived strings are all escaped — this
+ * content is partly attacker-controlled (a visitor picks their own
+ * User-Agent) and Graph renders the body as HTML.
+ */
+function buildTeamsActivityHtml(
+  env: Env, proposal: TeamsProposalRef, event: string, actor: string, meta?: object
+): string {
+  const label = TEAMS_EVENT_LABELS[event] || event
+  const ref   = proposal.np_id || proposal.id
+  const lines = [
+    `<b>${escapeHtml(label)}</b>`,
+    `${escapeHtml(ref)} &mdash; ${escapeHtml(proposal.hotel_name)}`,
+  ]
+
+  const m = (meta || {}) as Record<string, unknown>
+  const str = (k: string) => (typeof m[k] === 'string' && m[k] ? String(m[k]) : '')
+
+  if (event === 'viewed') {
+    const place  = [str('city'), str('region'), str('country')].filter(Boolean).join(', ')
+    const device = [str('browser'), str('os'), str('deviceType')].filter(Boolean).join(' &middot; ')
+    if (place)        lines.push(`Location: ${escapeHtml(place)}`)
+    if (device)       lines.push(`Device: ${escapeHtml(device)}`)
+    if (str('ip'))    lines.push(`IP: ${escapeHtml(str('ip'))}`)
+    if (str('referer')) lines.push(`Referrer: ${escapeHtml(str('referer'))}`)
+  } else if (actor && actor !== 'unknown') {
+    lines.push(`By: ${escapeHtml(actor)}`)
+  }
+
+  lines.push(`<a href="${env.FRONTEND_URL}/proposals/${encodeURIComponent(proposal.id)}">Open in Proposal System</a>`)
+  return lines.join('<br>')
+}
+
+/**
+ * Mirrors an activity-log entry into the proposal's Teams channel. Always
+ * resolves — the audit_log row is the source of truth, so a Graph outage,
+ * an expired service-account consent, or a proposal whose Teams workspace
+ * hasn't been provisioned yet must never break a proposal flow or the
+ * client's public proposal page.
+ */
+async function mirrorAuditToTeams(
+  env: Env, proposalId: string, event: string, actor: string,
+  meta: object | undefined, known?: TeamsProposalRef
+): Promise<void> {
+  try {
+    const proposal = known ?? await env.DB.prepare(
+      'SELECT id, np_id, hotel_name, ms_team_id, ms_channel_id FROM proposals WHERE id = ?'
+    ).bind(proposalId).first<TeamsProposalRef>()
+
+    if (!proposal?.ms_team_id || !proposal?.ms_channel_id) return   // no workspace yet
+
+    await sendChannelMessage(
+      env, proposal.ms_team_id, proposal.ms_channel_id,
+      buildTeamsActivityHtml(env, proposal, event, actor, meta)
+    )
+  } catch (e) {
+    console.error('Teams activity post failed:', e instanceof Error ? e.message : e)
+  }
+}
+
 async function auditLog(
-  env: Env, proposalId: string, event: string, actor: string, meta?: object
+  env: Env, proposalId: string, event: string, actor: string, meta?: object,
+  opts?: { ctx?: ExecutionContext; proposal?: TeamsProposalRef }
 ) {
   await env.DB.prepare(
     'INSERT INTO audit_log (id, proposal_id, event, actor, meta) VALUES (?, ?, ?, ?, ?)'
   ).bind(ulid(), proposalId, event, actor, meta ? JSON.stringify(meta) : null).run()
+
+  // Mirror into the proposal's Teams channel. Bot/link-preview opens are
+  // deliberately excluded — they're crawler noise, not someone reading the
+  // proposal. When a ctx is available the post is backgrounded so it never
+  // adds Graph latency to the caller's response.
+  if (event === 'link_previewed') return
+  const post = mirrorAuditToTeams(env, proposalId, event, actor, meta, opts?.proposal)
+  if (opts?.ctx) opts.ctx.waitUntil(post)
+  else await post
 }
 
 async function sendProposalEmail(
@@ -1283,10 +1545,12 @@ async function triggerAutomations(proposalId: string, event: string, env: Env) {
 
   if (event === 'created') {
     // A6: Teams — create/reuse the Hotel Group's Team, add a private
-    // Property channel underneath it. Moved here from 'signed' (2026-09)
-    // so the workspace exists as soon as the proposal is generated, not
-    // only once it's won — matches the wizard's "Generate & Save" moment.
-    await triggerTeamsWorkspace(proposal, env).catch(console.error)
+    // Hotel-Group channel underneath it (2026-09-15: channel scope moved
+    // from per-Property to per-Hotel-Group — see triggerTeamsWorkspace).
+    // Moved here from 'signed' (2026-09) so the workspace exists as soon as
+    // the proposal is generated, not only once it's won — matches the
+    // wizard's "Generate & Save" moment.
+    await triggerTeamsWorkspace(proposal, env, true).catch(console.error)
   }
 
   if (event === 'signed') {
@@ -1356,56 +1620,64 @@ async function triggerXero(proposal: ProposalRow, services: ServiceRow[], env: E
 }
 
 /**
- * v2.0 REWORK (2026-09-03) — superseded the previous "one Team per Hotel
- * Group, one private channel per Property" design (kept in this file's git
- * history only). Per the new Microsoft Teams spec: 4 fixed Teams already
- * exist per geo (Nuvho — AU/UK/IE, plus Internal — not used here), and the
- * channel now lives at the PROPERTY level inside whichever geo Team the
- * property belongs to, as a STANDARD channel (visible to the whole Team —
- * see lib/graph.ts's createOrUpdatePropertyChannel for why this drops the
- * old private-channel owner logic entirely). Still fires on 'created' (the
- * wizard's "Generate & Save"), and still re-runs safely if a channel
- * already exists for this property — except now it also REFRESHES that
- * channel's description every time, so a property's "Active: <EIDs>" list
- * grows as later proposals/engagements land against the same property.
+ * 2026-09-15 REWORK — supersedes the short-lived v2.0 "4 fixed geo Teams,
+ * one STANDARD channel per Property" design (2026-09-03, kept in this
+ * file's git history only), which never actually went live: the 4 geo
+ * Teams were never created, and separately the live tenant turned out not
+ * to match that spec's assumed structure at all (see teams-v2-migration.md
+ * project-memory notes). Back to one dedicated Team per Hotel Group — but
+ * now with a single private channel per Hotel Group (not one channel per
+ * Property as the original pre-v2.0 design had), reused across every
+ * proposal/property generated under that group, with a fixed standing
+ * roster of Nuvho team leaders (HOTEL_GROUP_CHANNEL_OWNERS in lib/graph.ts)
+ * as real Graph owners on both the Team and the channel — not just
+ * whoever's the sender/account manager on a given proposal.
  *
- * Requires the proposal to be linked to a real registered Property (pid),
- * not just a Hotel Group — the property's pid is what keys "every EID for
- * this property" (see the activeEids query below), and its geo is what
- * selects the Team. A Hotel-Group-only link (no property chosen /
- * registered yet) is not enough here, unlike the old design.
+ * Still fires on 'created' (the wizard's "Generate & Save"), and still
+ * re-runs safely if a Team/channel already exists for this Hotel Group —
+ * every run REFRESHES the channel's description, so its properties list
+ * and engagement-ID list grow as later proposals land against the group.
+ *
+ * Only requires the proposal to be linked to a Hotel Group (hgid) — unlike
+ * the v2.0 design, a registered Property (pid) is NOT required just to
+ * create the workspace; pid-derived data (the registry's property list,
+ * per-property EIDs) is used opportunistically below to enrich the
+ * description, but its absence no longer blocks the automation.
  *
  * Like the other A1–A9 triggers, failures here are caught by the caller
  * (triggerAutomations) and must never block proposal creation itself.
  */
-async function triggerTeamsWorkspace(proposal: ProposalRow, env: Env) {
+async function triggerTeamsWorkspace(proposal: ProposalRow, env: Env, fastMode = false) {
   const recordError = async (message: string) => {
     console.error(`[Automation] Teams: ${proposal.hotel_name} — ${message}`)
     await env.DB.prepare('UPDATE proposals SET ms_team_error = ? WHERE id = ?')
       .bind(message, proposal.id).run()
   }
 
-  // All bundled service lines share the same client/property, so any one
-  // row's hgid/geo/pid will do. pid is required now (see JSDoc above) —
-  // it's only populated once a real registered Property is linked (see
-  // createProposal's Engagement-sync block).
-  const link = await env.DB.prepare(
-    'SELECT hgid, geo, pid FROM proposal_registry_links WHERE proposal_id = ? AND pid IS NOT NULL LIMIT 1'
-  ).bind(proposal.id).first<{ hgid: string; geo: string; pid: string }>()
-
-  if (!link?.pid) {
-    await recordError(
-      'No registered Property (pid) linked to this proposal yet — the v2.0 Teams channel is keyed ' +
-      'by property, so link/register a Property in Step 1 before this can run.'
-    )
-    return
-  }
-
-  let teamId: string
+  // Outer safety net: confirmed live 2026-09-15 that an uncaught throw
+  // ANYWHERE in this function (e.g. an unguarded D1 query) is otherwise
+  // swallowed by the caller's `.catch(console.error)` in triggerAutomations,
+  // leaving ms_team_id/ms_channel_id/ms_team_error all NULL forever with no
+  // visible trace outside `wrangler tail` — a silent, undebuggable failure.
+  // Everything below already records specific, actionable errors at each
+  // known risk point; this outer try/catch is the last-resort backstop so a
+  // step nobody's guarded yet still lands a message in ms_team_error instead
+  // of vanishing.
   try {
-    teamId = resolveGeoTeamId(env, link.geo)
-  } catch (e: any) {
-    await recordError(e?.message || `Could not resolve a geo Team for geo "${link.geo}"`)
+
+  // All bundled service lines share the same client/hotel group, so any one
+  // row's hgid will do. hgid is NOT NULL on this table (schema.sql), so any
+  // registry link row for this proposal carries it.
+  const link = await env.DB.prepare(
+    'SELECT hgid FROM proposal_registry_links WHERE proposal_id = ? AND hgid IS NOT NULL LIMIT 1'
+  ).bind(proposal.id).first<{ hgid: string }>()
+
+  if (!link?.hgid) {
+    await recordError(
+      BLOCKED_PREFIX +
+      'No Hotel Group (hgid) linked to this proposal yet — link/select a Hotel Group in Step 1 ' +
+      'before the Teams workspace can be created.'
+    )
     return
   }
 
@@ -1418,47 +1690,193 @@ async function triggerTeamsWorkspace(proposal: ProposalRow, env: Env) {
     return
   }
 
-  const accountManager = proposal.account_manager_stf_id
-    ? await env.DB.prepare('SELECT name FROM staff WHERE id = ?')
-        .bind(proposal.account_manager_stf_id).first<{ name: string }>()
-    : null
+  const ownerIds = hotelGroupChannelOwnerIds()
 
-  // Every EID ever linked to this property (across every proposal that's
-  // been generated for it, not just this one) — see migration 0014's
-  // pid/eid columns on proposal_registry_links. Not filtered by registry
-  // engagement status: this table doesn't reliably cache that status
-  // locally, so "Active" here means "a real Engagement record exists",
-  // which is the honest thing this Worker can assert without an extra
-  // live registry call per channel refresh.
-  const eidRows = await env.DB.prepare(
-    'SELECT DISTINCT eid_display FROM proposal_registry_links ' +
-    'WHERE pid = ? AND eid_display IS NOT NULL ORDER BY eid_display'
-  ).bind(link.pid).all<{ eid_display: string }>()
-  const activeEids = (eidRows.results || []).map(r => r.eid_display)
-
-  const displayName = buildChannelDisplayName(hotelGroupName, proposal.hotel_name)
-  const description = [
-    `Active: ${activeEids.length ? activeEids.join(' | ') : '(none yet)'}`,
-    `${link.pid} | ${link.hgid} | Account Manager: ${accountManager?.name || 'Unassigned'}`,
-  ].join('\n')
-
+  // Find-or-create the dedicated Team for this Hotel Group — reused across
+  // every proposal for any property under the group, so findTeamByName is
+  // checked first rather than always creating.
+  let teamId: string
+  let teamOwnerFailures: string[] = []
   try {
-    const { channelId, webUrl: channelWebUrl, created } = await createOrUpdatePropertyChannel(
-      env, teamId, displayName, description
-    )
+    const existingTeam = await findTeamByName(env, hotelGroupName)
+    if (existingTeam) {
+      teamId = existingTeam.id
+      // The fixed owner roster may have grown (or this Team may predate
+      // this automation entirely) — addExistingTeamMember is idempotent
+      // ("already exists" is treated as success), so converge it every run
+      // rather than only at Team-creation time.
+      for (const ownerId of ownerIds) {
+        try {
+          await addExistingTeamMember(env, teamId, ownerId, 'owner')
+        } catch (e) {
+          console.error(`[Teams] Failed to add/confirm owner ${ownerId} on existing Team ${teamId}:`, e)
+          teamOwnerFailures.push(ownerId)
+        }
+      }
+    } else {
+      const createdTeam = await createClientTeam(
+        env, hotelGroupName, `Nuvho engagement workspace for ${hotelGroupName}`, ownerIds, fastMode
+      )
+      teamId = createdTeam.teamId
+      teamOwnerFailures = createdTeam.failedOwnerIds
+    }
+  } catch (e: any) {
+    await recordError(e?.message || `Could not find or create the Team for Hotel Group "${hotelGroupName}"`)
+    return
+  }
+
+  // Persist the Team id THE MOMENT we have it, before doing anything else
+  // that could be slow (2026-09-18, bug #10). Previously ms_team_id was
+  // only written in the single final UPDATE at the very end of this
+  // function, AFTER Team provisioning polling and both channel creations —
+  // so when Cloudflare cancelled this backgrounded ctx.waitUntil() task
+  // partway through (confirmed live: "Frasers Hospitality" test, Team
+  // created in Graph but the D1 row left entirely null), the id of the Team
+  // we had just created was lost outright. That's exactly how an orphaned,
+  // unreferenced Team like "Harbour Hospitality" comes into existence: the
+  // Team exists in Microsoft 365, nothing in D1 points at it, and the next
+  // run finds it by name in whatever half-provisioned state it was left in.
+  // Writing it here means a cancelled run is always resumable — the retry
+  // endpoint (or a later run) reuses this exact Team instead of orphaning
+  // it. Best-effort: a failure here must never abort channel creation.
+  try {
+    await env.DB.prepare('UPDATE proposals SET ms_team_id = ? WHERE id = ?')
+      .bind(teamId, proposal.id).run()
+  } catch (e: any) {
+    console.error(`[Teams] Could not persist ms_team_id ${teamId} for proposal ${proposal.id} (non-fatal):`, e)
+  }
+
+  // Best-effort, like the property lookup below: an unguarded throw here
+  // would silently kill the whole automation before it ever reaches Team/
+  // channel creation, with NOTHING written to ms_team_error (the caller's
+  // outer .catch(console.error) swallows it) — confirmed live 2026-09-15
+  // (Kurrajong Hotel test: ms_team_id/ms_channel_id/ms_team_error all stayed
+  // NULL with no automation activity visible at all). Never let a
+  // description-only detail abort Team/channel creation.
+  let accountManager: { name: string } | null = null
+  try {
+    accountManager = proposal.account_manager_stf_id
+      ? await env.DB.prepare('SELECT name FROM staff WHERE id = ?')
+          .bind(proposal.account_manager_stf_id).first<{ name: string }>()
+      : null
+  } catch (e: any) {
+    console.error(`[Teams] Could not look up account manager for proposal ${proposal.id} (non-fatal, description will omit them):`, e)
+  }
+
+  // 2026-09-18: the Hotel-Group-named channel was REMOVED at Odysseus's
+  // request. The Team is already named after the Hotel Group, so a private
+  // channel of the same name sitting inside it was pure duplication in the
+  // Teams sidebar ("Rockingham Partners > Rockingham Partners"). A Team now
+  // holds only Microsoft's mandatory General channel plus one private
+  // channel per PROPERTY. Duplicate group channels created before this
+  // change are NOT removed automatically — delete those by hand in Teams.
+  // ms_channel_id/ms_channel_web_url consequently now point at the
+  // PROPERTY channel, which is the one anybody actually wants to open.
+  //
+  // One proposal = one property (proposal.hotel_name), independent of
+  // whether that property has synced to a registry pid yet — confirmed
+  // live 2026-09-15 (Retreat East test): gating this on "pid IS NOT NULL"
+  // silently created ZERO property channels whenever the property hadn't
+  // finished registry sync, with no error anywhere. pid is used only, when
+  // available, to broaden the engagement-ID list across every proposal for
+  // that same property (falling back to just this proposal's own EIDs).
+  const propertyName = proposal.hotel_name
+  try {
+    const pidRow = await env.DB.prepare(
+      'SELECT pid FROM proposal_registry_links WHERE proposal_id = ? AND pid IS NOT NULL LIMIT 1'
+    ).bind(proposal.id).first<{ pid: string }>()
+
+    const eidRows = pidRow?.pid
+      ? await env.DB.prepare(
+          'SELECT DISTINCT eid_display FROM proposal_registry_links ' +
+          'WHERE pid = ? AND eid_display IS NOT NULL ORDER BY eid_display'
+        ).bind(pidRow.pid).all<{ eid_display: string }>()
+      : await env.DB.prepare(
+          'SELECT DISTINCT eid_display FROM proposal_registry_links ' +
+          'WHERE proposal_id = ? AND eid_display IS NOT NULL ORDER BY eid_display'
+        ).bind(proposal.id).all<{ eid_display: string }>()
+    const propertyEids = (eidRows.results || []).map(r => r.eid_display)
+
+    // Engagement IDs (ENG-AU-MM-2026-0137 style) come from the Master
+    // Registry, created one per service line at proposal-creation time —
+    // but ONLY when the proposal has a linked registry property (pid).
+    // Without one, createProposal skips engagement creation entirely and
+    // records why on the link row. Surfacing that reason here rather than
+    // a bare "(none yet)" means the channel itself tells you what to fix,
+    // instead of looking like the automation forgot them (2026-09-18).
+    let engagementsLine: string
+    if (propertyEids.length) {
+      engagementsLine = `Engagements: ${propertyEids.join(', ')}`
+    } else {
+      let reason = 'none yet'
+      try {
+        const errRow = await env.DB.prepare(
+          'SELECT eid_sync_error FROM proposal_registry_links ' +
+          'WHERE proposal_id = ? AND eid_sync_error IS NOT NULL LIMIT 1'
+        ).bind(proposal.id).first<{ eid_sync_error: string }>()
+        if (errRow?.eid_sync_error) reason = errRow.eid_sync_error
+      } catch (e: any) {
+        console.error(`[Teams] Could not read eid_sync_error for proposal ${proposal.id} (non-fatal):`, e)
+      }
+      engagementsLine = `Engagements: (${reason})`
+    }
+
+    const propertyDescription = [
+      `Property of: ${hotelGroupName} (${link.hgid})`,
+      engagementsLine,
+      `${pidRow?.pid || 'Not yet registered'} | Account Manager: ${accountManager?.name || 'Unassigned'}`,
+    ].join('\n')
+
+    const { channelId, webUrl: channelWebUrl, created, failedOwnerIds: channelOwnerFailures } =
+      await createOrUpdateHotelGroupChannel(env, teamId, propertyName, propertyDescription, ownerIds, fastMode)
+
+    // Team/channel creation itself succeeded, but individual owner adds are
+    // still best-effort and were previously silent outside wrangler tail —
+    // confirmed live 2026-09-15 (Jude Bolger missing as owner on a
+    // successful run, no trace of why in D1). Surface any such gaps as a
+    // non-fatal warning in ms_team_error rather than clobbering it to NULL,
+    // so a partial success is visible from the D1 row alone.
+    // Pin the standard apps (SharePoint site + Asana) onto the channel.
+    // Best-effort and idempotent: a missing Graph permission or a missing
+    // Asana catalog entry becomes a warning on the row, never a failure of
+    // the channel itself, which has already been created successfully.
+    const tabWarnings = await addStandardChannelTabs(env, teamId, channelId)
+
+    const allFailedIds = [...new Set([...teamOwnerFailures, ...channelOwnerFailures])]
+    const warnings = [
+      allFailedIds.length
+        ? `Could not add these owners to the "${propertyName}" channel (will retry next run): ` +
+          allFailedIds.map(id => {
+            const owner = HOTEL_GROUP_CHANNEL_OWNERS.find(o => o.graphId === id)
+            return owner ? `${owner.name} <${owner.email}>` : id
+          }).join(', ')
+        : null,
+      ...tabWarnings,
+    ].filter((w): w is string => !!w)
+    const warning = warnings.length ? warnings.join(' | ') : null
 
     await env.DB.prepare(`
       UPDATE proposals
       SET ms_team_id = ?, ms_channel_id = ?, ms_channel_web_url = ?,
-          ms_team_created_at = datetime('now'), ms_team_error = NULL
+          ms_team_created_at = datetime('now'), ms_team_error = ?
       WHERE id = ?
-    `).bind(teamId, channelId, channelWebUrl, proposal.id).run()
+    `).bind(teamId, channelId, channelWebUrl, warning, proposal.id).run()
+
+    if (warning) console.error(`[Automation] Teams: ${propertyName} — ${warning}`)
 
     console.log(
-      `[Automation] Teams: ${created ? 'created' : 'reused'} channel "${displayName}" ` +
-      `(${channelId}) in geo Team ${teamId} for property "${proposal.hotel_name}"`
+      `[Automation] Teams: ${created ? 'created' : 'reused'} property channel "${propertyName}" ` +
+      `(${channelId}) in Team ${teamId} for Hotel Group "${hotelGroupName}"`
     )
   } catch (e: any) {
-    await recordError(e?.message || 'Unknown error creating/updating the Microsoft Teams property channel')
+    await recordError(e?.message || `Unknown error creating/updating the "${propertyName}" Teams channel`)
+  }
+
+  } catch (e: any) {
+    // Backstop for the outer try opened above — should be rare in practice
+    // since every known risk point already has its own specific handling,
+    // but guarantees this proposal's row always ends up with SOME
+    // ms_team_error rather than staying silently NULL forever.
+    await recordError(`Unexpected error in Teams automation: ${e?.message || e}`)
   }
 }

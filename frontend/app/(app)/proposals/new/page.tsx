@@ -103,6 +103,14 @@ export default function NewProposalPage() {
   // fails, so the wizard still behaves sensibly offline/on error.
   const [regionSettingsMap, setRegionSettingsMap] = useState<Record<Region, RegionSettings> | null>(null)
   const appliedInitialRegionSettings = useRef(false)
+  // Captures the Governing Entity the proposal was saved/loaded with,
+  // so the entity-driven regionSettings/clauses effect below can tell
+  // "just finished loading an existing proposal" (leave its saved
+  // snapshot alone) apart from "the user deliberately changed the
+  // Governing Entity during this edit session" (recompute). Set once
+  // the edit-mode load resolves (or stays null for a brand-new
+  // proposal, where the guard below never applies).
+  const initialGoverningEntityCodeRef = useRef<string | null>(null)
 
   React.useEffect(() => {
     let cancelled = false
@@ -190,7 +198,10 @@ export default function NewProposalPage() {
   // regional fallback. Fetched once here for the same "don't drop an
   // in-flight fetch when a step unmounts" reason as entities/
   // regionSettingsMap above.
-  const [entitySettingsMap, setEntitySettingsMap] = useState<Record<string, { clauses: TermsClause[] }> | null>(null)
+  const [entitySettingsMap, setEntitySettingsMap] = useState<Record<string, {
+    clauses: TermsClause[]; address: string; companyName: string
+    aboutNuvho: string; footerText: string; currency: string
+  }> | null>(null)
 
   React.useEffect(() => {
     let cancelled = false
@@ -199,34 +210,65 @@ export default function NewProposalPage() {
         const res = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/settings/entities`, { credentials: 'include' })
         const data = await res.json()
         if (!res.ok || cancelled) return
-        const map: Record<string, { clauses: TermsClause[] }> = {}
-        for (const e of (data.data as { entityCode: string; clauses: TermsClause[] }[])) {
-          map[e.entityCode] = { clauses: e.clauses || [] }
+        const map: Record<string, {
+          clauses: TermsClause[]; address: string; companyName: string
+          aboutNuvho: string; footerText: string; currency: string
+        }> = {}
+        for (const e of (data.data as {
+          entityCode: string; legalName: string; clauses: TermsClause[]
+          address: string; aboutNuvho: string; footerText: string; currency: string
+        }[])) {
+          map[e.entityCode] = {
+            clauses:     e.clauses || [],
+            address:     e.address || '',
+            companyName: e.legalName || '',
+            aboutNuvho:  e.aboutNuvho || '',
+            footerText:  e.footerText || '',
+            currency:    e.currency || '',
+          }
         }
         setEntitySettingsMap(map)
-      } catch { /* the effect below falls back to an empty clause list */ }
+      } catch { /* the effect below falls back to an empty clause list / blank fields */ }
     })()
     return () => { cancelled = true }
   }, [])
 
-  // Terms & Conditions clauses are entity-specific (Settings → Entities),
-  // not region-specific — whenever the Governing Entity resolves (Step 7's
-  // picker, or the auto-default from Step 1's entityCode above) or entity
-  // settings finish loading, replace draft.terms.clauses with that entity's
-  // own clauses. An entity with none configured — or no entity resolved at
-  // all, i.e. Step 7 effectively skipped — means an empty Appendix, not a
-  // generic filler set. Skipped entirely in edit mode, which already loaded
-  // the proposal's own saved clauses verbatim (the editId effect above).
+  // Entity-specific document content — address/company name/about-us/
+  // footer/currency AND Terms & Conditions clauses all come from whichever
+  // Governing Entity is selected (Settings → Entities), not from a
+  // region-wide default. Previously only clauses were entity-driven here;
+  // address/companyName/aboutNuvho/footerText were still keyed by REGION
+  // (applyRegionSettings, further below) via a fixed per-region "operating"
+  // entity code, so they silently kept showing the wrong entity's
+  // letterhead whenever the Governing Entity was changed a second time
+  // after an initial pick (the auto-default effect above only sets
+  // governingEntityCode once, while it's still unset) — reported by
+  // Odysseus 2026-09-17: picking "Nuvho Ltd - UK" still showed the AU
+  // entity's address/footer/T&Cs. Runs for brand-new proposals always; in
+  // edit mode it's held back until the Governing Entity actually changes
+  // from what the proposal was saved with, so simply opening an existing
+  // proposal for editing never silently rewrites its saved snapshot — only
+  // a deliberate entity change does. When no Governing Entity has resolved
+  // yet, clauses are blanked (an unresolved entity means an empty
+  // Appendix, not a generic filler set) but regionSettings is left alone so
+  // the Step 1 default population isn't clobbered before a pick is made.
   React.useEffect(() => {
-    if (editId) return
+    if (editId && draft.terms.governingEntityCode === initialGoverningEntityCodeRef.current) return
     if (!entitySettingsMap) return
     const code = draft.terms.governingEntityCode
-    const clausesSrc = code ? (entitySettingsMap[code]?.clauses ?? []) : []
+    const settings = code ? entitySettingsMap[code] : undefined
     setDraft(d => ({
       ...d,
+      regionSettings: code ? {
+        address:     settings?.address     ?? '',
+        companyName: settings?.companyName ?? '',
+        aboutNuvho:  settings?.aboutNuvho  ?? '',
+        footerText:  settings?.footerText  ?? '',
+        currency:    settings?.currency    || REGION_META[d.hotel.region].currency,
+      } : d.regionSettings,
       terms: {
         ...d.terms,
-        clauses: clausesSrc.map(c => ({
+        clauses: (settings?.clauses ?? []).map(c => ({
           id: generateRowId('term'), heading: c.heading, text: c.text,
           enabled: (c as Partial<TermsClause>).enabled ?? true,
         })),
@@ -285,6 +327,7 @@ export default function NewProposalPage() {
         if (!res.ok) throw new Error(data.error || 'Failed to load proposal')
         if (cancelled) return
         const p = data.data
+        initialGoverningEntityCodeRef.current = (p.terms && p.terms.governingEntityCode) || p.entity_code || null
         setDraft({
           step: 1,
           hotel: {
@@ -1179,7 +1222,15 @@ function Step1HotelDetails({
         ...d,
         hotel: {
           ...d.hotel, hgid: hg.hgid, entityCode: record.entity_code,
-          name: d.hotel.name || hg.trading_name || hg.group_name,
+          // Do NOT default this to the Hotel Group's own name — this field is
+          // the PROPOSAL'S PROPERTY NAME (proposal.hotel_name), which the Teams
+          // automation uses verbatim as the per-property sub-channel's display
+          // name. Auto-filling it here let people click through the wizard
+          // without ever typing the actual property name, so the property
+          // sub-channel ended up named identically to the Hotel-Group channel.
+          // Leaving it blank forces the existing "Property name is required"
+          // validation to do its job. Fixed 2026-09-18, confirmed with Odysseus.
+          name: d.hotel.name,
           hubspotCompanyId: record.hubspot_id || d.hotel.hubspotCompanyId,
         },
       }))
@@ -1197,7 +1248,9 @@ function Step1HotelDetails({
   function selectHubspotResult(r: HubspotSearchResult) {
     setAcctOpen(false)
     setAcctQuery(r.name)
-    setDraft(d => ({ ...d, hotel: { ...d.hotel, name: d.hotel.name || r.name, hubspotCompanyId: r.id, pid: r.pid || d.hotel.pid } }))
+    // name: d.hotel.name (not r.name) — see the 2026-09-18 fix note above; this
+    // field is the property name, not the HubSpot Company (Hotel Group) name.
+    setDraft(d => ({ ...d, hotel: { ...d.hotel, name: d.hotel.name, hubspotCompanyId: r.id, pid: r.pid || d.hotel.pid } }))
     if (r.hgid) {
       // Already linked — resolve entity_code from the registry side too.
       fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/registry/hotel-groups/${r.hgid}`, { credentials: 'include' })
@@ -1403,7 +1456,15 @@ function Step1HotelDetails({
           pid: pid || '',
           entityCode: hg.entity_code,
           region: hgAddGeo,
-          name: d.hotel.name || hg.trading_name || hg.group_name,
+          // Do NOT default this to the Hotel Group's own name — this field is
+          // the PROPOSAL'S PROPERTY NAME (proposal.hotel_name), which the Teams
+          // automation uses verbatim as the per-property sub-channel's display
+          // name. Auto-filling it here let people click through the wizard
+          // without ever typing the actual property name, so the property
+          // sub-channel ended up named identically to the Hotel-Group channel.
+          // Leaving it blank forces the existing "Property name is required"
+          // validation to do its job. Fixed 2026-09-18, confirmed with Odysseus.
+          name: d.hotel.name,
         },
       }))
       setAcctQuery(hg.trading_name || hg.group_name)
@@ -1471,8 +1532,18 @@ function Step1HotelDetails({
               // setDraft calls in this handler apply in order and a later
               // reset would otherwise wipe the entity the user just chose.
               clearHotelGroup()
-              setDraft(d => ({ ...d, hotel: { ...d.hotel, entityCode: code, region } }))
-              applyRegionSettings?.(region)
+              // Set governingEntityCode directly here too (not just
+              // hotel.entityCode) so re-picking a different Governing
+              // Entity always cascades to address/footer/about-us/T&Cs —
+              // previously this relied solely on the auto-default effect,
+              // which only fires once while governingEntityCode is still
+              // unset, so changing your mind after an initial pick left
+              // the OLD entity's document content in place.
+              setDraft(d => ({
+                ...d,
+                hotel: { ...d.hotel, entityCode: code, region },
+                terms: { ...d.terms, governingEntityCode: code },
+              }))
             }}>
             <option value="">{entitiesLoading ? 'Loading entities…' : 'Select the contracting Nuvho entity…'}</option>
             {/* Shows every entity the registry returns (all 6 — holdco/

@@ -25,6 +25,31 @@ const STATUS_CLASSES: Record<string, string> = {
 
 type AuditEntry = { id: string; event: string; actor: string; meta: string | null; created_at: string }
 
+// Shape written by worker/src/routes/proposals.ts's getPublicProposal() into
+// audit_log.meta for 'viewed' / 'link_previewed' events (JSON-encoded).
+type ViewMeta = {
+  ip?: string | null
+  userAgent?: string | null
+  browser?: string
+  os?: string
+  deviceType?: string
+  referer?: string | null
+  country?: string | null
+  region?: string | null
+  city?: string | null
+  timezone?: string | null
+}
+
+function parseViewMeta(raw: string | null): ViewMeta | null {
+  if (!raw) return null
+  try { return JSON.parse(raw) as ViewMeta } catch { return null }
+}
+
+function formatViewLocation(m: ViewMeta): string {
+  const place = [m.city, m.region, m.country].filter(Boolean).join(', ')
+  return place || 'Unknown location'
+}
+
 export default function ProposalDetailPage() {
   const { id }   = useParams<{ id: string }>()
   const router   = useRouter()
@@ -540,31 +565,95 @@ export default function ProposalDetailPage() {
             </div>
           </div>
 
-          {/* Audit log */}
-          {audit.length > 0 && (
-            <div className="nv-card" style={{ padding: 24 }}>
-              <h2 style={{ fontSize: 13, fontFamily: 'var(--nv-font-display)',
-                           color: 'var(--nv-text-muted)', textTransform: 'uppercase',
-                           letterSpacing: '0.08em', margin: '0 0 16px' }}>
-                Activity Log
-              </h2>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {audit.slice(0, 10).map(e => (
-                  <div key={e.id} style={{ fontSize: 13 }}>
-                    <span style={{ fontWeight: 600, color: 'var(--nv-blue-slate)',
-                                   textTransform: 'capitalize' }}>
-                      {e.event}
-                    </span>
-                    <span style={{ color: 'var(--nv-text-muted)' }}> · {e.actor}</span>
-                    <br />
-                    <span style={{ color: 'var(--nv-text-muted)', fontSize: 11 }}>
-                      {new Date(e.created_at).toLocaleString('en-AU')}
-                    </span>
-                  </div>
-                ))}
+          {/* Audit log — milestone events only (view-tracking now lives in
+              its own "Link Views" card below so per-open noise doesn't bury
+              created/sent/signed history). */}
+          {(() => {
+            const milestoneAudit = audit.filter(e => e.event !== 'viewed' && e.event !== 'link_previewed')
+            return milestoneAudit.length > 0 && (
+              <div className="nv-card" style={{ padding: 24 }}>
+                <h2 style={{ fontSize: 13, fontFamily: 'var(--nv-font-display)',
+                             color: 'var(--nv-text-muted)', textTransform: 'uppercase',
+                             letterSpacing: '0.08em', margin: '0 0 16px' }}>
+                  Activity Log
+                </h2>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {milestoneAudit.slice(0, 10).map(e => (
+                    <div key={e.id} style={{ fontSize: 13 }}>
+                      <span style={{ fontWeight: 600, color: 'var(--nv-blue-slate)',
+                                     textTransform: 'capitalize' }}>
+                        {e.event}
+                      </span>
+                      <span style={{ color: 'var(--nv-text-muted)' }}> · {e.actor}</span>
+                      <br />
+                      <span style={{ color: 'var(--nv-text-muted)', fontSize: 11 }}>
+                        {new Date(e.created_at).toLocaleString('en-AU')}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )
+          })()}
+
+          {/* NUVCL: Link Views — detailed per-open analytics for the public
+              Copy Link (timestamp, IP, browser/OS/device, and Cloudflare
+              edge-derived geolocation). Bot/link-preview opens (Slack, Teams,
+              Outlook Safe Links, etc.) are logged separately as
+              'link_previewed' and summarized rather than listed one-by-one,
+              so the list here stays meaningful to a human reading it. */}
+          {(() => {
+            const viewEvents = audit.filter(e => e.event === 'viewed')
+            const previewCount = audit.filter(e => e.event === 'link_previewed').length
+            if (viewEvents.length === 0 && previewCount === 0) return null
+            return (
+              <div className="nv-card" style={{ padding: 24 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                  <h2 style={{ fontSize: 13, fontFamily: 'var(--nv-font-display)',
+                               color: 'var(--nv-text-muted)', textTransform: 'uppercase',
+                               letterSpacing: '0.08em', margin: '0 0 16px' }}>
+                    Link Views
+                  </h2>
+                  <span style={{ fontSize: 12, color: 'var(--nv-text-muted)' }}>
+                    {proposal.viewCount ?? viewEvents.length} total
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {viewEvents.slice(0, 15).map(e => {
+                    const meta = parseViewMeta(e.meta)
+                    return (
+                      <div key={e.id} style={{ fontSize: 13 }}>
+                        <span style={{ fontWeight: 600, color: 'var(--nv-blue-slate)' }}>
+                          {meta ? formatViewLocation(meta) : 'Unknown location'}
+                        </span>
+                        <span style={{ color: 'var(--nv-text-muted)' }}>
+                          {' '}· {meta?.ip || 'unknown IP'}
+                        </span>
+                        {meta && (meta.browser || meta.os || meta.deviceType) && (
+                          <>
+                            <br />
+                            <span style={{ color: 'var(--nv-text-muted)', fontSize: 12 }}>
+                              {[meta.browser, meta.os, meta.deviceType].filter(Boolean).join(' · ')}
+                            </span>
+                          </>
+                        )}
+                        <br />
+                        <span style={{ color: 'var(--nv-text-muted)', fontSize: 11 }}>
+                          {new Date(e.created_at).toLocaleString('en-AU')}
+                        </span>
+                      </div>
+                    )
+                  })}
+                  {previewCount > 0 && (
+                    <div style={{ fontSize: 11, color: 'var(--nv-text-muted)', fontStyle: 'italic' }}>
+                      +{previewCount} link preview{previewCount === 1 ? '' : 's'} by chat/email apps (not shown individually)
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
+
           {/* NUVCL-99: the "Signing Link" card that used to live here was
               removed — Copy Link now lives in the top action bar instead of
               being duplicated in both places. */}

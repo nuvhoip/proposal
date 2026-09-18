@@ -1,4 +1,5 @@
 import type { Env, Session } from './types'
+import { exchangeGraphAuthCode, GRAPH_DELEGATED_SCOPES } from './lib/graph'
 import { err } from './lib/response'
 import { requireAuth } from './lib/auth'
 import {
@@ -14,6 +15,8 @@ import {
   resendProposal,
   updateProposal,
   deleteProposal,
+  retryTeamsWorkspace,
+  sweepPendingTeamsWorkspaces,
   getDashboardStats,
   getPublicProposal,
   signProposal,
@@ -93,9 +96,6 @@ function corsHeaders(request: Request): HeadersInit {
 /* ── Main router ─────────────────────────────────────────────── */
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    // Store ctx globally for waitUntil in proposal handlers
-    ;(globalThis as any).__executionContext = ctx
-
     const url    = new URL(request.url)
     const path   = url.pathname
     const method = request.method
@@ -135,6 +135,25 @@ export default {
       headers,
     })
   },
+
+  /* ── Cron trigger ──────────────────────────────────────────────
+   * Every 5 minutes (see wrangler.toml's [triggers]), finish any Teams
+   * workspace that couldn't be completed at proposal-creation time —
+   * almost always a brand-new Hotel Group whose Team was still being
+   * provisioned by Microsoft when the create-time automation had to give
+   * up (see sweepPendingTeamsWorkspaces for the full reasoning).
+   *
+   * ctx.waitUntil is used so the handler returns promptly while the sweep
+   * finishes; unlike a request-backed waitUntil, a scheduled invocation's
+   * context is not cut short by an HTTP response completing.
+   */
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(
+      sweepPendingTeamsWorkspaces(env).catch(e =>
+        console.error('[Teams sweep] Sweep failed:', e)
+      )
+    )
+  },
 }
 
 /* ── Route dispatcher ────────────────────────────────────────── */
@@ -165,7 +184,10 @@ async function route(
   // Public proposal view (by signing token)
   const publicMatch = path.match(/^\/p\/([A-Za-z0-9_-]+)$/)
   if (publicMatch && method === 'GET') {
-    return getPublicProposal(publicMatch[1], env)
+    // NUVCL: pass the request through so getPublicProposal can log the
+    // viewer's IP, browser, and Cloudflare-derived geolocation to the
+    // activity log (audit_log) for analytics on the copy-link views.
+    return getPublicProposal(publicMatch[1], request, env, ctx)
   }
 
   // Public: sign proposal
@@ -173,7 +195,7 @@ async function route(
   if (signMatch && method === 'POST') {
     const ok = await checkSignLimit(signMatch[1], env)
     if (!ok) return err('Too many signing attempts', 429)
-    return signProposal(signMatch[1], request, env)
+    return signProposal(signMatch[1], request, env, ctx)
   }
 
   // Public: cover photo bytes (wizard Step 5's "Upload custom image",
@@ -187,6 +209,35 @@ async function route(
     return getCoverPhoto(coverPhotoMatch[1], env)
   }
 
+  // Microsoft's redirect target for the one-time delegated-Graph consent
+  // that lets the Worker post Teams channel activity (app-only tokens can't
+  // post channel messages — see lib/graph.ts). Unauthenticated by necessity:
+  // Microsoft redirects the browser here and a cross-site navigation can't
+  // be relied on to carry the session cookie. CSRF-guarded instead by the
+  // single-use `state` nonce written to KV when the flow was started.
+  if (path === '/admin/graph-consent/callback' && method === 'GET') {
+    const url   = new URL(request.url)
+    const code  = url.searchParams.get('code')
+    const state = url.searchParams.get('state')
+    const oauthError = url.searchParams.get('error_description') || url.searchParams.get('error')
+    if (oauthError) return new Response(`Consent failed: ${oauthError}`, { status: 400 })
+    if (!code || !state) return new Response('Missing code/state', { status: 400 })
+
+    const pending = await env.SESSIONS.get(`graph:consent:state:${state}`)
+    if (!pending) return new Response('Invalid or expired consent state — restart at /admin/graph-consent', { status: 400 })
+    await env.SESSIONS.delete(`graph:consent:state:${state}`)
+
+    try {
+      const { account } = await exchangeGraphAuthCode(env, code, `${url.origin}/admin/graph-consent/callback`)
+      return new Response(
+        `Teams channel posting authorized as ${account}. You can close this tab.`,
+        { status: 200, headers: { 'Content-Type': 'text/plain' } }
+      )
+    } catch (e) {
+      return new Response(`Token exchange failed: ${e instanceof Error ? e.message : String(e)}`, { status: 500 })
+    }
+  }
+
   /* ── Authenticated routes ─────────────────────────────────── */
   const authResult = await requireAuth(request, env)
   if (authResult instanceof Response) return authResult
@@ -195,6 +246,27 @@ async function route(
   // Current user info
   if (path === '/auth/me' && method === 'GET') {
     return handleMe(request, env, session)
+  }
+
+  // Starts the one-time delegated-Graph consent for Teams channel posting.
+  // Sign in as the service account (not your own account) on the Microsoft
+  // page this redirects to — whichever account consents is the account the
+  // channel posts will appear as.
+  if (path === '/admin/graph-consent' && method === 'GET') {
+    const origin = new URL(request.url).origin
+    const state  = crypto.randomUUID()
+    await env.SESSIONS.put(`graph:consent:state:${state}`, session.email, { expirationTtl: 600 })
+
+    const authorizeUrl = new URL(`https://login.microsoftonline.com/${env.AZURE_TENANT_ID}/oauth2/v2.0/authorize`)
+    authorizeUrl.searchParams.set('client_id',     env.AZURE_CLIENT_ID)
+    authorizeUrl.searchParams.set('response_type', 'code')
+    authorizeUrl.searchParams.set('redirect_uri',  `${origin}/admin/graph-consent/callback`)
+    authorizeUrl.searchParams.set('response_mode', 'query')
+    authorizeUrl.searchParams.set('scope',         GRAPH_DELEGATED_SCOPES)
+    authorizeUrl.searchParams.set('state',         state)
+    authorizeUrl.searchParams.set('prompt',        'select_account')
+
+    return Response.redirect(authorizeUrl.toString(), 302)
   }
 
   // Dashboard stats
@@ -284,7 +356,7 @@ async function route(
 
   // Create proposal
   if (path === '/proposals' && method === 'POST') {
-    return createProposal(request, env, session)
+    return createProposal(request, env, session, ctx)
   }
 
   // Generate email template (Claude API)
@@ -304,7 +376,7 @@ async function route(
   // Send proposal
   const sendMatch = path.match(/^\/proposals\/([A-Z0-9]+)\/send$/)
   if (sendMatch && method === 'POST') {
-    return sendProposal(sendMatch[1], env, session)
+    return sendProposal(sendMatch[1], env, session, ctx)
   }
 
   // Resend proposal email — re-sends the signing-link email for a proposal
@@ -335,6 +407,15 @@ async function route(
   const auditMatch = path.match(/^\/proposals\/([A-Z0-9]+)\/audit$/)
   if (auditMatch && method === 'GET') {
     return getAuditLog(auditMatch[1], env, session)
+  }
+
+  // Retry the Teams workspace automation (Team + Hotel-Group channel +
+  // Property channel) for an existing proposal — added 2026-09-18 so a
+  // proposal stuck with a stale ms_team_error can be re-run once the
+  // underlying bug is fixed, without creating a throwaway new proposal.
+  const retryTeamsMatch = path.match(/^\/proposals\/([A-Z0-9]+)\/retry-teams$/)
+  if (retryTeamsMatch && method === 'POST') {
+    return retryTeamsWorkspace(retryTeamsMatch[1], env, session)
   }
 
   // Engagements list

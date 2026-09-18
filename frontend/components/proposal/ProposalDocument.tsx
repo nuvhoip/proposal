@@ -771,13 +771,13 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
           background: linear-gradient(to bottom, rgba(20,40,50,0.55), rgba(20,40,50,0));
         }
         .doc-cover-split__hero-placeholder { width: 30px; height: 30px; border: 1.5px dashed var(--nv-border); border-radius: 4px; }
-        .doc-cover-split__content { flex: 0 0 auto; padding: 28px 28px 24px; background: #EEF3F5; display: flex; flex-direction: column; justify-content: center; }
+        .doc-cover-split__content { flex: 0 0 auto; padding: 28px 28px 24px; background: var(--nv-platinum); display: flex; flex-direction: column; justify-content: center; }
         .doc-cover-split__category { font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--nv-steel-blue); font-weight: 700; margin-bottom: 8px; }
         .doc-cover-split__heading { font-family: var(--font-comfortaa); font-size: 25px; font-weight: 700; color: var(--nv-blue-slate); margin-bottom: 18px; }
         .doc-cover-split__divider { height: 1px; background: var(--nv-border-hair); margin-bottom: 12px; }
         .doc-cover-split__meta { display: flex; gap: 6px; font-size: 10.5px; color: var(--nv-text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
         .doc-cover-split__meta strong { color: var(--nv-blue-slate); text-transform: none; letter-spacing: 0; font-size: 12px; }
-        .doc-cover-split__footer { height: 46px; flex-shrink: 0; background: #1A3D4A; position: relative; overflow: hidden; }
+        .doc-cover-split__footer { height: 46px; flex-shrink: 0; background: var(--nv-blue-slate); position: relative; overflow: hidden; }
         .doc-cover-split__footer-stripe {
           position: absolute; top: 0; bottom: 0; left: 38%; width: 70px; z-index: 0;
           background: rgba(255,255,255,0.08); transform: skewX(-22deg); pointer-events: none;
@@ -801,7 +801,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
 
         .doc-cover--sidebar { background-image: none; background-color: white; display: flex; align-items: stretch; padding: 0; }
         .doc-cover-sidebar__rail {
-          width: 34%; flex-shrink: 0; background: #1A3D4A; padding: 40px 28px;
+          width: 34%; flex-shrink: 0; background: var(--nv-blue-slate); padding: 40px 28px;
           display: flex; flex-direction: column; justify-content: space-between;
         }
         .doc-cover-sidebar__badge {

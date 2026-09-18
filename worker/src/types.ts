@@ -12,13 +12,10 @@ export interface Env {
   AZURE_CLIENT_ID:     string
   ASANA_WORKSPACE_GID: string
   REGISTRY_BASE_URL:   string   // e.g. https://register.nuvho.com
-  // v2.0 Teams restructure: fixed geo Team ids (see lib/graph.ts's
-  // resolveGeoTeamId). Not secrets — Team ids aren't sensitive, same as
-  // ASANA_WORKSPACE_GID above — but left unset in wrangler.toml until
-  // Odysseus creates the 4 geo Teams in Teams admin and provides their ids.
-  MS_TEAM_ID_AU?:       string
-  MS_TEAM_ID_UK?:       string
-  MS_TEAM_ID_IE?:       string
+  // (2026-09-15: removed MS_TEAM_ID_AU/UK/IE — the v2.0 fixed-geo-Team
+  // design they supported was abandoned in favor of one dedicated Team
+  // per Hotel Group; see lib/graph.ts's createClientTeam/findTeamByName
+  // and HOTEL_GROUP_CHANNEL_OWNERS.)
   // Secrets
   AZURE_CLIENT_SECRET: string
   HUBSPOT_API_KEY:     string
@@ -32,6 +29,11 @@ export interface Env {
                                  // wrangler.toml; safe to remove once that secret is deleted.
   ANTHROPIC_API_KEY:   string
   REGISTRY_API_KEY:    string   // Nuvho Master Registry X-Registry-Key (register.nuvho.com)
+  GRAPH_REFRESH_TOKEN: string   // FIRST-RUN SEED ONLY for the delegated service-account token used
+                                 // to post Teams channel activity (lib/graph.ts). After the first
+                                 // refresh the live token lives in KV, because Entra rotates it on
+                                 // every redemption and a Worker can't rewrite its own secrets.
+                                 // Optional: /admin/graph-consent seeds KV directly.
 }
 
 export interface Session {

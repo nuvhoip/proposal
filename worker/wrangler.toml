@@ -27,19 +27,25 @@ AZURE_CLIENT_ID = "f5f35997-177f-4f24-9069-cc1f31113ae7"
 ASANA_WORKSPACE_GID = "1143618526084997"
 REGISTRY_BASE_URL = "https://register.nuvho.com"
 
-# v2.0 Teams restructure (see worker/src/lib/graph.ts's resolveGeoTeamId):
-# fill these in with the real Team ids AFTER creating "Nuvho — AU",
-# "Nuvho — UK" and "Nuvho — IE" in Teams admin — `list_teams` will show
-# them once created. Left blank/commented until then; triggerTeamsWorkspace
-# records a clear ms_team_error (not a crash) for any geo whose var is unset.
-# MS_TEAM_ID_AU = "<team-id-for-Nuvho — AU>"
-# MS_TEAM_ID_UK = "<team-id-for-Nuvho — UK>"
-# MS_TEAM_ID_IE = "<team-id-for-Nuvho — IE>"
+# (2026-09-15: the v2.0 fixed-geo-Team design that used to need
+# MS_TEAM_ID_AU/UK/IE here was abandoned — Teams are now created/reused one
+# per Hotel Group via lib/graph.ts's createClientTeam/findTeamByName, no
+# env-var Team ids needed. Kept out of [vars] entirely; see graph.ts's
+# HOTEL_GROUP_CHANNEL_OWNERS for the fixed channel-owner roster instead.)
 
 # Secrets — set via `wrangler secret put <NAME>`, never committed here:
 #   AZURE_CLIENT_SECRET, HUBSPOT_API_KEY, ASANA_PAT, JWT_SECRET,
 #   RESEND_API_KEY, XERO_CLIENT_ID, XERO_CLIENT_SECRET, ANTHROPIC_API_KEY,
 #   REGISTRY_API_KEY  — Nuvho Master Registry X-Registry-Key (register.nuvho.com)
+
+# 2026-09-18: finishes Teams workspaces that couldn't be completed at
+# proposal-creation time. A brand-new Team takes Microsoft 1-3 minutes to
+# provision before channels can be added, which outlasts the window
+# Cloudflare gives a backgrounded ctx.waitUntil() task — so the create-time
+# automation gives up fast and this sweep completes the work shortly after.
+# See sweepPendingTeamsWorkspaces() in src/routes/proposals.ts.
+[triggers]
+crons = ["*/5 * * * *"]
 
 [[routes]]
 pattern = "proposals-api.nuvho.com/*"

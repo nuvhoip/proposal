@@ -109,6 +109,33 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * Fixed standing roster of Nuvho team leaders who must be Graph channel
+ * owners on EVERY Hotel-Group Teams channel this automation creates or
+ * reuses (2026-09-15 spec, replacing the old per-proposal/per-property
+ * owner list) — not just whoever happens to be the sender/account manager
+ * on a given proposal. Resolved once via MS Graph find_user and pasted in
+ * here rather than re-resolved on every proposal run; if this roster
+ * changes, update the ids below and redeploy (no schema/env var needed —
+ * these are fixed people, not per-environment config like the old
+ * MS_TEAM_ID_* vars were).
+ */
+export const HOTEL_GROUP_CHANNEL_OWNERS: ReadonlyArray<{ name: string; email: string; graphId: string }> = [
+  { name: 'Odysseus Ambut',   email: 'odysseus.ambut@nuvho.com',   graphId: '7f03ca3a-2b3a-4142-b42e-ba093c6f51fd' },
+  { name: 'Jude Bolger',      email: 'jude.bolger@nuvho.com',      graphId: '6ad798e8-8a44-40d6-b370-13f9b111d56a' },
+  { name: 'Alana Karic',      email: 'alana.karic@nuvho.com',      graphId: 'c8e78d29-d313-408c-8570-6836db03fade' },
+  { name: 'Tess Temperley',   email: 'tess.temperley@nuvho.com',   graphId: '911ba82b-6f66-4401-b5fd-9221802a34bd' },
+  { name: 'Hayley Thompson',  email: 'hayley.thompson@nuvho.com',  graphId: 'e93dfbb7-4d17-4e4a-b4a5-88e0eb9b94a2' },
+  { name: 'Riley Staraj',     email: 'riley.staraj@nuvho.com',     graphId: 'f5a03704-fc4b-4721-ba89-8322a78ea077' },
+  { name: 'Rebecca Janke',    email: 'rebecca.janke@nuvho.com',    graphId: 'a4497b70-a8ed-4e42-89d1-15c65d3b27ed' },
+  { name: 'Matthias Dybing',  email: 'matthias.dybing@nuvho.com',  graphId: 'a5abca39-1659-4e17-8522-8ffe16691b02' },
+]
+
+/** Convenience accessor — the plain Graph user-id list most callers want. */
+export function hotelGroupChannelOwnerIds(): string[] {
+  return HOTEL_GROUP_CHANNEL_OWNERS.map(o => o.graphId)
+}
+
+/**
  * Creates a new Microsoft Team (client-facing workspace), named for the
  * client, with the given tenant users added as owners.
  *
@@ -143,8 +170,9 @@ export async function createClientTeam(
   env: Env,
   displayName: string,
   description: string,
-  ownerGraphUserIds: string[]
-): Promise<{ teamId: string }> {
+  ownerGraphUserIds: string[],
+  fastMode = false
+): Promise<{ teamId: string; failedOwnerIds: string[] }> {
   if (!ownerGraphUserIds.length) {
     throw new Error('createClientTeam: at least one owner Graph user id is required')
   }
@@ -187,28 +215,31 @@ export async function createClientTeam(
   const teamId = teamMatch[1]
 
   if (opMatch) {
-    await waitForTeamProvisioning(accessToken, teamId, opMatch[1])
+    await waitForTeamProvisioning(accessToken, teamId, opMatch[1], fastMode)
   } else {
     // No operation id to poll — fall back to a flat delay before touching
-    // the team further.
-    await sleep(15000)
+    // the team further. Shortened in fastMode for the same reason as
+    // waitForTeamProvisioning above.
+    await sleep(fastMode ? 3000 : 15000)
   }
 
+  const failedOwnerIds: string[] = []
   for (const ownerId of remainingOwnerIds) {
     try {
       await addExistingTeamMember(env, teamId, ownerId, 'owner')
     } catch (e) {
       // The team (and its first owner) already exist at this point — don't
-      // fail the whole automation over a secondary owner add. Logged so
-      // it's at least visible in Worker logs; the caller can always re-add
-      // this person manually, or a later proposal under the same Hotel
-      // Group will retry via the reuse path (findTeamByName + a fresh
-      // addExistingTeamMember call for whoever's still missing).
+      // fail the whole automation over a secondary owner add. Logged AND
+      // collected (confirmed live 2026-09-15: a per-owner add failure here
+      // was previously invisible outside wrangler tail — Jude Bolger wasn't
+      // added as an owner and nobody could tell why without live logs) so
+      // the caller can surface it in ms_team_error instead of just logs.
       console.error(`[Teams] Failed to add additional owner ${ownerId} to new team ${teamId}:`, e)
+      failedOwnerIds.push(ownerId)
     }
   }
 
-  return { teamId }
+  return { teamId, failedOwnerIds }
 }
 
 /**
@@ -221,11 +252,20 @@ export async function createClientTeam(
  * the proposal-creation response the user is waiting on.
  */
 async function waitForTeamProvisioning(
-  accessToken: string, teamId: string, operationId: string
+  accessToken: string, teamId: string, operationId: string, fastMode = false
 ): Promise<void> {
-  const maxAttempts = 7
+  // fastMode (2026-09-18): used when this whole call chain runs inside a
+  // fire-and-forget ctx.waitUntil() (proposal-creation automation), which
+  // Cloudflare will forcibly cancel ~30-45s after the HTTP response is
+  // sent — confirmed live via wrangler tail, where a 6x15s retry loop
+  // elsewhere in this file got killed mid-sleep before ANY error was ever
+  // recorded to D1, silently defeating all of triggerTeamsWorkspace's own
+  // try/catch error handling. A synchronous caller (retryTeamsWorkspace,
+  // via POST /proposals/:id/retry-teams) isn't subject to that cutoff, so
+  // it still gets the full, patient retry budget.
+  const maxAttempts = fastMode ? 2 : 7
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    await sleep(attempt === 0 ? 5000 : 10000)
+    await sleep(fastMode ? 3000 : (attempt === 0 ? 5000 : 10000))
     try {
       const res = await fetch(
         `https://graph.microsoft.com/v1.0/teams('${teamId}')/operations('${operationId}')`,
@@ -303,14 +343,20 @@ export async function addExistingTeamMember(
 }
 
 /**
- * Creates a private channel under a Team for one client Property, with the
- * given users added as channel owners (private-channel membership is
- * independent of Team-level membership/roles, so this is required even
- * when the Team itself already existed and these users are already Team
- * members). If a channel with the same name already exists — this
- * automation is expected to run once per proposal, but stays idempotent in
- * case it's ever re-triggered — the existing channel is looked up and
- * returned instead of failing.
+ * Creates (or, if one with the same name already exists, reuses) a PRIVATE
+ * Teams channel under a Team for one Hotel Group, with the given users
+ * added as channel owners (private-channel membership is independent of
+ * Team-level membership/roles, so this is required even when the Team
+ * itself already existed and these users are already Team members/owners).
+ *
+ * Reworked 2026-09-15 (superseding the old per-Property createPropertyChannel
+ * and the short-lived v2.0 geo-Team createOrUpdatePropertyChannel, both
+ * removed): the channel is now scoped to the whole Hotel Group and reused
+ * across every proposal/property under it, rather than one channel per
+ * property. Like the old createOrUpdatePropertyChannel(), the description is
+ * refreshed on EVERY call via patchChannelDescription() — including on a
+ * reused channel — since the properties/engagement-ID list in the
+ * description grows as new proposals land against the same Hotel Group.
  *
  * Only the FIRST owner is included in the initial creation call, with any
  * remaining owners added afterwards via addChannelMember() — mirroring
@@ -322,76 +368,328 @@ export async function addExistingTeamMember(
  * second live test.
  *
  * Requires the ChannelSettings.ReadWrite.All application permission to
- * create the channel, and ChannelMember.ReadWrite.All to add owners to a
- * PRIVATE channel — both separate from, and in addition to, the
- * Team.Create / TeamMember.ReadWrite.All permissions createClientTeam and
+ * create the channel and refresh its description, and
+ * ChannelMember.ReadWrite.All to add owners to a PRIVATE channel — both
+ * separate from, and in addition to, the Team.Create /
+ * TeamMember.ReadWrite.All permissions createClientTeam and
  * addExistingTeamMember need.
  */
-export async function createPropertyChannel(
-  env: Env, teamId: string, displayName: string, description: string, ownerUserIds: string[]
-): Promise<{ channelId: string; webUrl: string }> {
+// NOTE (2026-09-15): despite the name, this is now also used to create a
+// separate channel per PROPERTY within the same Hotel-Group Team (see
+// triggerTeamsWorkspace in routes/proposals.ts) — it's a generic "create or
+// reuse a private channel with a fixed owner roster" helper, just named for
+// its original use. displayName/description are simply whatever the caller
+// wants for that specific channel.
+// Confirmed live 2026-09-15 ("Nuvho Test 4" / HG-AU-0049): Graph rejects
+// channel creation outright with a 400 ("Channel.Description can't have
+// more than 1024 characters") once a Hotel Group's properties/engagement-ID
+// list grows long enough — a hard, whole-channel-creation failure, not a
+// warning. A character-count clamp to 1024 (first attempt, 2026-09-18)
+// turned out NOT to be enough: confirmed live the same day (Hotel Group
+// "Nuvho Test", team 9007c611-ecd8-470f-8bd0-bb7fc811c3c6) that a SEPARATE
+// backend — the underlying Teams "Thread" service, not just Graph's own
+// channel-resource validation — enforces its own limit measured in UTF-8
+// BYTES, not JS string characters ("Description exceeds the allowed byte
+// limit", errorCode ThreadDescriptionLimitExceeded). A description under
+// 1024 JS `.length` can still be over 1024 UTF-8 bytes the moment it
+// contains any multi-byte character (accented names, an em dash, even the
+// "…" character this truncation suffix itself used to add), so clamping by
+// character count alone is not reliable. Measure real UTF-8 byte length
+// via TextEncoder and clamp well below both known limits for margin, since
+// neither service's exact byte cap is documented.
+const MAX_CHANNEL_DESCRIPTION_BYTES = 900
+
+function utf8ByteLength(s: string): number {
+  return new TextEncoder().encode(s).length
+}
+
+function clampChannelDescription(description: string): string {
+  if (utf8ByteLength(description) <= MAX_CHANNEL_DESCRIPTION_BYTES) return description
+  // Plain ASCII suffix on purpose — no smart quotes/ellipsis/em dash, so it
+  // never adds surprise multi-byte overhead of its own.
+  const suffix = '\n... (truncated - see the Master Registry for the full list)'
+  const budget = MAX_CHANNEL_DESCRIPTION_BYTES - utf8ByteLength(suffix)
+  // Shrink one JS character at a time (never one byte at a time, which
+  // could split a multi-byte character in half and produce invalid UTF-8)
+  // until the remaining text's real byte length fits the budget.
+  let truncated = description
+  while (utf8ByteLength(truncated) > budget && truncated.length > 0) {
+    truncated = truncated.slice(0, -1)
+  }
+  return truncated + suffix
+}
+
+/* ─── Channel tabs (apps pinned inside a channel) ──────────────
+ * 2026-09-18: every property channel gets a SharePoint tab pointing at the
+ * Nuvho Systems site, plus the Asana app, per Odysseus.
+ *
+ * SharePoint is added as a plain Website tab rather than the dedicated
+ * SharePoint app: the Website app takes a URL directly, which is exactly
+ * what was asked for, whereas the SharePoint app expects a page/list id
+ * from within a site and would need per-site configuration we don't have.
+ * Asana is a third-party app, so its id is NOT a fixed well-known string —
+ * it has to be looked up in this tenant's own app catalog at runtime.
+ *
+ * PERMISSIONS: this needs TeamsTab.Create.Group (or
+ * TeamsTab.ReadWriteForTeam.All) for tab creation, and
+ * AppCatalog.Read.All for the Asana lookup. If those aren't consented on
+ * the app registration yet, these calls 403 — which is why every one of
+ * them is best-effort and surfaced as a warning rather than being allowed
+ * to fail a channel that otherwise created perfectly well.
+ */
+// The SharePoint "Pages and Lists" app — the one whose setup flow offers
+// "Any SharePoint site". Renders the site INSIDE Teams, unlike the generic
+// Website tab (com.microsoft.teamspace.tab.web) used here until
+// 2026-09-18, which SharePoint's X-Frame-Options forces to open in a new
+// browser page instead — the exact complaint that prompted this change.
+//
+// CAVEAT: Microsoft's Graph docs list this app under "Configuration is not
+// supported", i.e. the site URL may not be presettable through the API at
+// all. We try with the configuration anyway (docs do lag behavior), and
+// fall back to adding the app unconfigured so it at least lands in the
+// channel and someone can point it at the site in one step.
+const SHAREPOINT_TAB_APP_ID = '2a527703-1f6f-4559-a332-d8a7d288cd88'
+export const SHAREPOINT_TAB_URL = 'https://nuvho.sharepoint.com/sites/nuvhosystems/'
+
+/** Looks up a Teams app's catalog id by exact display name. Returns null
+ *  when the app isn't in the tenant catalog, or when the lookup isn't
+ *  permitted — callers treat both as "skip this tab". */
+async function findTeamsAppId(accessToken: string, displayName: string): Promise<string | null> {
+  const filter = encodeURIComponent(`displayName eq '${displayName.replace(/'/g, "''")}'`)
+  const res = await fetch(
+    `https://graph.microsoft.com/v1.0/appCatalogs/teamsApps?$filter=${filter}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  )
+  if (!res.ok) {
+    console.error(`[Teams] Could not look up the "${displayName}" app in the tenant catalog (${res.status}):`, await res.text().catch(() => ''))
+    return null
+  }
+  const data = await res.json() as { value?: Array<{ id: string }> }
+  return data.value?.[0]?.id ?? null
+}
+
+/** Adds a tab to a channel, skipping silently if a tab with that name is
+ *  already there — this whole automation re-runs on retries and sweeps, so
+ *  every step has to be idempotent. Returns a warning string on failure,
+ *  or null on success/skip. */
+async function addChannelTab(
+  accessToken: string, teamId: string, channelId: string,
+  appId: string, displayName: string, configuration: Record<string, unknown> | null
+): Promise<string | null> {
+  try {
+    const existingRes = await fetch(
+      `https://graph.microsoft.com/v1.0/teams/${teamId}/channels/${channelId}/tabs?$select=id,displayName`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    )
+    if (existingRes.ok) {
+      const existing = await existingRes.json() as { value?: Array<{ displayName?: string }> }
+      if (existing.value?.some(t => t.displayName === displayName)) return null
+    }
+
+    const res = await fetch(
+      `https://graph.microsoft.com/v1.0/teams/${teamId}/channels/${channelId}/tabs`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          displayName,
+          'teamsApp@odata.bind': `https://graph.microsoft.com/v1.0/appCatalogs/teamsApps/${appId}`,
+          ...(configuration ? { configuration } : {}),
+        }),
+      }
+    )
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '')
+      console.error(`[Teams] Could not add the "${displayName}" tab to channel ${channelId} (${res.status}):`, detail)
+      return `could not add the ${displayName} tab (${res.status})`
+    }
+    return null
+  } catch (e: any) {
+    console.error(`[Teams] Error adding the "${displayName}" tab to channel ${channelId}:`, e)
+    return `could not add the ${displayName} tab (${e?.message || 'unknown error'})`
+  }
+}
+
+/** Pins the standard app set onto a freshly created/reused property
+ *  channel. Never throws — returns human-readable warnings for anything
+ *  that didn't stick, so a permissions gap shows up in ms_team_error
+ *  instead of vanishing into the logs. */
+export async function addStandardChannelTabs(
+  env: Env, teamId: string, channelId: string
+): Promise<string[]> {
+  const warnings: string[] = []
+  let accessToken: string
+  try {
+    accessToken = await getAppOnlyGraphToken(env)
+  } catch (e: any) {
+    return [`could not add channel tabs: ${e?.message || 'Graph token error'}`]
+  }
+
+  // Added UNCONFIGURED, per Odysseus 2026-09-18: whoever opens the tab
+  // first picks "Any SharePoint site" and points it at SHAREPOINT_TAB_URL.
+  // Graph doesn't support presetting configuration for this app anyway
+  // (see the note on SHAREPOINT_TAB_APP_ID above), so this is the honest
+  // shape — the app lands reliably, and configuring it is a one-time click
+  // per channel rather than something the API can do for us.
+  const sharePointWarning = await addChannelTab(
+    accessToken, teamId, channelId, SHAREPOINT_TAB_APP_ID, 'SharePoint', null
+  )
+  if (sharePointWarning) warnings.push(sharePointWarning)
+
+  const asanaAppId = await findTeamsAppId(accessToken, 'Asana')
+  if (!asanaAppId) {
+    warnings.push('could not add the Asana tab (app not found in the tenant catalog, or catalog read not permitted)')
+  } else {
+    // No configuration: the tab lands unconfigured and whoever opens it
+    // picks the Asana project, which is what "just install the app for
+    // now" means — there is no per-property Asana project to bind to yet.
+    const asanaWarning = await addChannelTab(
+      accessToken, teamId, channelId, asanaAppId, 'Asana', null
+    )
+    if (asanaWarning) warnings.push(asanaWarning)
+  }
+
+  return warnings
+}
+
+export async function createOrUpdateHotelGroupChannel(
+  env: Env, teamId: string, displayName: string, rawDescription: string, ownerUserIds: string[],
+  fastMode = false
+): Promise<{ channelId: string; webUrl: string; created: boolean; failedOwnerIds: string[] }> {
+  const description = clampChannelDescription(rawDescription)
   const accessToken = await getAppOnlyGraphToken(env)
   const [firstOwnerId, ...remainingOwnerIds] = [...new Set(ownerUserIds)]
 
-  const res = await fetch(`https://graph.microsoft.com/v1.0/teams/${teamId}/channels`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      displayName,
-      description,
-      membershipType: 'private',
-      members: [{
-        '@odata.type':     '#microsoft.graph.aadUserConversationMember',
-        roles:             ['owner'],
-        'user@odata.bind': `https://graph.microsoft.com/v1.0/users('${firstOwnerId}')`,
-      }],
-    }),
+  const channelBody = JSON.stringify({
+    displayName,
+    description,
+    membershipType: 'private',
+    members: [{
+      '@odata.type':     '#microsoft.graph.aadUserConversationMember',
+      roles:             ['owner'],
+      'user@odata.bind': `https://graph.microsoft.com/v1.0/users('${firstOwnerId}')`,
+    }],
   })
+
+  // A brand-new Team (from createClientTeam above) can still return
+  // "404 NotFound / ItemNotFound: No team found with Group Id ..." on its
+  // FIRST channel-creation attempt even after waitForTeamProvisioning
+  // reported 'succeeded' — confirmed live 2026-09-15 (Kurrajong Hotel test
+  // proposal): Graph's own provisioning-status signal doesn't always mean
+  // every downstream endpoint (like /channels) is consistent yet. Retry
+  // this specific 404 signature with backoff rather than failing the whole
+  // automation over what is, in practice, still-finishing provisioning.
+  // fastMode (2026-09-18): see waitForTeamProvisioning's comment above —
+  // this loop used to always run the full 6x15s budget (~90s), which a
+  // background ctx.waitUntil() call gets forcibly cancelled well before
+  // reaching, losing the "permanently stuck Team" error below entirely.
+  // In fastMode this gives up quickly so that error has a chance to fire
+  // and land in ms_team_error instead of vanishing; the synchronous
+  // retry-teams endpoint still uses the full, patient budget below.
+  const maxAttempts = fastMode ? 2 : 6
+  const retryDelayMs = fastMode ? 5000 : 15000
+  let res: Response
+  for (let attempt = 1; ; attempt++) {
+    res = await fetch(`https://graph.microsoft.com/v1.0/teams/${teamId}/channels`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: channelBody,
+    })
+    if (res.status !== 404 || attempt >= maxAttempts) break
+    const detail = await res.clone().text().catch(() => '')
+    if (!/ItemNotFound|No team found/i.test(detail)) break // a different kind of 404 — don't mask it by retrying
+    console.error(
+      `[Teams] Team ${teamId} not yet provisioned for channel creation ` +
+      `(attempt ${attempt}/${maxAttempts}) — retrying in ${retryDelayMs / 1000}s: ${detail}`
+    )
+    await sleep(retryDelayMs)
+  }
 
   let channelId: string
   let webUrl: string
+  let created: boolean
 
   if (res.status === 201) {
     const data = await res.json() as { id: string; webUrl: string }
     channelId = data.id
     webUrl    = data.webUrl
-  } else if (res.status === 409) {
-    const escaped = displayName.replace(/'/g, "''")
-    const listRes = await fetch(
-      `https://graph.microsoft.com/v1.0/teams/${teamId}/channels?$filter=${encodeURIComponent(`displayName eq '${escaped}'`)}&$select=id,webUrl`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    )
-    const listData = listRes.ok ? await listRes.json() as { value?: Array<{ id: string; webUrl: string }> } : null
-    if (!listData?.value?.[0]) {
-      const detail = await res.text().catch(() => '')
-      throw new Error(`Graph create channel error 409, and could not find the existing channel to reuse: ${detail || 'no detail'}`)
-    }
-    channelId = listData.value[0].id
-    webUrl    = listData.value[0].webUrl
-    // An existing (reused) channel already has whatever owners it was
-    // created with — still attempt to add this proposal's owners below in
-    // case it was created for a different property/proposal.
+    created   = true
   } else {
     const detail = await res.text().catch(() => '')
-    throw new Error(`Graph create channel error ${res.status}: ${detail || 'no detail'}`)
+    // Confirmed live 2026-09-15 (property channel "Retreat East", after a
+    // retried proposal run): Graph does NOT always report a duplicate
+    // channel name as 409 Conflict the way the v1.0 docs imply — this
+    // specific template-backed create path returned a flat 400 BadRequest
+    // with errorCode "ChannelNameAlreadyExist" instead. Treat both status
+    // shapes as the same "look it up and reuse" case rather than only 409.
+    const isDuplicateName = res.status === 409 || /ChannelNameAlreadyExist/i.test(detail)
+    if (isDuplicateName) {
+      const escaped = displayName.replace(/'/g, "''")
+      const listRes = await fetch(
+        `https://graph.microsoft.com/v1.0/teams/${teamId}/channels?$filter=${encodeURIComponent(`displayName eq '${escaped}'`)}&$select=id,webUrl`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      )
+      const listData = listRes.ok ? await listRes.json() as { value?: Array<{ id: string; webUrl: string }> } : null
+      if (!listData?.value?.[0]) {
+        throw new Error(
+          `Graph create channel error ${res.status} (duplicate name), and could not find the existing ` +
+          `channel to reuse: ${detail || 'no detail'}`
+        )
+      }
+      channelId = listData.value[0].id
+      webUrl    = listData.value[0].webUrl
+      created   = false
+      // An existing (reused) channel already has whatever owners it was
+      // created with — still attempt to add the fixed owner roster below in
+      // case it's missing anyone (e.g. the roster grew since this channel
+      // was first created).
+    } else if (res.status === 404 && /ItemNotFound|No team found/i.test(detail)) {
+      // Confirmed live 2026-09-15 (Harbour Hospitality / Kurrajong Hotel):
+      // this is not always a timing issue the retry loop above can wait
+      // out. Group ID 3da8fee5-2ac1-4e26-8b34-08b28586be98 showed up in
+      // GET /teams (the group + Team registration exist) but permanently
+      // 404'd on GET and POST /teams/{id}/channels even ~14 minutes later
+      // on a second proposal — i.e. the Team never finished provisioning
+      // in the Teams service itself, and never will on its own. Retrying
+      // longer will not fix this; the broken Microsoft 365 Group/Team has
+      // to be deleted in Entra ID / Teams admin center so the next
+      // proposal's findTeamByName() no longer finds it and creates a
+      // fresh, working Team under the same Hotel Group name instead.
+      throw new Error(
+        `[BLOCKED] Team ${teamId} ("${displayName}") appears permanently stuck: it exists as a Microsoft 365 ` +
+        `Group/Team but channel creation keeps 404ing (ItemNotFound) even after retrying. This Team ` +
+        `likely never finished Teams-service provisioning and will not recover on its own — delete it ` +
+        `in Entra ID / Teams admin center, then retry this proposal so a fresh Team gets created. ` +
+        `Raw Graph error: ${detail || 'no detail'}`
+      )
+    } else {
+      throw new Error(`Graph create channel error ${res.status}: ${detail || 'no detail'}`)
+    }
   }
 
+  // Always refresh the description — a freshly-created channel already has
+  // it from the POST body above, but re-applying is cheap and this is the
+  // only path that updates a REUSED channel's properties/engagement-ID list.
+  await patchChannelDescription(env, teamId, channelId, description, accessToken)
+
+  const failedOwnerIds: string[] = []
   for (const ownerId of remainingOwnerIds) {
     try {
       await addChannelMember(env, teamId, channelId, ownerId, 'owner')
     } catch (e) {
       console.error(`[Teams] Failed to add additional owner ${ownerId} to channel ${channelId}:`, e)
+      failedOwnerIds.push(ownerId)
     }
   }
 
-  return { channelId, webUrl }
+  return { channelId, webUrl, created, failedOwnerIds }
 }
 
 /**
  * Adds a user to an existing PRIVATE channel as a member or owner. Mirrors
- * addExistingTeamMember() but scoped to a channel — see createPropertyChannel()
- * for why this is called separately rather than passed in the initial
- * channel-creation payload.
+ * addExistingTeamMember() but scoped to a channel — see
+ * createOrUpdateHotelGroupChannel() for why this is called separately
+ * rather than passed in the initial channel-creation payload.
  */
 async function addChannelMember(
   env: Env, teamId: string, channelId: string, userId: string, role: 'member' | 'owner' = 'member'
@@ -412,57 +710,16 @@ async function addChannelMember(
   throw new Error(`Graph add channel member error ${res.status}: ${detail || 'no detail'}`)
 }
 
-/* ─── v2.0 Teams restructure: fixed geo Teams + property channels ─────────
- * Replaces the one-Team-per-Hotel-Group design above for NEW proposals.
- * See the "Microsoft Teams" v2.0 spec: 4 fixed Teams (Nuvho — AU/UK/IE,
- * plus Internal for Finance/HR/Legal/Operations/Platform, not used by this
- * automation) each hold every property account + internal ops for that
- * geo; the channel itself now lives at the PROPERTY level, named
- * `{display_pid} — {Property Name}` (see lib/teamsNaming.ts), as a
- * STANDARD (not private) channel — visible to everyone already on the geo
- * Team, per the spec's own worked example ("Privacy: Standard (visible to
- * all team members)"). This is a real behavior change from
- * createPropertyChannel() above, which created PRIVATE channels with
- * per-proposal owners; a standard channel needs no members array at all,
- * since it inherits the Team's own membership.
- * ────────────────────────────────────────────────────────────────────── */
-
-/**
- * Maps a registry geo code to the matching fixed "Nuvho — {GEO}" Team's id.
- * These 4 Teams (AU/UK/IE/Internal) are created ONCE, manually, in Teams
- * admin (per Odysseus's explicit choice, 2026-09-03 session) — this
- * automation does not create or rename Teams, only resolves which
- * already-existing geo Team a property's channel belongs in. Configure the
- * resulting Team ids as the MS_TEAM_ID_AU / MS_TEAM_ID_UK / MS_TEAM_ID_IE
- * vars in wrangler.toml (see the placeholder + comment there) once those
- * Teams exist.
- */
-export function resolveGeoTeamId(env: Env, geo: string): string {
-  const key = ({ AU: 'MS_TEAM_ID_AU', UK: 'MS_TEAM_ID_UK', IE: 'MS_TEAM_ID_IE' } as const)[
-    geo as 'AU' | 'UK' | 'IE'
-  ]
-  if (!key) {
-    throw new Error(`No geo Team configured for geo "${geo}" — expected one of AU, UK, IE.`)
-  }
-  const teamId = env[key]
-  if (!teamId) {
-    throw new Error(
-      `${key} is not set — create the "Nuvho — ${geo}" Team in Teams admin (if it doesn't already ` +
-      `exist), then set ${key} to its Team id in wrangler.toml's [vars] (or as a secret) and redeploy.`
-    )
-  }
-  return teamId
-}
-
 /**
  * Updates an existing channel's description (Graph's `channel` resource has
- * no separate "topic" field distinct from `description` — the v2.0 spec's
- * "Channel topic" and "Description" are both folded into this one Graph
- * property, as two labelled lines; see buildChannelDescription() at the
- * call site in routes/proposals.ts). Requires the ChannelSettings.ReadWrite.All
- * application permission (distinct from Channel.Create, which only covers
- * creating a NEW channel — a correction to earlier guidance in this file's
- * history, confirmed by Graph's own 403 message during 2026-09-02 testing).
+ * no separate "topic" field distinct from `description` — whatever labelled
+ * lines the caller wants (properties, engagement IDs, account manager, etc.)
+ * are folded into this one Graph property; see triggerTeamsWorkspace()'s
+ * description-building in routes/proposals.ts for the current shape).
+ * Requires the ChannelSettings.ReadWrite.All application permission
+ * (distinct from Channel.Create, which only covers creating a NEW channel —
+ * a correction to earlier guidance in this file's history, confirmed by
+ * Graph's own 403 message during 2026-09-02 testing).
  */
 async function patchChannelDescription(
   env: Env, teamId: string, channelId: string, description: string, accessToken?: string
@@ -477,63 +734,6 @@ async function patchChannelDescription(
     const detail = await res.text().catch(() => '')
     throw new Error(`Graph update channel description error ${res.status}: ${detail || 'no detail'}`)
   }
-}
-
-/**
- * Creates (or, if one with the same name already exists, reuses) a STANDARD
- * property channel under the given geo Team, then refreshes its
- * description either way — covering both a brand-new channel and a reused
- * one whose "Active: <EIDs>" line needs to grow as new engagements land
- * against the same property. No owners/members are passed: a standard
- * channel is visible to every existing member of the Team, matching the
- * spec's "visible to all team members" example — there is nothing here to
- * mirror the old private-channel owner dance (createPropertyChannel above).
- */
-export async function createOrUpdatePropertyChannel(
-  env: Env, teamId: string, displayName: string, description: string
-): Promise<{ channelId: string; webUrl: string; created: boolean }> {
-  const accessToken = await getAppOnlyGraphToken(env)
-
-  const res = await fetch(`https://graph.microsoft.com/v1.0/teams/${teamId}/channels`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ displayName, description, membershipType: 'standard' }),
-  })
-
-  let channelId: string
-  let webUrl: string
-  let created: boolean
-
-  if (res.status === 201) {
-    const data = await res.json() as { id: string; webUrl: string }
-    channelId = data.id
-    webUrl    = data.webUrl
-    created   = true
-  } else if (res.status === 409) {
-    const escaped = displayName.replace(/'/g, "''")
-    const listRes = await fetch(
-      `https://graph.microsoft.com/v1.0/teams/${teamId}/channels?$filter=${encodeURIComponent(`displayName eq '${escaped}'`)}&$select=id,webUrl`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    )
-    const listData = listRes.ok ? await listRes.json() as { value?: Array<{ id: string; webUrl: string }> } : null
-    if (!listData?.value?.[0]) {
-      const detail = await res.text().catch(() => '')
-      throw new Error(`Graph create channel error 409, and could not find the existing channel to reuse: ${detail || 'no detail'}`)
-    }
-    channelId = listData.value[0].id
-    webUrl    = listData.value[0].webUrl
-    created   = false
-  } else {
-    const detail = await res.text().catch(() => '')
-    throw new Error(`Graph create channel error ${res.status}: ${detail || 'no detail'}`)
-  }
-
-  // Always refresh the description — the freshly-created channel already
-  // has it from the POST body above, but re-applying is cheap and this is
-  // the only path that updates a REUSED channel's "Active: <EIDs>" line.
-  await patchChannelDescription(env, teamId, channelId, description, accessToken)
-
-  return { channelId, webUrl, created }
 }
 
 export interface GraphUser {
@@ -577,4 +777,133 @@ export async function listAllTenantUsers(accessToken: string): Promise<GraphUser
   }
 
   return users
+}
+
+
+/* ─── Delegated (service-account) Graph auth for channel posts ──
+ *
+ * Microsoft does NOT allow an app-only token to post a Teams channel
+ * message. The Application permission on
+ * POST /teams/{id}/channels/{id}/messages is Teamwork.Migrate.All, which
+ * only works against a channel put into migration mode — see
+ * https://learn.microsoft.com/graph/api/channel-post-messages. Ordinary
+ * posting requires a DELEGATED token (ChannelMessage.Send), so channel
+ * activity notifications run as a dedicated service account instead of as
+ * the app itself. Everything else in this file stays app-only.
+ *
+ * Auth model: one interactive consent (GET /admin/graph-consent, staff-only)
+ * captures a refresh token for that account. The refresh token lives in KV
+ * rather than in a wrangler secret because Entra rotates it on every
+ * redemption and a Worker cannot rewrite its own secrets at runtime — the
+ * GRAPH_REFRESH_TOKEN secret is only read as a first-run seed. Access
+ * tokens are cached in KV until shortly before they expire.
+ */
+export const GRAPH_DELEGATED_SCOPES = 'offline_access openid profile email ChannelMessage.Send'
+
+const KV_GRAPH_REFRESH = 'graph:delegated:refresh_token'
+const KV_GRAPH_ACCESS  = 'graph:delegated:access_token'
+
+export async function getDelegatedGraphToken(env: Env): Promise<string> {
+  const cached = await env.SESSIONS.get(KV_GRAPH_ACCESS)
+  if (cached) return cached
+
+  const refreshToken = (await env.SESSIONS.get(KV_GRAPH_REFRESH)) || env.GRAPH_REFRESH_TOKEN
+  if (!refreshToken) {
+    throw new Error(
+      'No delegated Graph refresh token stored — a staff user must visit /admin/graph-consent once to authorize the service account'
+    )
+  }
+
+  const params = new URLSearchParams({
+    client_id:     env.AZURE_CLIENT_ID,
+    client_secret: env.AZURE_CLIENT_SECRET,
+    grant_type:    'refresh_token',
+    refresh_token: refreshToken,
+    scope:         GRAPH_DELEGATED_SCOPES,
+  })
+
+  const res  = await fetch(
+    `https://login.microsoftonline.com/${env.AZURE_TENANT_ID}/oauth2/v2.0/token`,
+    { method: 'POST', body: params, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+  )
+  const data = await res.json() as any
+  if (!res.ok || data.error) {
+    throw new Error(
+      `Delegated Graph token refresh failed: ${data.error_description || data.error}. ` +
+      'Re-authorize at /admin/graph-consent (refresh tokens expire after ~90 days of inactivity, ' +
+      'and are revoked by a password change or a conditional-access policy change).'
+    )
+  }
+
+  // Entra issues a NEW refresh token on every redemption and ages the old
+  // one out — persisting it here is what keeps the integration alive past
+  // the first refresh.
+  if (data.refresh_token) await env.SESSIONS.put(KV_GRAPH_REFRESH, data.refresh_token)
+
+  const ttl = Math.max(60, (Number(data.expires_in) || 3600) - 300)
+  await env.SESSIONS.put(KV_GRAPH_ACCESS, data.access_token, { expirationTtl: ttl })
+  return data.access_token as string
+}
+
+/**
+ * One-time authorization-code exchange behind /admin/graph-consent/callback.
+ * Stores the resulting refresh token in KV and reports which account was
+ * authorized (read out of the id_token, so no extra Graph call is needed).
+ */
+export async function exchangeGraphAuthCode(
+  env: Env, code: string, redirectUri: string
+): Promise<{ account: string }> {
+  const params = new URLSearchParams({
+    client_id:     env.AZURE_CLIENT_ID,
+    client_secret: env.AZURE_CLIENT_SECRET,
+    grant_type:    'authorization_code',
+    code,
+    redirect_uri:  redirectUri,
+    scope:         GRAPH_DELEGATED_SCOPES,
+  })
+
+  const res  = await fetch(
+    `https://login.microsoftonline.com/${env.AZURE_TENANT_ID}/oauth2/v2.0/token`,
+    { method: 'POST', body: params, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+  )
+  const data = await res.json() as any
+  if (!res.ok || data.error || !data.refresh_token) {
+    throw new Error(data.error_description || data.error || 'No refresh token returned (is offline_access consented?)')
+  }
+
+  await env.SESSIONS.put(KV_GRAPH_REFRESH, data.refresh_token)
+  await env.SESSIONS.delete(KV_GRAPH_ACCESS)   // force a fresh access token on next use
+
+  let account = 'unknown'
+  try {
+    const payload = JSON.parse(atob(String(data.id_token).split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    account = payload.preferred_username || payload.email || payload.name || 'unknown'
+  } catch { /* id_token is informational only — never fail the consent over it */ }
+
+  return { account }
+}
+
+/**
+ * Posts an HTML message into a Teams channel as the consented service
+ * account. Members are notified through their own channel notification
+ * settings; no @mentions are used.
+ */
+export async function sendChannelMessage(
+  env: Env, teamId: string, channelId: string, html: string
+): Promise<void> {
+  const accessToken = await getDelegatedGraphToken(env)
+
+  const res = await fetch(
+    `https://graph.microsoft.com/v1.0/teams/${teamId}/channels/${channelId}/messages`,
+    {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ body: { contentType: 'html', content: html } }),
+    }
+  )
+
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Teams channel message failed (${res.status}): ${text.slice(0, 300)}`)
+  }
 }

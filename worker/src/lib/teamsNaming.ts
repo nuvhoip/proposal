@@ -1,3 +1,11 @@
+// ⚠️ UNUSED as of 2026-09-15 — kept for reference only, no longer imported
+// anywhere. The v2.0 per-Property channel-naming scheme below (display_pid
+// slugs, `{display_pid} — {Property Name}` channel names) was superseded by
+// a Team-per-Hotel-Group design where the channel name is simply the Hotel
+// Group's own name (see routes/proposals.ts's triggerTeamsWorkspace and
+// lib/graph.ts's createOrUpdateHotelGroupChannel). Safe to delete this file
+// once nobody needs to resurrect the old slug heuristic.
+//
 // Microsoft Teams v2.0 channel-naming helpers for the property-level Teams
 // restructure (see the "Microsoft Teams" v2.0 spec: channel = property,
 // living inside one of 4 fixed geo Teams — Nuvho — AU/UK/IE/Internal —
