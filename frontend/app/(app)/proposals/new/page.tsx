@@ -2757,9 +2757,26 @@ function FootnotesGroup({ footnotes, onChange, showAddButton = true }: {
 // can branch on a `branded:` prefix at render time; any other coverUrl value
 // (a real image URL, or empty) falls through to the original photo-cover
 // rendering untouched, so existing proposals are unaffected.
+// The five `brand-*` entries are the Nuvho Graphical Assets deck's own cover
+// artwork (pages 1, 5, 6, 13, 17), extracted as the underlying 2480x3508
+// image only — the deck's baked-in logo, "Title/Subheading" placeholders and
+// nuvho.com footer are separate PDF overlays and were deliberately left out,
+// because doc-cover--brand draws the white logo, the real title, the hotel
+// name and the nuvho.com footer itself.
+//
+// They are full templates rather than Photos entries on purpose: each is
+// self-contained (no second photo to pick) and its artwork is a static
+// /covers/*.jpg served off the frontend's own origin, so it needs no R2
+// upload and can never end up as a browser-local blob: URL that renders for
+// the authoring staff member but not for the client.
 const BRANDED_COVER_TEMPLATES = [
-  { id: 'branded:circles',   label: 'Teal — brand circles' },
-  { id: 'branded:split',     label: 'Split panel'          },
+  { id: 'branded:circles',              label: 'Teal — brand circles' },
+  { id: 'branded:split',                label: 'Split panel'          },
+  { id: 'branded:brand-blue-slate',     label: 'Brand — Blue Slate',     img: '/covers/brand-blue-slate.jpg'     },
+  { id: 'branded:brand-deep-teal',      label: 'Brand — Deep Teal',      img: '/covers/brand-deep-teal.jpg'      },
+  { id: 'branded:brand-steel-blue',     label: 'Brand — Steel Blue',     img: '/covers/brand-steel-blue.jpg'     },
+  { id: 'branded:brand-tropical-teal',  label: 'Brand — Tropical Teal',  img: '/covers/brand-tropical-teal.jpg'  },
+  { id: 'branded:brand-iron-grey',      label: 'Brand — Iron Grey',      img: '/covers/brand-iron-grey.jpg'      },
 ]
 
 function Step5Cover({ draft, setDraft, errors }: StepProps) {
@@ -2775,7 +2792,7 @@ function Step5Cover({ draft, setDraft, errors }: StepProps) {
   // never actually show — grey the Photos grid out rather than let staff
   // pick one and wonder why it's not appearing on the cover. "Split panel"
   // does render a photo (in its image drop-zone), so photos stay enabled there.
-  const photosDisabled = selectedTemplate === 'circles'
+  const photosDisabled = selectedTemplate === 'circles' || !!selectedTemplate?.startsWith('brand-')
   return (
     <div className="step-content">
       <h2 className="step-title">Cover Image</h2>
@@ -2802,16 +2819,20 @@ function Step5Cover({ draft, setDraft, errors }: StepProps) {
                 return { ...d, cover: { ...d.cover, coverUrl: buildCoverUrl(optTemplate, nextPhoto) } }
               })}
             >
-              <div className={`cover-swatch cover-swatch--${optTemplate}`}>
-                {optTemplate === 'circles' && <span className="cover-swatch__arc" />}
-                {optTemplate === 'split' && (
-                  <>
-                    <span className="cover-swatch__hero" />
-                    <span className="cover-swatch__panel" />
-                    <span className="cover-swatch__footer-bar" />
-                  </>
-                )}
-              </div>
+              {'img' in opt && opt.img ? (
+                <div className="cover-option__img" style={{ backgroundImage: `url(${opt.img})` }} />
+              ) : (
+                <div className={`cover-swatch cover-swatch--${optTemplate}`}>
+                  {optTemplate === 'circles' && <span className="cover-swatch__arc" />}
+                  {optTemplate === 'split' && (
+                    <>
+                      <span className="cover-swatch__hero" />
+                      <span className="cover-swatch__panel" />
+                      <span className="cover-swatch__footer-bar" />
+                    </>
+                  )}
+                </div>
+              )}
               <span className="cover-option__label">{opt.label}</span>
             </button>
           )
@@ -2821,7 +2842,7 @@ function Step5Cover({ draft, setDraft, errors }: StepProps) {
       <h3 className="step-subtitle">Photos</h3>
       {photosDisabled && (
         <p className="cover-photos-hint">
-          Not used with the &ldquo;Teal — brand circles&rdquo; template — switch to a photo cover or Split panel to pick one.
+          Not used with this template — it already includes its own artwork. Switch to a photo cover or Split panel to pick a photo.
         </p>
       )}
       {selectedTemplate === 'split' && !photosDisabled && (

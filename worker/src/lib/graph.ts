@@ -564,6 +564,14 @@ export async function createOrUpdateHotelGroupChannel(
     displayName,
     description,
     membershipType: 'private',
+    // Threaded ("chat") layout rather than Graph's default 'post'. Graph calls
+    // the threaded channel experience `chat`; Teams' own UI labels the same
+    // thing "Threads" (vs "Posts"). layoutType is settable at creation and
+    // PATCHable later, unlike membershipType which is create-only — so this
+    // only affects channels created from here on; channels provisioned before
+    // this change keep the post layout until they're switched, in the Teams
+    // channel settings or via a PATCH.
+    layoutType: 'chat',
     members: [{
       '@odata.type':     '#microsoft.graph.aadUserConversationMember',
       roles:             ['owner'],

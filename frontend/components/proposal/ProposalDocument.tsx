@@ -236,6 +236,37 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
         </div>
       )}
 
+      {/* Brand backgrounds — the Graphical Assets deck's own cover artwork,
+          one template per colourway (branded:brand-<colourway>, artwork at
+          /covers/brand-<colourway>.jpg). The artwork is painted by an inner
+          absolutely-positioned layer rather than as .doc-cover's own
+          background because print-rules.css forces
+          `#proposal-print-root .doc-cover { background-image: none }` and
+          repaints the photo cover through a ::before at opacity 0.7 — routing
+          this through that path would both blank it on screen-to-PDF and wash
+          the brand colour out. An inner layer is untouched by those rules, so
+          screen and PDF match. */}
+      {brandedTemplate?.startsWith('brand-') && (
+        <div className="doc-page doc-cover doc-cover--brand">
+          <div
+            className="doc-cover-brand__art"
+            style={{ backgroundImage: `url(/covers/${brandedTemplate}.jpg)` }}
+          />
+          <div className="doc-cover-brand__top">
+            <NuvhoLogo variant="white" height={38} />
+          </div>
+          <div className="doc-cover-brand__body">
+            <div className="doc-cover-brand__category">{model.title || 'Proposal'}</div>
+            <div {...field("hotel", "name")} className="doc-cover-brand__heading">{model.hotelName || '[Property Name]'}</div>
+            <div className="doc-cover-brand__meta">
+              <span>Issued</span>
+              <strong>{model.dateIssued}</strong>
+            </div>
+          </div>
+          <div className="doc-cover-brand__footer">nuvho.com</div>
+        </div>
+      )}
+
       {brandedTemplate === 'split' && (
         <div className="doc-page doc-cover doc-cover--split">
           <div
@@ -759,6 +790,36 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
            own content (flex: 0 0 auto) and letting hero (the photo, which
            only benefits from more room) absorb 100% of whatever height is
            left over, at any total cover height. */
+        /* Brand-artwork cover (doc-cover--brand). White type throughout,
+           matching the deck's own treatment of these backgrounds. */
+        .doc-cover--brand {
+          background-image: none; background-color: var(--nv-blue-slate);
+          flex-direction: column; align-items: stretch; justify-content: space-between;
+          padding: 0; overflow: hidden;
+        }
+        .doc-cover-brand__art {
+          position: absolute; inset: 0; z-index: 0;
+          background-size: cover; background-position: center; background-repeat: no-repeat;
+        }
+        .doc-cover-brand__top  { position: relative; z-index: 1; padding: 30px 34px 0; }
+        .doc-cover-brand__body { position: relative; z-index: 1; padding: 0 34px 34px; }
+        .doc-cover-brand__category {
+          font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase;
+          color: rgba(255,255,255,0.85); font-weight: 700; margin-bottom: 8px;
+        }
+        .doc-cover-brand__heading {
+          font-family: var(--font-comfortaa); font-size: 30px; font-weight: 700;
+          color: #fff; margin-bottom: 16px; text-shadow: 0 1px 2px rgba(20,40,50,0.18);
+        }
+        .doc-cover-brand__meta {
+          display: flex; gap: 6px; align-items: baseline; font-size: 10.5px;
+          color: rgba(255,255,255,0.75); text-transform: uppercase; letter-spacing: 0.08em;
+        }
+        .doc-cover-brand__meta strong { color: #fff; text-transform: none; letter-spacing: 0; font-size: 12px; }
+        .doc-cover-brand__footer {
+          position: absolute; right: 34px; bottom: 34px; z-index: 1;
+          font-size: 11px; letter-spacing: 0.06em; color: rgba(255,255,255,0.75);
+        }
         .doc-cover--split { background-image: none; background-color: transparent; flex-direction: column; align-items: stretch; padding: 0; }
         .doc-cover-split__hero {
           flex: 1 1 auto; position: relative; background-color: var(--nv-platinum);
