@@ -44,7 +44,9 @@ import {
   handleListPropertiesByHgid,
   handleGetProperty,
   handleCreateProperty,
+  handleListAllHotelGroups, handleListAllProperties,
 } from './routes/registry'
+import { handleProvisionHotelGroupChannel } from './routes/teamsChannels'
 import {
   searchHubspotObjects,
   createHubspotClient,
@@ -424,6 +426,23 @@ async function route(
   }
 
   // Registry — hotel group typeahead lookup (proxied; REGISTRY_API_KEY stays server-side)
+  // Settings → Teams Channels needs the whole list, which the capped
+  // typeahead below can't provide. Declared before the /:hgid matcher so
+  // "all" isn't parsed as a hotel-group id.
+  if (path === '/registry/hotel-groups/all' && method === 'GET') {
+    return handleListAllHotelGroups(env)
+  }
+  if (path === '/registry/properties/all' && method === 'GET') {
+    return handleListAllProperties(env)
+  }
+
+  // Manually provision a Hotel Group's Teams workspace (Settings → Teams
+  // Channels) — same path the proposal automation uses, run on demand.
+  const provisionChannelMatch = path.match(/^\/teams\/hotel-groups\/([A-Za-z0-9_-]+)\/channel$/)
+  if (provisionChannelMatch && method === 'POST') {
+    return handleProvisionHotelGroupChannel(request, env, session, provisionChannelMatch[1])
+  }
+
   if (path === '/registry/hotel-groups/typeahead' && method === 'GET') {
     return handleHotelGroupTypeahead(request, env)
   }
@@ -509,7 +528,7 @@ async function route(
 /* ── Staff list helper ───────────────────────────────────────── */
 async function listStaff(env: Env): Promise<Response> {
   const { results } = await env.DB.prepare(
-    `SELECT id, name, email, role, role_type, m365_upn
+    `SELECT id, name, email, role, role_type, m365_upn, m365_user_id
      FROM staff ORDER BY name`
   ).all()
   return new Response(JSON.stringify({ ok: true, data: results }), {

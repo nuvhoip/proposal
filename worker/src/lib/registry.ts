@@ -80,6 +80,39 @@ export async function hotelGroupTypeahead(
   return registryFetch<RegistryHotelGroupSummary[]>(env, `/v1/hotel-groups/typeahead?${params.toString()}`)
 }
 
+/**
+ * GET /v1/hotel-groups — the full group list, for Settings → Teams Channels.
+ * The typeahead above is capped (q >= 2 chars, 10 results) and so can't back
+ * a browse-everything screen.
+ *
+ * The registry's list payload shape isn't pinned down by a published schema,
+ * so this normalizes the common shapes (bare array, or an object wrapping
+ * items/results/records/hotel_groups) rather than assuming one and breaking
+ * if it differs.
+ */
+export async function listAllHotelGroups(env: Env): Promise<RegistryHotelGroupSummary[]> {
+  const data = await registryFetch<unknown>(env, '/v1/hotel-groups?limit=1000')
+  return normalizeList<RegistryHotelGroupSummary>(data, ['hotel_groups', 'hotelGroups'])
+}
+
+/** GET /v1/properties — every property, so the Teams Channels screen can nest
+ *  properties under their group without one request per group. */
+export async function listAllProperties(env: Env): Promise<RegistryPropertySummary[]> {
+  const data = await registryFetch<unknown>(env, '/v1/properties?limit=5000')
+  return normalizeList<RegistryPropertySummary>(data, ['properties'])
+}
+
+function normalizeList<T>(data: unknown, extraKeys: string[] = []): T[] {
+  if (Array.isArray(data)) return data as T[]
+  if (data && typeof data === 'object') {
+    for (const key of ['items', 'results', 'records', 'rows', ...extraKeys]) {
+      const value = (data as Record<string, unknown>)[key]
+      if (Array.isArray(value)) return value as T[]
+    }
+  }
+  return []
+}
+
 /** GET /v1/hotel-groups/:hgid — full record, used to resolve entity_code after a typeahead selection. */
 export async function getHotelGroup(env: Env, hgid: string): Promise<RegistryHotelGroupRecord> {
   return registryFetch<RegistryHotelGroupRecord>(env, `/v1/hotel-groups/${encodeURIComponent(hgid)}`)

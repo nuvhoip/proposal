@@ -17,6 +17,7 @@ import {
   getProperty,
   createProperty,
   RegistryError,
+  listAllHotelGroups, listAllProperties,
 } from '../lib/registry'
 
 export async function handleHotelGroupTypeahead(request: Request, env: Env): Promise<Response> {
@@ -99,6 +100,24 @@ export async function handleCreateHotelGroup(request: Request, env: Env): Promis
 
 // Active legal entities, used to populate the "legal entity" choice in the
 // Add Hotel Group form.
+export async function handleListAllHotelGroups(env: Env): Promise<Response> {
+  try {
+    return ok({ hotelGroups: await listAllHotelGroups(env) })
+  } catch (e) {
+    if (e instanceof RegistryError) return err(e.message, e.status)
+    return err(e instanceof Error ? e.message : 'Registry lookup failed', 502)
+  }
+}
+
+export async function handleListAllProperties(env: Env): Promise<Response> {
+  try {
+    return ok({ properties: await listAllProperties(env) })
+  } catch (e) {
+    if (e instanceof RegistryError) return err(e.message, e.status)
+    return err(e instanceof Error ? e.message : 'Registry lookup failed', 502)
+  }
+}
+
 export async function handleListEntities(env: Env): Promise<Response> {
   try {
     const entities = await listEntities(env)

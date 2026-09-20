@@ -42,6 +42,7 @@ const navItems: NavItem[] = [
     children: [
       { href: '/settings/entities',            label: 'Entities'            },
       { href: '/settings/body-configuration',  label: 'Body Configuration'  },
+      { href: '/settings/teams-channels',      label: 'Teams Channels'      },
       { href: '/settings/user-settings',       label: 'User Settings'       },
     ],
   },

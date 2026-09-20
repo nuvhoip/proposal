@@ -691,7 +691,7 @@ export async function createOrUpdateHotelGroupChannel(
  * createOrUpdateHotelGroupChannel() for why this is called separately
  * rather than passed in the initial channel-creation payload.
  */
-async function addChannelMember(
+export async function addChannelMember(
   env: Env, teamId: string, channelId: string, userId: string, role: 'member' | 'owner' = 'member'
 ): Promise<void> {
   const accessToken = await getAppOnlyGraphToken(env)
