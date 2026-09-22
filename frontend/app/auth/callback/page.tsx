@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { NuvhoLogo } from '@/components/ui/NuvhoLogo'
 
@@ -9,20 +9,39 @@ function CallbackHandler() {
   const searchParams = useSearchParams()
   const [error, setError] = useState<string | null>(null)
 
+  // The Azure authorisation code is single-use. React 18 Strict Mode
+  // double-invokes effects in dev, and useSearchParams()'s identity is not
+  // guaranteed stable across renders in the App Router, so without this ref
+  // the effect fires twice: the first exchange succeeds and redirects to the
+  // dashboard, the second re-POSTs the already-redeemed code, gets a 401, and
+  // its error path bounces the (now unmounted) page back to /login — the
+  // "signed in successfully but landed on the login page" bug. Exchange once.
+  const exchanged = useRef(false)
+
   useEffect(() => {
+    if (exchanged.current) return
+    exchanged.current = true
+
+    // Timers are tracked so an unmounted callback page can never navigate.
+    let cancelled = false
+    const timers: ReturnType<typeof setTimeout>[] = []
+    const bounceToLogin = (ms: number) =>
+      timers.push(setTimeout(() => { if (!cancelled) router.push('/login') }, ms))
+    const cleanup = () => { cancelled = true; timers.forEach(clearTimeout) }
+
     const code  = searchParams.get('code')
     const state = searchParams.get('state')
     const err   = searchParams.get('error')
 
     if (err) {
       setError('Sign-in was cancelled or failed. Please try again.')
-      setTimeout(() => router.push('/login'), 3000)
-      return
+      bounceToLogin(3000)
+      return cleanup
     }
 
     if (!code) {
       router.push('/login')
-      return
+      return cleanup
     }
 
     // Decode the "remember me" flag (and returnTo) that the login page packed
@@ -45,15 +64,23 @@ function CallbackHandler() {
     })
       .then(res => res.json())
       .then((data: any) => {
-        if (data.error) throw new Error(data.error)
+        if (cancelled) return
+        // Worker responses are wrapped as { success, data } (lib/response.ts) —
+        // a failure is { success: false, error }, so check both shapes.
+        if (data.error || data.success === false) {
+          throw new Error(data.error || 'Authentication failed. Please try again.')
+        }
         // Worker sets httpOnly session cookie (long-lived if rememberMe) — redirect
         router.replace(returnTo)
       })
       .catch((e: Error) => {
+        if (cancelled) return
         console.error('[auth/callback]', e)
         setError(e.message || 'Authentication failed. Please try again.')
-        setTimeout(() => router.push('/login'), 8000)
+        bounceToLogin(8000)
       })
+
+    return cleanup
   }, [router, searchParams])
 
   return (
