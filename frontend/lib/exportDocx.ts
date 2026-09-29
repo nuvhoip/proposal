@@ -66,7 +66,8 @@ function getFirstName(fullName: string): string {
 
 export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
   const authored = readA4Document(model.pageBreaks)
-  if (authored) return exportA4Docx(authored)
+  // Signed proposals export exactly as signed (no retroactive page rewrites).
+  if (authored) return exportA4Docx(authored, { frozen: !!model.clientSignedAt })
   const multiSvc = model.services.length > 1
   const children: (Paragraph | Table)[] = []
 

@@ -1074,11 +1074,21 @@ export async function signProposal(token: string, request: Request, env: Env, ct
   if (offeredCodes.length && !acceptedCodes.length) return err('Please accept at least one service to sign this proposal')
   const declinedCodes = offeredCodes.filter(code => !acceptedCodes.includes(code))
 
-  await env.DB.prepare(`
-    UPDATE proposals
-    SET status='signed', signer_name=?, signed_at=datetime('now'), updated_at=datetime('now')
-    WHERE id=?
-  `).bind(signatoryName, proposal.id).run()
+  // One D1 batch (a single transaction): the status flip is conditional so a
+  // double-submit / concurrent POST can only sign once, and the per-service
+  // acceptance flags land in the same transaction — never a 'signed' proposal
+  // with NULL acceptance (which reads as "everything accepted").
+  const signResults = await env.DB.batch([
+    env.DB.prepare(`
+      UPDATE proposals
+      SET status='signed', signer_name=?, signed_at=datetime('now'), updated_at=datetime('now')
+      WHERE id=? AND status NOT IN ('signed', 'expired')
+    `).bind(signatoryName, proposal.id),
+    ...proposalServices.map(s => env.DB.prepare(
+      'UPDATE proposal_services SET acceptance = ? WHERE id = ? AND acceptance IS NULL'
+    ).bind(acceptedCodes.includes(s.code) ? 'accepted' : 'declined', s.id)),
+  ])
+  if (!signResults[0]?.meta?.changes) return err('Proposal already signed')
 
   // NUVCL-131: merge the captured signature into the proposal's terms row
   // (preserving whatever clauses/validity/etc. were already configured), but
@@ -1114,12 +1124,6 @@ export async function signProposal(token: string, request: Request, env: Env, ct
     clientSignedAt:         new Date().toISOString(),
   })
 
-  if (proposalServices.length) {
-    await env.DB.batch(proposalServices.map(s => env.DB.prepare(
-      'UPDATE proposal_services SET acceptance = ? WHERE id = ?'
-    ).bind(acceptedCodes.includes(s.code) ? 'accepted' : 'declined', s.id)))
-  }
-
   await auditLog(env, proposal.id, 'signed', proposal.contact_email, {
     signatoryName, signatureMethod, acceptedServices: acceptedCodes, declinedServices: declinedCodes,
   }, { ctx, proposal })
@@ -1149,7 +1153,10 @@ export async function signProposal(token: string, request: Request, env: Env, ct
   if (proposal.status === 'draft') {
     await syncRegistryStatus(env, proposal.id, 'sent', { sent_at: new Date().toISOString() })
   }
-  await syncRegistryStatus(env, proposal.id, 'signed', { signed_at: new Date().toISOString() }, acceptedCodes)
+  // One registry Proposal record (prop_id) is shared by every service line
+  // of this proposal (createProposal), so it is signed as a whole — per-
+  // service acceptance lives on each line's own Engagement below.
+  await syncRegistryStatus(env, proposal.id, 'signed', { signed_at: new Date().toISOString() })
   // ...and move every linked Engagement from 'proposal' to 'active' too —
   // this is the "update the one in the master registry" half of signing.
   // signed_date is date-only (registry column is DATE, not TIMESTAMP).
@@ -1157,11 +1164,10 @@ export async function signProposal(token: string, request: Request, env: Env, ct
     signed_date: new Date().toISOString().slice(0, 10),
   }, acceptedCodes)
   // NUVCL-154: services the client didn't accept. The registry has no delete
-  // for these records, so they're closed out instead: the registry Proposal
-  // record → 'declined' (valid from 'sent', which the bridge above
-  // guarantees) and the Engagement → 'inactive' (never went live).
+  // for engagements, so each declined line's Engagement is closed out as
+  // 'inactive' (it never went live). The shared registry Proposal record is
+  // deliberately NOT touched per service — see the comment above.
   if (declinedCodes.length) {
-    await syncRegistryStatus(env, proposal.id, 'declined', {}, declinedCodes)
     await syncEngagementStatus(env, proposal.id, 'inactive', {}, declinedCodes)
   }
 

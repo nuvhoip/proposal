@@ -2,7 +2,7 @@ import { Document, Packer, Paragraph, TextRun, PageBreak, Table, TableRow, Table
 import { sanitizePageHtml, type A4Document } from './a4Document'
 
 /** Export the authored page contents, rather than regenerating template wording. */
-export async function exportA4Docx(value: A4Document): Promise<Blob> {
+export async function exportA4Docx(value: A4Document, options: { frozen?: boolean } = {}): Promise<Blob> {
   const children: (Paragraph | Table)[] = []
   function runs(node: Node, formatting: { bold?: boolean; italics?: boolean; underline?: object } = {}): TextRun[] {
     if (node.nodeType === Node.TEXT_NODE) return [new TextRun({ text: node.textContent || '', ...formatting })]
@@ -81,7 +81,7 @@ export async function exportA4Docx(value: A4Document): Promise<Blob> {
   }
   for (const [index, page] of value.pages.entries()) {
     if (index) children.push(new Paragraph({ children: [new PageBreak()] }))
-    const dom = new DOMParser().parseFromString(sanitizePageHtml(page.html), 'text/html')
+    const dom = new DOMParser().parseFromString(sanitizePageHtml(page.html, { legacyUpgrades: !options.frozen }), 'text/html')
     for (const node of Array.from(dom.body.childNodes)) {
       if (node instanceof Element) children.push(...await blocks(node))
       else if (node.textContent?.trim()) children.push(new Paragraph({ text: node.textContent }))

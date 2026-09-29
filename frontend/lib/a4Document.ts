@@ -139,7 +139,7 @@ export function contentChildren(node: Element): Element[] {
 }
 
 /** Allow document formatting, images and the app's SVG logos; never executable markup. */
-export function sanitizePageHtml(html: string): string {
+export function sanitizePageHtml(html: string, options: { legacyUpgrades?: boolean } = {}): string {
   const doc = new DOMParser().parseFromString(html, 'text/html')
   const tags = new Set('p div span br strong b em i u s strike ul ol li h1 h2 h3 h4 h5 h6 table thead tbody tfoot tr th td hr img a blockquote svg g path circle rect line polyline polygon ellipse defs clippath'.split(' '))
   const attrs = new Set('class title alt colspan rowspan width height viewbox d fill stroke stroke-width stroke-linecap stroke-linejoin fill-rule clip-rule cx cy r x y x1 y1 x2 y2 rx ry points xmlns preserveaspectratio'.split(' '))
@@ -155,7 +155,9 @@ export function sanitizePageHtml(html: string): string {
       // NUVCL-150: drop TinyMCE's temporary resize/drag UI outright (see isEditorArtifact).
       if (isEditorArtifact(el)) { el.remove(); continue }
       // Any other bogus wrapper (data-mce-bogus="1") is editor scaffolding: keep its children only.
-      if (el.hasAttribute('data-mce-bogus')) { clean(el); el.replaceWith(...Array.from(el.childNodes)); continue }
+      // Except <br data-mce-bogus="1">: TinyMCE's filler that gives an empty line/cell its
+      // height — kept as a plain <br> (the attribute is stripped below) so blank lines survive.
+      if (el.hasAttribute('data-mce-bogus') && el.tagName !== 'BR') { clean(el); el.replaceWith(...Array.from(el.childNodes)); continue }
       // doc-heading-row (SectionHeading's wrapper around a section's <h3>,
       // ProposalDocument.tsx) is a `display:flex` row — meant for a "Page
       // Break" checkbox to sit beside the heading in the wizard, which
@@ -198,8 +200,14 @@ export function sanitizePageHtml(html: string): string {
     }
   }
   clean(doc.body)
-  upgradeLegacyFeeTables(doc.body)
-  upgradeLegacyLetterheadLogo(doc.body)
+  // Retroactive NUVCL-151/153 rewrites of old saved pages. Off for signed
+  // proposals (A4Pages' `frozen`): an executed contract's document must not
+  // change under the client — old Note cells can carry terms like
+  // "Includes Room Price Genie & Revenue 365".
+  if (options.legacyUpgrades !== false) {
+    upgradeLegacyFeeTables(doc.body)
+    upgradeLegacyLetterheadLogo(doc.body)
+  }
   return doc.body.innerHTML
 }
 

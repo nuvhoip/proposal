@@ -2381,8 +2381,13 @@ function ServiceDragGroup({ index, count, setDraft, children }: {
       {children(handle)}
       <style jsx>{`
         .service-drag-group { position: relative; }
-        .service-drag-group--before { box-shadow: inset 0 3px 0 var(--nv-blue-slate); }
-        .service-drag-group--after  { box-shadow: inset 0 -3px 0 var(--nv-blue-slate); }
+        /* Drop cue drawn above the (opaque) group label / rows, not under them. */
+        .service-drag-group--before::before, .service-drag-group--after::after {
+          content: ''; position: absolute; left: 0; right: 0; height: 3px; z-index: 3;
+          background: var(--nv-blue-slate); border-radius: 2px; pointer-events: none;
+        }
+        .service-drag-group--before::before { top: -2px; }
+        .service-drag-group--after::after { bottom: -2px; }
         .service-drag { display: inline-flex; align-items: center; gap: 2px; margin-right: 4px; }
         .service-drag__grip { cursor: grab; display: grid; place-content: center; width: 18px; height: 18px; }
         .service-drag__grip img { filter: brightness(0) invert(1); }
