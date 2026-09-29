@@ -112,14 +112,14 @@ export default function TeamsChannelsPage() {
   }
 
   if (loading) return <p style={{ color: 'var(--nv-text-muted)' }}>Loading hotel groups…</p>
-  if (error)   return <p style={{ color: 'var(--nv-danger, #b00)' }}>{error}</p>
+  if (error)   return <p style={{ color: 'var(--nv-error)' }}>{error}</p>
 
   return (
-    <div style={{ width: '100%', maxWidth: 900 }}>
-      <h1 style={{ fontSize: 22, fontFamily: 'var(--nv-font-display)', margin: '0 0 6px' }}>
-        Teams Channels
+    <div style={{ width: '100%' }}>
+      <h1 className="nv-page-title" style={{ marginBottom: 8 }}>
+        Teams channels
       </h1>
-      <p style={{ color: 'var(--nv-text-muted)', fontSize: 13, margin: '0 0 20px' }}>
+      <p className="nv-page-subtitle" style={{ margin: '0 0 32px' }}>
         One private channel per Hotel Group, inside that group&apos;s Team. Creating a channel here
         runs the same automation a new proposal triggers — safe to re-run to fix a description or roster.
       </p>
@@ -157,7 +157,7 @@ export default function TeamsChannelsPage() {
               </div>
 
               {isOpen && (
-                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--nv-border, #e5e5e5)' }}>
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--nv-border-hair)' }}>
                   {groupProps.length === 0 ? (
                     <p style={{ fontSize: 12, color: 'var(--nv-text-muted)', margin: 0 }}>
                       No properties registered for this group yet.
@@ -185,7 +185,7 @@ export default function TeamsChannelsPage() {
       {target && (
         <div className="tc-overlay" onClick={() => !submitting && setTarget(null)}>
           <div className="tc-modal" onClick={e => e.stopPropagation()}>
-            <h2 style={{ fontSize: 16, margin: '0 0 4px' }}>
+            <h2 style={{ font: '500 22px/1.25 var(--nv-font-display)', letterSpacing: 0, margin: '0 0 4px' }}>
               {target.trading_name || target.group_name}
             </h2>
             <p style={{ fontSize: 12, color: 'var(--nv-text-muted)', margin: '0 0 16px' }}>{target.hgid}</p>
@@ -201,7 +201,7 @@ export default function TeamsChannelsPage() {
                   </p>
                 )}
                 {result.warnings?.length > 0 && (
-                  <ul style={{ fontSize: 12, color: 'var(--nv-warning, #a60)', paddingLeft: 18 }}>
+                  <ul style={{ fontSize: 12, color: 'var(--nv-text-body)', paddingLeft: 18 }}>
                     {result.warnings.map((w, i) => <li key={i}>{w}</li>)}
                   </ul>
                 )}
@@ -245,7 +245,7 @@ export default function TeamsChannelsPage() {
                 </div>
 
                 {dialogError && (
-                  <p style={{ color: 'var(--nv-danger, #b00)', fontSize: 13 }}>{dialogError}</p>
+                  <p style={{ color: 'var(--nv-error)', fontSize: 13 }}>{dialogError}</p>
                 )}
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
@@ -263,22 +263,22 @@ export default function TeamsChannelsPage() {
 
       <style jsx>{`
         .tc-overlay {
-          position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+          position: fixed; inset: 0; background: var(--nv-overlay);
           display: flex; align-items: center; justify-content: center; z-index: 100; padding: 24px;
         }
         .tc-modal {
-          background: var(--nv-surface, #fff); border-radius: 10px; padding: 24px;
-          width: 100%; max-width: 540px; max-height: 85vh; overflow-y: auto;
+          background: var(--nv-surface-card); border-radius: 14px; padding: 24px 28px;
+          width: 100%; max-width: 520px; max-height: calc(100vh - 48px); overflow-y: auto;
         }
         .tc-label {
-          display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
-          color: var(--nv-text-muted); margin: 16px 0 6px;
+          display: block; font-size: 13px; font-weight: 500;
+          color: var(--nv-text-body); margin: 16px 0 6px;
         }
         .tc-hint { font-size: 11px; color: var(--nv-text-muted); margin: 0 0 8px; }
         .tc-people {
           display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
           gap: 6px; max-height: 150px; overflow-y: auto;
-          border: 1px solid var(--nv-border, #e5e5e5); border-radius: 6px; padding: 10px;
+          border: 1px solid var(--nv-border-hair); border-radius: 6px; padding: 10px;
         }
         .tc-person { display: flex; align-items: center; gap: 6px; font-size: 13px; }
       `}</style>

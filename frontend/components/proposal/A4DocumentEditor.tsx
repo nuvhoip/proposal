@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { ProposalDocument } from './ProposalDocument'
 import { TinyMcePageEditor } from './TinyMcePageEditor'
 import type { ProposalDocModel } from '@/lib/documentModel'
-import { pageId, readA4Document, sanitizePageHtml, type A4Document, type A4Page } from '@/lib/a4Document'
+import { pageId, readA4Document, refreshCoverPages, sanitizePageHtml, type A4Document, type A4Page } from '@/lib/a4Document'
 
 /** Fast, approximate page-count estimate shown the instant the source
  *  content is ready — before the accurate chunker below (which runs a
@@ -263,7 +263,18 @@ export function A4DocumentEditor({ model, onChange, onReady }: {
         await document.fonts.ready
         if (cancelled || !sourceRef.current) return
         const saved = readA4Document(initialModel.pageBreaks)
-        if (saved) { commit(saved.pages.map(p => ({ ...p, html: sanitizePageHtml(p.html) }))); return }
+        if (saved) {
+          // The saved cover is a frozen snapshot from when this layout was first
+          // built — swap in the cover the hidden live source is rendering now, so
+          // a cover chosen since (Step 5) actually shows. If it changed, publish
+          // the refreshed document so the stored copy (and Word export) follow.
+          const liveCover = sourceRef.current.querySelector('#proposal-print-root .doc-cover')?.outerHTML
+          const cleaned = saved.pages.map(p => ({ ...p, html: sanitizePageHtml(p.html) }))
+          const refreshed = refreshCoverPages(cleaned, liveCover)
+          commit(refreshed)
+          if (refreshed !== cleaned) changeRef.current({ version: 1, pages: refreshed })
+          return
+        }
         const source = sourceRef.current.querySelector('#proposal-print-root')!
         await Promise.all(Array.from(source.querySelectorAll('img')).map(img => img.decode().catch(() => {})))
         if (cancelled) return

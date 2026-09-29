@@ -1,15 +1,18 @@
 'use client'
 
-import React, { useState } from 'react'
-import Image from 'next/image'
+import React, { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { NuvhoLogo, NuvhoIconMark } from '@/components/ui/NuvhoLogo'
 import { useSession } from '@/components/auth/AuthGuard'
 import { hasUnsavedChanges } from '@/lib/navigationGuard'
 
-// CSS filter to render any coloured SVG as white on the dark sidebar
-const WHITE_ICON = 'brightness(0) invert(1)'
+// Duotone-thin nav icons (nuvho-brand, served from /public/icons — byte-identical
+// to the Nuvho CDN files). Retinted white on the dark sidebar by .nv-navitem__icon.
+function NavIcon({ name }: { name: string }) {
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={`/icons/${name}.svg`} alt="" width={18} height={18} className="nv-navitem__icon" />
+}
 
 interface NavChild {
   href:  string
@@ -28,38 +31,54 @@ const navItems: NavItem[] = [
   {
     href: '/dashboard',
     label: 'Dashboard',
-    icon: <Image src="/icons/gauge-simple.svg" width={18} height={18} alt="" style={{ filter: WHITE_ICON }} />,
+    icon: <NavIcon name="gauge-simple" />,
   },
   {
     href: '/proposals',
     label: 'Documents',
-    icon: <Image src="/icons/file-contract.svg" width={18} height={18} alt="" style={{ filter: WHITE_ICON }} />,
+    icon: <NavIcon name="file-contract" />,
   },
   {
     href: '/settings',
     label: 'Settings',
-    icon: <Image src="/icons/gears.svg" width={18} height={18} alt="" style={{ filter: WHITE_ICON }} />,
+    icon: <NavIcon name="gears" />,
     children: [
       { href: '/settings/entities',            label: 'Entities'            },
-      { href: '/settings/body-configuration',  label: 'Body Configuration'  },
-      { href: '/settings/teams-channels',      label: 'Teams Channels'      },
-      { href: '/settings/user-settings',       label: 'User Settings'       },
+      { href: '/settings/body-configuration',  label: 'Body configuration'  },
+      { href: '/settings/teams-channels',      label: 'Teams channels'      },
+      { href: '/settings/user-settings',       label: 'User settings'       },
     ],
   },
   {
     href: '/feedback',
     label: 'Feedback',
-    icon: <Image src="/icons/envelopes.svg" width={18} height={18} alt="" style={{ filter: WHITE_ICON }} />,
+    icon: <NavIcon name="envelopes" />,
   },
 ]
 
+const COLLAPSE_KEY = 'nv-sidebar-collapsed' // dimensions.md §2b persistence key
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [signingOut, setSigningOut] = useState(false)
   const pathname = usePathname()
   const router   = useRouter()
   const session  = useSession()
+
+  // Collapsed state is remembered per browser (expanded by default). Read on
+  // mount rather than during render so server and client markup match.
+  useEffect(() => {
+    try { if (window.localStorage.getItem(COLLAPSE_KEY) === '1') setCollapsed(true) } catch { /* storage unavailable */ }
+  }, [])
+  const setCollapsedPersist = useCallback((next: boolean) => {
+    setCollapsed(next)
+    try { window.localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0') } catch { /* storage unavailable */ }
+  }, [])
+
+  // Close the off-canvas sidebar whenever the route changes (mobile).
+  useEffect(() => { setMobileOpen(false) }, [pathname])
 
   // Unsaved-changes confirmation — a page (currently only the proposal
   // wizard) can register a guard via lib/navigationGuard.ts. When one is
@@ -114,77 +133,99 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className={`app-shell ${collapsed ? 'app-shell--collapsed' : ''}`}>
-      {/* Sidebar */}
-      <aside className="app-sidebar">
-        <div className="app-sidebar__header">
+    <div className="nv-shell">
+      {/* Mobile (≤900px) off-canvas toggle — hidden on desktop by CSS */}
+      <button
+        type="button"
+        className="nv-mobile-toggle"
+        onClick={() => setMobileOpen(o => !o)}
+        aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+        aria-expanded={mobileOpen}
+        aria-controls="nv-sidebar"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={mobileOpen ? '/icons/xmark.svg' : '/icons/bars.svg'} alt="" width={16} height={16} />
+      </button>
+      {mobileOpen && <div className="nv-sidebar-scrim" onClick={() => setMobileOpen(false)} />}
+
+      {/* Sidebar — 260px / 64px, the only two widths (dimensions.md §2b) */}
+      <aside
+        id="nv-sidebar"
+        className={`nv-sidebar ${collapsed ? 'nv-sidebar--collapsed' : ''} ${mobileOpen ? 'nv-open' : ''}`}
+      >
+        <div className="nv-sidebar__brand">
           {collapsed
-            ? <NuvhoIconMark variant="white" size={32} />
-            : <NuvhoLogo variant="white" height={50} />}
+            ? <NuvhoIconMark variant="white" size={32} className="nv-sidebar__mark" />
+            : <NuvhoLogo variant="white" height={60} className="nv-sidebar__logo" />}
           <button
-            className="app-sidebar__toggle"
-            onClick={() => setCollapsed(c => !c)}
+            type="button"
+            className="nv-sidebar__toggle"
+            onClick={() => setCollapsedPersist(!collapsed)}
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={!collapsed}
           >
-            {/* nuvho-brand icon: chevron-left / chevron-right (duotone-thin) */}
-            <svg width="12" height="12" viewBox="0 0 320 512" fill="rgba(255,255,255,0.6)">
-              <path d={collapsed
-                ? 'M317.7 261.7c3.1-3.1 3.1-8.2 0-11.3l-216-216c-3.1-3.1-8.2-3.1-11.3 0s-3.1 8.2 0 11.3L300.7 256 90.3 466.3c-3.1 3.1-3.1 8.2 0 11.3s8.2 3.1 11.3 0l216-216z'
-                : 'M2.3 250.3c-3.1 3.1-3.1 8.2 0 11.3l216 216c3.1 3.1 8.2 3.1 11.3 0s3.1-8.2 0-11.3L19.3 256 229.7 45.7c3.1-3.1 3.1-8.2 0-11.3s-8.2-3.1-11.3 0l-216 216z'}
-              />
-            </svg>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={collapsed ? '/icons/angle-right.svg' : '/icons/angle-left.svg'} alt="" width={14} height={14} />
           </button>
         </div>
 
-        <nav className="app-sidebar__nav">
+        {/* Plain flex-row anchors — never <ul>/<li>, never bullets (dimensions.md §2c) */}
+        <nav className="nv-sidebar__nav" aria-label="Main">
           {navItems.map(item => {
             const active = pathname === item.href ||
               (item.href !== '/dashboard' && pathname.startsWith(item.href))
             const isOpen = expanded[item.href] ?? active
             return (
-              <div key={item.href} className="nv-sidebar-nav-group">
-                <div className={`nv-sidebar-nav-row ${active ? 'nv-sidebar-nav-item--active' : ''}`}>
+              <div key={item.href} className="nv-navgroup">
+                <div className="nv-navrow">
                   <Link
                     href={item.href}
-                    className="nv-sidebar-nav-item"
+                    className={`nv-navitem ${active ? 'nv-navitem--active' : ''} ${item.children ? 'nv-navitem--has-children' : ''}`}
                     title={collapsed ? item.label : undefined}
-                    onClick={e => handleNavClick(e, item.href)}
+                    aria-current={pathname === item.href ? 'page' : undefined}
+                    onClick={e => {
+                      // Rail behaviour: clicking a group on the collapsed rail
+                      // re-expands the sidebar and opens that group.
+                      if (collapsed && item.children) {
+                        setCollapsedPersist(false)
+                        setExpanded(x => ({ ...x, [item.href]: true }))
+                      }
+                      handleNavClick(e, item.href)
+                    }}
                   >
-                    <span className="nv-sidebar-nav-item__icon">{item.icon}</span>
-                    {!collapsed && (
-                      <span className="nv-sidebar-nav-item__label">{item.label}</span>
-                    )}
-                    {!collapsed && item.badge != null && item.badge > 0 && (
-                      <span className="app-sidebar__badge">{item.badge}</span>
+                    {item.icon}
+                    <span className="nv-navitem__label">{item.label}</span>
+                    {item.badge != null && item.badge > 0 && (
+                      <span className="nv-sidebar__badge">{item.badge}</span>
                     )}
                   </Link>
-                  {!collapsed && item.children && (
+                  {item.children && (
                     <button
                       type="button"
-                      className={`nv-sidebar-nav-toggle ${isOpen ? 'nv-sidebar-nav-toggle--open' : ''}`}
-                      onClick={() => setExpanded(e => ({ ...e, [item.href]: !isOpen }))}
+                      className={`nv-navrow__toggle ${isOpen ? 'nv-navrow__toggle--open' : ''}`}
+                      onClick={() => setExpanded(x => ({ ...x, [item.href]: !isOpen }))}
                       aria-label={isOpen ? `Collapse ${item.label}` : `Expand ${item.label}`}
                       aria-expanded={isOpen}
                     >
-                      <svg width="10" height="10" viewBox="0 0 320 512" fill="rgba(255,255,255,0.6)">
-                        <path d="M310.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-192 192c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L242.7 256 73.4 86.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l192 192z"/>
-                      </svg>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src="/icons/angle-down.svg" alt="" width={14} height={14} />
                     </button>
                   )}
                 </div>
 
-                {!collapsed && item.children && isOpen && (
-                  <div className="nv-sidebar-subnav">
+                {item.children && isOpen && (
+                  <div className="nv-subnav">
                     {item.children.map(child => {
                       const childActive = pathname === child.href || pathname.startsWith(`${child.href}/`)
                       return (
                         <Link
                           key={child.href}
                           href={child.href}
-                          className={`nv-sidebar-subnav-item ${childActive ? 'nv-sidebar-subnav-item--active' : ''}`}
+                          className={`nv-navitem nv-navitem--sub ${childActive ? 'nv-navitem--active' : ''}`}
+                          aria-current={childActive ? 'page' : undefined}
                           onClick={e => handleNavClick(e, child.href)}
                         >
-                          <span className="nv-sidebar-subnav-item__label">{child.label}</span>
+                          <span className="nv-navitem__label">{child.label}</span>
                         </Link>
                       )
                     })}
@@ -195,43 +236,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        <div className="app-sidebar__footer">
-          {!collapsed && (
-            <div className="app-sidebar__user">
-              <div className="app-sidebar__avatar">{initials}</div>
-              <div className="app-sidebar__user-info">
-                <span className="app-sidebar__user-name">{session?.name ?? '—'}</span>
-                <span className="app-sidebar__user-email">{session?.email ?? ''}</span>
-              </div>
+        {/* Account block + copyright — the copyright is the last thing in the sidebar */}
+        <div className="nv-sidebar__footer">
+          <div className="nv-account" title={collapsed ? (session?.name ?? session?.email ?? '') : undefined}>
+            <div className="nv-account__avatar" aria-hidden="true">{initials}</div>
+            <div className="nv-account__info">
+              <span className="nv-account__name">{session?.name ?? '—'}</span>
+              <span className="nv-account__email">{session?.email ?? ''}</span>
             </div>
-          )}
+          </div>
           <button
-            className="app-sidebar__signout"
+            type="button"
+            className="nv-signout"
             onClick={handleSignOutClick}
             disabled={signingOut}
-            title="Sign out"
+            title={collapsed ? 'Sign out' : undefined}
             aria-label="Sign out"
           >
             {signingOut
-              ? <IconSpinner />
-              : <IconSignout />}
+              ? <span className="nv-spinner nv-spinner--sm" style={{ filter: 'brightness(0) invert(1)' }} aria-hidden="true" />
+              // eslint-disable-next-line @next/next/no-img-element
+              : <img src="/icons/right-from-bracket.svg" alt="" width={16} height={16} />}
+            <span className="nv-signout__label">{signingOut ? 'Signing out…' : 'Sign out'}</span>
           </button>
-        </div>
-
-        {/* Brand footer */}
-        <div className="app-sidebar__brand">
-          {!collapsed && (
-            <span className="app-sidebar__copyright">© Nuvho Systems Pty Ltd</span>
-          )}
+          <span className="nv-sidebar__copyright">© Nuvho Systems Pty Ltd</span>
         </div>
       </aside>
 
       {/* Main content */}
-      <main className="app-main">
+      <main className="nv-main">
         {children}
       </main>
 
-      {/* Unsaved-changes confirmation popup */}
+      {/* Unsaved-changes confirmation — confirm dialog (440, browser-app-shell §9) */}
       {pendingNav && (
         <div className="nv-confirm-overlay" onMouseDown={() => setPendingNav(null)}>
           <div
@@ -240,20 +277,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             aria-modal="true"
             aria-labelledby="nv-confirm-title"
             onMouseDown={e => e.stopPropagation()}
+            onKeyDown={e => { if (e.key === 'Escape') setPendingNav(null) }}
           >
             <h3 id="nv-confirm-title">Unsaved changes</h3>
             <p>You have unsaved changes on this proposal. If you leave now, they will be lost.</p>
             <div className="nv-confirm-actions">
               <button
                 type="button"
-                className="nv-btn nv-btn--outlined nv-btn--md"
+                className="nv-btn nv-btn--secondary"
                 onClick={() => setPendingNav(null)}
+                autoFocus
               >
                 Cancel
               </button>
               <button
                 type="button"
-                className="nv-btn nv-btn--solid nv-btn--md"
+                className="nv-btn nv-btn--primary"
                 onClick={confirmPendingNav}
               >
                 Leave without saving
@@ -262,270 +301,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       )}
-
-      <style jsx>{`
-        .app-shell {
-          display: flex;
-          min-height: 100vh;
-          background: var(--nv-surface-page);
-        }
-
-        /* ── Sidebar ── */
-        .app-sidebar {
-          width: 240px;
-          min-width: 240px;
-          background: var(--nv-surface-dark);
-          display: flex;
-          flex-direction: column;
-          position: sticky;
-          top: 0;
-          height: 100vh;
-          overflow: hidden;
-          transition: width 220ms var(--nv-ease), min-width 220ms var(--nv-ease);
-          z-index: 40;
-        }
-        .app-shell--collapsed .app-sidebar {
-          width: 64px;
-          min-width: 64px;
-        }
-
-        .app-sidebar__header {
-          padding: 20px 16px 16px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          border-bottom: 1px solid rgba(255,255,255,0.08);
-          min-height: 64px;
-        }
-
-        .app-sidebar__toggle {
-          background: rgba(255,255,255,0.1);
-          border: none;
-          border-radius: 6px;
-          width: 28px;
-          height: 28px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-          flex-shrink: 0;
-          transition: background var(--nv-dur);
-        }
-        .app-sidebar__toggle:hover { background: rgba(255,255,255,0.18); }
-
-        .app-sidebar__nav {
-          flex: 1;
-          padding: 12px 8px;
-          display: flex;
-          flex-direction: column;
-          gap: 2px;
-          overflow-y: auto;
-        }
-
-        .nv-sidebar-nav-group {
-          display: flex;
-          flex-direction: column;
-        }
-
-        .nv-sidebar-nav-row {
-          display: flex;
-          align-items: center;
-          border-radius: 10px;
-        }
-        .nv-sidebar-nav-row .nv-sidebar-nav-item {
-          flex: 1;
-          min-width: 0;
-        }
-        .nv-sidebar-nav-toggle {
-          background: none;
-          border: none;
-          padding: 8px;
-          margin-right: 4px;
-          border-radius: 6px;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-          transition: transform var(--nv-dur) var(--nv-ease), background var(--nv-dur);
-        }
-        .nv-sidebar-nav-toggle:hover { background: rgba(255,255,255,0.1); }
-        .nv-sidebar-nav-toggle--open { transform: rotate(90deg); }
-
-        .nv-sidebar-subnav {
-          display: flex;
-          flex-direction: column;
-          gap: 3px;
-          padding-left: 30px;
-          margin: 4px 0 8px;
-        }
-        /* .nv-sidebar-subnav-item itself (font-size, hover/active background,
-           color) is intentionally NOT styled here — it lives as a plain
-           global !important rule in globals.css instead, because this
-           styled-jsx version was proven to get shadowed/lost on hot-reload
-           (see the comment above that rule in globals.css). Don't re-add
-           those properties here. */
-
-        /* badge */
-        .app-sidebar__badge {
-          margin-left: auto;
-          background: var(--nv-tropical-teal);
-          color: var(--nv-surface-dark);
-          font-size: 11px;
-          font-weight: 700;
-          padding: 1px 7px;
-          border-radius: 999px;
-          line-height: 18px;
-        }
-
-        .app-sidebar__footer {
-          padding: 12px 8px;
-          border-top: 1px solid rgba(255,255,255,0.08);
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .app-sidebar__user {
-          flex: 1;
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          min-width: 0;
-        }
-
-        .app-sidebar__avatar {
-          width: 32px;
-          height: 32px;
-          border-radius: 50%;
-          background: var(--nv-tropical-teal);
-          color: var(--nv-surface-dark);
-          font-family: var(--font-comfortaa);
-          font-size: 12px;
-          font-weight: 700;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-        }
-
-        .app-sidebar__user-info {
-          display: flex;
-          flex-direction: column;
-          min-width: 0;
-        }
-        .app-sidebar__user-name {
-          font-size: 13px;
-          font-weight: 600;
-          color: white;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-        .app-sidebar__user-email {
-          font-size: 11px;
-          color: rgba(255,255,255,0.5);
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-
-        .app-sidebar__signout {
-          background: none;
-          border: none;
-          padding: 6px;
-          border-radius: 6px;
-          cursor: pointer;
-          color: rgba(255,255,255,0.5);
-          display: flex;
-          transition: background var(--nv-dur), color var(--nv-dur);
-          flex-shrink: 0;
-        }
-        .app-sidebar__signout:hover:not(:disabled) {
-          background: rgba(255,255,255,0.1);
-          color: rgba(255,255,255,0.9);
-        }
-        .app-sidebar__signout:disabled {
-          cursor: wait;
-          opacity: 0.6;
-        }
-
-        /* ── Brand footer ── */
-        .app-sidebar__brand {
-          padding: 10px 12px 14px;
-          border-top: 1px solid rgba(255,255,255,0.08);
-          display: flex;
-          flex-direction: column;
-          align-items: flex-start;
-          gap: 4px;
-        }
-        .app-shell--collapsed .app-sidebar__brand {
-          align-items: center;
-        }
-        .app-sidebar__copyright {
-          font-size: 10px;
-          color: rgba(255,255,255,0.35);
-          font-family: var(--font-raleway), system-ui, sans-serif;
-          white-space: nowrap;
-          letter-spacing: 0.01em;
-        }
-
-        /* ── Main content ── */
-        .app-main {
-          flex: 1;
-          min-width: 0;
-          overflow-y: auto;
-        }
-
-        /* ── Unsaved-changes confirmation popup ──
-           Mirrors the hg-modal-overlay/hg-modal pattern used in the proposal
-           wizard (app/(app)/proposals/new/page.tsx) for visual consistency,
-           redeclared here since styled-jsx scopes rules to the component
-           that defines them. */
-        .nv-confirm-overlay {
-          position: fixed; inset: 0; z-index: 200;
-          background: rgba(30,40,45,0.45);
-          display: flex; align-items: center; justify-content: center;
-          padding: 24px;
-        }
-        .nv-confirm-modal {
-          width: 100%; max-width: 440px;
-          background: var(--nv-surface-card); border-radius: var(--nv-radius-md);
-          box-shadow: var(--nv-shadow-md);
-          padding: 28px;
-        }
-        .nv-confirm-modal h3 {
-          margin: 0 0 12px; font-family: var(--font-comfortaa); font-size: 20px;
-          font-weight: 700; color: var(--nv-text-heading);
-        }
-        .nv-confirm-modal p {
-          margin: 0 0 24px; font-size: 14px; color: var(--nv-text-muted); line-height: 1.5;
-        }
-        .nv-confirm-actions {
-          display: flex; justify-content: flex-end; gap: 12px;
-        }
-      `}</style>
     </div>
-  )
-}
-
-/* ── Sign-out icon — nuvho-brand: right-from-bracket (duotone-thin) ── */
-function IconSignout() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 512 512" fill="currentColor">
-      <path d="M493.7 250.3c3.1 3.1 3.1 8.2 0 11.3l-144 144c-2.3 2.3-5.7 3-8.7 1.7l0 0c-3-1.2-4.9-4.2-4.9-7.4l0-88c0-4.4-3.6-8-8-8l-120 0c-17.7 0-32-14.3-32-32l0-32c0-17.7 14.3-32 32-32l120 0c4.4 0 8-3.6 8-8l0-88c0-3.2 1.9-6.2 4.9-7.4s6.4-.6 8.7 1.7l144 144zM361 417L505 273c9.4-9.4 9.4-24.6 0-33.9l0 0-144-144c-6.9-6.9-17.2-8.9-26.2-5.2S320 102.3 320 112l0 80-112 0c-26.5 0-48 21.5-48 48l0 32c0 26.5 21.5 48 48 48l112 0 0 80c0 9.7 5.8 18.5 14.8 22.2s19.3 1.7 26.2-5.2zM184 48c4.4 0 8-3.6 8-8s-3.6-8-8-8L96 32C43 32 0 75 0 128L0 384c0 53 43 96 96 96l88 0c4.4 0 8-3.6 8-8s-3.6-8-8-8l-88 0c-44.2 0-80-35.8-80-80l0-256c0-44.2 35.8-80 80-80l88 0z"/>
-    </svg>
-  )
-}
-
-/* ── Spinner shown while signing out ── */
-function IconSpinner() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
-      style={{ animation: 'spin 0.8s linear infinite' }}>
-      <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5"
-        strokeLinecap="round" strokeDasharray="28" strokeDashoffset="10" />
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-    </svg>
   )
 }

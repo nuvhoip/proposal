@@ -7,12 +7,28 @@ import { useRouter } from 'next/navigation'
 const WORKER = process.env.NEXT_PUBLIC_WORKER_URL
 
 const STATUS_CLASSES: Record<string, string> = {
-  draft:   'nv-badge--draft',
-  sent:    'nv-badge--sent',
-  signed:  'nv-badge--signed',
-  expired: 'nv-badge--expired',
-  pending: 'nv-badge--pending',
+  draft:        'nv-badge--draft',
+  generated:    'nv-badge--generated',
+  sent:         'nv-badge--sent',
+  signed:       'nv-badge--signed',
+  fully_signed: 'nv-badge--fully_signed',
+  expired:      'nv-badge--expired',
+  pending:      'nv-badge--pending',
 }
+
+// Sentence-case status labels (badges are never letterspaced caps)
+const STATUS_LABELS: Record<string, string> = {
+  draft: 'Draft', generated: 'Generated', sent: 'Sent', signed: 'Signed',
+  fully_signed: 'Fully signed', expired: 'Expired', pending: 'Pending',
+}
+
+const FILTERS: { value: string; label: string }[] = [
+  { value: '',        label: 'All' },
+  { value: 'draft',   label: 'Draft' },
+  { value: 'sent',    label: 'Sent' },
+  { value: 'signed',  label: 'Signed' },
+  { value: 'expired', label: 'Expired' },
+]
 
 // Table columns — `key` is the field on a proposal row to sort by when its
 // header is clicked (matches the raw column names GET /proposals returns —
@@ -108,34 +124,28 @@ export default function ProposalsPage() {
   }
 
   return (
-    <div style={{ padding: '32px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between',
-                    alignItems: 'center', marginBottom: 28 }}>
-        <h1 style={{ fontSize: 24, fontFamily: 'var(--nv-font-display)',
-                     fontWeight: 700, color: 'var(--nv-text-heading)', margin: 0 }}>
-          Documents
-        </h1>
-        <Link href="/proposals/new" className="nv-btn nv-btn--solid nv-btn--md">
-          + New Document
+    <div className="nv-page nv-page--wide">
+      <header className="nv-page-header">
+        <h1 className="nv-page-title">Documents</h1>
+        <Link href="/proposals/new" className="nv-btn nv-btn--primary">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/icons/plus.svg" width="16" height="16" alt="" style={{ filter: 'brightness(0) invert(1)' }} />
+          New document
         </Link>
-      </div>
+      </header>
 
-      {/* Filters */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-        {['', 'draft', 'sent', 'signed', 'expired'].map(s => (
+      {/* Filters — Figma tab bar (185:18) */}
+      <div className="nv-tabs docs-filters" role="tablist" aria-label="Filter by status">
+        {FILTERS.map(f => (
           <button
-            key={s}
-            onClick={() => setFilter(s)}
-            style={{
-              padding: '6px 16px', borderRadius: 999, border: '1px solid',
-              borderColor: filter === s ? 'var(--nv-blue-slate)' : 'var(--nv-border)',
-              background:  filter === s ? 'var(--nv-blue-slate)' : 'transparent',
-              color:       filter === s ? 'white' : 'var(--nv-text-body)',
-              cursor: 'pointer', fontSize: 13, fontFamily: 'var(--nv-font-display)',
-              fontWeight: 600, transition: 'all 220ms',
-            }}
+            key={f.value}
+            type="button"
+            role="tab"
+            aria-selected={filter === f.value}
+            className={`nv-tab ${filter === f.value ? 'nv-tab--active' : ''}`}
+            onClick={() => setFilter(f.value)}
           >
-            {s || 'All'}
+            {f.label}
           </button>
         ))}
       </div>
@@ -145,32 +155,35 @@ export default function ProposalsPage() {
           <div className="nv-spinner" />
         </div>
       ) : sortedProposals.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '64px 0', color: 'var(--nv-text-muted)' }}>
-          <p style={{ fontSize: 16 }}>No documents found</p>
-          <Link href="/proposals/new" className="nv-btn nv-btn--solid nv-btn--md"
-                style={{ display: 'inline-block', marginTop: 16 }}>
+        <div className="nv-card nv-empty">
+          <span className="nv-iconbox nv-iconbox--32">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/icons/file-contract.svg" alt="" />
+          </span>
+          <h3 className="nv-h3">No documents found</h3>
+          <p style={{ fontSize: 13, marginBottom: 8 }}>Nothing matches this filter yet.</p>
+          <Link href="/proposals/new" className="nv-btn nv-btn--primary">
             Create your first document
           </Link>
         </div>
       ) : (
-        <div className="nv-card" style={{ overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+        <div className="nv-card nv-table-card">
+          <table className="nv-table docs-table">
             <thead>
-              <tr style={{ background: 'var(--nv-platinum)' }}>
+              <tr>
                 {COLUMNS.map(col => (
                   <th key={col.label || 'actions'}
                       onClick={() => handleSort(col.key)}
-                      style={{ padding: '12px 16px', textAlign: 'left',
-                               fontSize: 12, fontWeight: 700,
-                               color: 'var(--nv-text-muted)',
-                               textTransform: 'uppercase', letterSpacing: '0.06em',
-                               cursor: col.key ? 'pointer' : 'default',
-                               userSelect: 'none', whiteSpace: 'nowrap' }}>
+                      aria-sort={col.key && sortKey === col.key ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined}
+                      className={col.key ? 'docs-table__sortable' : undefined}>
                     {col.label}
                     {col.key && (
-                      <span style={{ marginLeft: 4, opacity: sortKey === col.key ? 1 : 0.25 }}>
-                        {sortKey === col.key ? (sortDir === 'asc' ? '▲' : '▼') : '▲'}
-                      </span>
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={sortKey === col.key ? (sortDir === 'asc' ? '/icons/sort-up.svg' : '/icons/sort-down.svg') : '/icons/sort.svg'}
+                        alt="" width={12} height={12}
+                        className={`docs-table__sort ${sortKey === col.key ? 'docs-table__sort--on' : ''}`}
+                      />
                     )}
                   </th>
                 ))}
@@ -179,56 +192,42 @@ export default function ProposalsPage() {
             <tbody>
               {sortedProposals.map((p: any) => (
                 <tr key={p.id}
-                    style={{ borderBottom: '1px solid var(--nv-border-hair)',
-                             transition: 'background 150ms', cursor: 'pointer' }}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--nv-platinum)')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                    className="docs-table__row"
                     onClick={() => router.push(`/proposals/${p.id}`)}
                 >
-                  <td style={{ padding: '14px 16px', fontFamily: 'monospace', fontSize: 11,
-                               color: 'var(--nv-text-muted)' }}
-                      title={p.id}>
+                  <td className="docs-table__id" title={p.id}>
                     {p.prop_id || p.np_id || p.id?.slice(-8)}
                   </td>
-                  <td style={{ padding: '14px 16px', fontWeight: 600,
-                               color: 'var(--nv-text-heading)' }}>
+                  <td className="docs-table__hotel">
                     {p.hotel_name}
                   </td>
-                  <td style={{ padding: '14px 16px', color: 'var(--nv-text-body)' }}>
+                  <td>
                     <div>{p.contact_name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--nv-text-muted)' }}>
-                      {p.contact_email}
+                    <div className="docs-table__muted">{p.contact_email}</div>
+                  </td>
+                  <td>
+                    <div className="docs-table__tags">
+                      {p.service_codes?.split(',').filter(Boolean).map((c: string) => (
+                        <span key={c} className="docs-table__tag">{c}</span>
+                      ))}
                     </div>
                   </td>
-                  <td style={{ padding: '14px 16px' }}>
-                    {p.service_codes?.split(',').map((c: string) => (
-                      <span key={c} style={{
-                        display: 'inline-block', background: 'var(--nv-platinum)',
-                        borderRadius: 6, padding: '2px 7px', fontSize: 11,
-                        fontWeight: 700, color: 'var(--nv-blue-slate)',
-                        marginRight: 4,
-                      }}>{c}</span>
-                    ))}
-                  </td>
-                  <td style={{ padding: '14px 16px', fontFamily: 'var(--nv-font-display)',
-                               fontWeight: 600, color: 'var(--nv-text-heading)' }}>
-                    —
-                  </td>
-                  <td style={{ padding: '14px 16px', color: 'var(--nv-text-muted)' }}>
+                  <td className="nv-num">—</td>
+                  <td className="docs-table__muted">
                     {p.sent_at
                       ? new Date(p.sent_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
                       : '—'}
                   </td>
-                  <td style={{ padding: '14px 16px' }}>
+                  <td>
                     <span className={`nv-badge ${STATUS_CLASSES[p.status] || ''}`}>
-                      {p.status}
+                      {STATUS_LABELS[p.status] || p.status}
                     </span>
                   </td>
-                  <td style={{ padding: '14px 16px', textAlign: 'right' }}
+                  <td style={{ textAlign: 'right' }}
                       onClick={e => e.stopPropagation()}>
                     <Link href={`/proposals/${p.id}`}
                           className="nv-btn nv-btn--ghost nv-btn--sm">
-                      View →
+                      View
                     </Link>
                   </td>
                 </tr>
@@ -237,6 +236,22 @@ export default function ProposalsPage() {
           </table>
         </div>
       )}
+
+      <style jsx>{`
+        .docs-filters { margin-bottom: 24px; }
+        .docs-table__sortable { cursor: pointer; user-select: none; }
+        .docs-table :global(.docs-table__sort) { display: inline-block; margin-left: 6px; vertical-align: -1px; opacity: 0.35; }
+        .docs-table :global(.docs-table__sort--on) { opacity: 1; }
+        .docs-table__row { cursor: pointer; }
+        .docs-table__id { font-family: var(--nv-font-mono); font-size: 12px; color: var(--nv-text-muted); }
+        .docs-table__hotel { font-weight: 600; color: var(--nv-text-heading); }
+        .docs-table__muted { font-size: 12px; color: var(--nv-text-muted); }
+        .docs-table__tags { display: flex; gap: 4px; flex-wrap: wrap; }
+        .docs-table__tag {
+          background: var(--nv-wash-08); color: var(--nv-blue-slate);
+          border-radius: 6px; padding: 2px 8px; font-size: 12px; font-weight: 500;
+        }
+      `}</style>
     </div>
   )
 }

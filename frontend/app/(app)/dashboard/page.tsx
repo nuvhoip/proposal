@@ -38,57 +38,51 @@ export default function DashboardPage() {
   }, [])
 
   return (
-    <div className="page-content">
-      <header className="page-header">
+    <div className="nv-page nv-page--wide">
+      <header className="nv-page-header">
         <div>
-          <h1 className="page-title">Dashboard</h1>
-          <p className="page-subtitle">Good morning — here&apos;s where things stand.</p>
+          <h1 className="nv-page-title">Dashboard</h1>
+          <p className="nv-page-subtitle">Good morning — here&apos;s where things stand.</p>
         </div>
-        <Link href="/proposals/new" className="nv-btn nv-btn--solid nv-btn--md">
+        <Link href="/proposals/new" className="nv-btn nv-btn--primary">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/icons/rocket.svg" width="16" height="16" alt=""
-            style={{ marginRight: 6, filter: 'brightness(0) invert(1)', flexShrink: 0 }} />
-          New Document
+            style={{ filter: 'brightness(0) invert(1)' }} />
+          New document
         </Link>
       </header>
 
       {/* Stats grid */}
       <section className="stats-grid">
         <StatCard
-          label="Total Proposals"
+          label="Total proposals"
           value={stats.totalProposals}
           iconSrc="/icons/file-contract.svg"
-          color="blue"
         />
         <StatCard
-          label="Sent This Month"
+          label="Sent this month"
           value={stats.sentThisMonth}
           iconSrc="/icons/envelopes.svg"
-          color="teal"
         />
         <StatCard
-          label="Signed This Month"
+          label="Signed this month"
           value={stats.signedThisMonth}
           iconSrc="/icons/pen-to-square.svg"
-          color="green"
         />
         <StatCard
-          label="Conversion Rate"
+          label="Conversion rate"
           value={`${stats.conversionRate}%`}
           iconSrc="/icons/chart-line-up.svg"
-          color="purple"
         />
         <StatCard
-          label="Avg. Response"
+          label="Avg. response"
           value={`${stats.avgResponseDays}d`}
           iconSrc="/icons/gauge-simple.svg"
-          color="teal"
         />
         <StatCard
-          label="Awaiting Signature"
+          label="Awaiting signature"
           value={stats.pendingSignature}
           iconSrc="/icons/circle-pause.svg"
-          color="warning"
           highlight
         />
       </section>
@@ -96,7 +90,7 @@ export default function DashboardPage() {
       {/* Revenue pending banner */}
       <div className="revenue-banner">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/icons/filter-circle-dollar.svg" width="28" height="28" alt=""
+        <img src="/icons/filter-circle-dollar.svg" width="24" height="24" alt=""
           className="revenue-banner__icon" />
         <div className="revenue-banner__label">Pipeline value pending signature</div>
         <div className="revenue-banner__value">
@@ -107,23 +101,30 @@ export default function DashboardPage() {
       {/* Recent proposals */}
       <section className="proposals-section">
         <div className="proposals-section__header">
-          <h2 className="section-title">Recent Proposals</h2>
+          <h2 className="nv-section-title">Recent proposals</h2>
           <Link href="/proposals" className="nv-btn nv-btn--ghost nv-btn--sm">
-            View all →
+            View all
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/icons/arrow-right.svg" width="14" height="14" alt="" />
           </Link>
         </div>
 
-        <div className="nv-card proposals-table-card">
+        <div className="nv-card nv-table-card">
           {loading ? (
             <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
               <div className="nv-spinner" />
             </div>
           ) : proposals.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--nv-text-muted)' }}>
-              No proposals yet
+            <div className="nv-empty">
+              <span className="nv-iconbox nv-iconbox--32">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/icons/file-contract.svg" alt="" />
+              </span>
+              <h3 className="nv-h3">No proposals yet</h3>
+              <p style={{ fontSize: 13 }}>Proposals you create will show up here.</p>
             </div>
           ) : (
-          <table className="proposals-table">
+          <table className="nv-table proposals-table">
             <thead>
               <tr>
                 <th>ID</th>
@@ -179,44 +180,20 @@ export default function DashboardPage() {
       </section>
 
       <style jsx>{`
-        .page-content {
-          padding: 32px 40px;
-          max-width: 1280px;
-        }
-        @media (max-width: 768px) { .page-content { padding: 20px 16px; } }
-
-        .page-header {
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          margin-bottom: 32px;
-          gap: 16px;
-        }
-        .page-title {
-          font-family: var(--font-comfortaa);
-          font-size: 28px;
-          font-weight: 700;
-          color: var(--nv-text-heading);
-          margin-bottom: 4px;
-        }
-        .page-subtitle {
-          font-size: 14px;
-          color: var(--nv-text-muted);
-        }
-
-        /* Stats */
+        /* Stats — 6 tiles, 12px gaps (Figma 4+ column grid) */
         .stats-grid {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-          gap: 16px;
-          margin-bottom: 20px;
+          gap: 12px;
+          margin-bottom: 12px;
         }
 
-        /* Revenue banner */
+        /* Revenue banner — the dark stat-tile variant (browser-app-shell §7):
+           #28687F fill, #80B9BF value, radius 14, no shadow. */
         .revenue-banner {
           background: var(--nv-surface-dark);
           border-radius: var(--nv-radius-md);
-          padding: 16px 24px;
+          padding: 24px;
           display: flex;
           align-items: center;
           justify-content: space-between;
@@ -225,74 +202,34 @@ export default function DashboardPage() {
         }
         .revenue-banner :global(.revenue-banner__icon) {
           filter: brightness(0) invert(1);
-          opacity: 0.65;
           flex-shrink: 0;
         }
         .revenue-banner__label {
           font-size: 13px;
-          color: rgba(255,255,255,0.7);
-          font-family: var(--font-raleway);
+          color: rgba(255,255,255,0.78);
           flex: 1;
         }
         .revenue-banner__value {
-          font-family: var(--font-comfortaa);
-          font-size: 26px;
+          font-family: var(--nv-font-display);
+          font-size: 28px;
           font-weight: 700;
           color: var(--nv-tropical-teal);
-          letter-spacing: -0.5px;
         }
 
-        /* Proposals section */
-        .proposals-section { margin-top: 0; }
+        /* Proposals section (32px rhythm inside a dense dashboard) */
         .proposals-section__header {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          margin-bottom: 12px;
-        }
-        .section-title {
-          font-family: var(--font-comfortaa);
-          font-size: 18px;
-          font-weight: 700;
-          color: var(--nv-text-heading);
+          margin-bottom: 16px;
         }
 
-        .proposals-table-card { padding: 0; overflow: hidden; }
-
-        .proposals-table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 13px;
-        }
-        .proposals-table thead tr {
-          border-bottom: 1px solid var(--nv-border-hair);
-          background: var(--nv-surface-page);
-        }
-        .proposals-table th {
-          padding: 10px 16px;
-          text-align: left;
-          font-size: 11px;
-          font-weight: 600;
-          color: var(--nv-text-muted);
-          text-transform: uppercase;
-          letter-spacing: 0.06em;
-          white-space: nowrap;
-        }
-        .proposals-table td {
-          padding: 12px 16px;
-          border-bottom: 1px solid var(--nv-border-hair);
-          color: var(--nv-text-body);
-          vertical-align: middle;
-        }
-        .proposals-table tbody tr:last-child td { border-bottom: none; }
+        /* Table = global .nv-table (Figma 184:60); only cell content styles here */
         .proposals-table__row { cursor: pointer; }
-        .proposals-table__row:hover { background: var(--nv-surface-page); }
-
         .proposals-table__id {
-          font-family: var(--font-mono, monospace);
-          font-size: 11px;
+          font-family: var(--nv-font-mono);
+          font-size: 12px;
           color: var(--nv-text-muted);
-          letter-spacing: 0.02em;
         }
         .proposals-table__hotel span {
           font-weight: 500;
@@ -300,17 +237,16 @@ export default function DashboardPage() {
         }
         .proposals-table__contact { color: var(--nv-text-muted); }
         .proposals-table__value { font-weight: 600; color: var(--nv-text-heading); }
-        .proposals-table__date  { color: var(--nv-text-muted); font-size: 12px; }
+        .proposals-table__date  { color: var(--nv-text-muted); }
 
         .service-tags { display: flex; gap: 4px; flex-wrap: wrap; }
         .service-tag {
-          background: rgba(40,104,127,0.08);
+          background: var(--nv-wash-08);
           color: var(--nv-blue-slate);
-          border-radius: 4px;
-          padding: 2px 6px;
-          font-size: 11px;
-          font-weight: 600;
-          letter-spacing: 0.04em;
+          border-radius: 6px;
+          padding: 2px 8px;
+          font-size: 12px;
+          font-weight: 500;
         }
       `}</style>
     </div>
@@ -318,65 +254,54 @@ export default function DashboardPage() {
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  draft:   'Draft',
-  sent:    'Sent',
-  signed:  'Signed',
-  expired: 'Expired',
-  pending: 'Pending',
+  draft:        'Draft',
+  generated:    'Generated',
+  sent:         'Sent',
+  signed:       'Signed',
+  fully_signed: 'Fully signed',
+  expired:      'Expired',
+  pending:      'Pending',
 }
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
 }
 
-function StatCard({ label, value, iconSrc, color, highlight }: {
-  label: string; value: string | number; iconSrc: string;
-  color: 'blue' | 'teal' | 'green' | 'purple' | 'warning'; highlight?: boolean
+function StatCard({ label, value, iconSrc, highlight }: {
+  label: string; value: string | number; iconSrc: string; highlight?: boolean
 }) {
-  const bgMap = {
-    blue:    'rgba(40,104,127,0.07)',
-    teal:    'rgba(128,185,191,0.1)',
-    green:   'rgba(74,143,110,0.08)',
-    purple:  'rgba(103,37,100,0.07)',
-    warning: 'rgba(243,198,93,0.1)',
-  }
+  // Figma stat tile (browser-app-shell §7): card r14 · hairline · padding 24 ·
+  // no shadow · icon in a 40×40 icon container · value Comfortaa Bold 28 ·
+  // label Raleway 13 muted. `highlight` (awaiting signature) borrows the
+  // warning status hue for the hairline only.
   return (
     <div className="nv-card stat-card" style={{
       borderColor: highlight ? 'var(--nv-warning)' : undefined,
     }}>
-      <div className="stat-card__icon" style={{ background: bgMap[color] }}>
+      <span className="nv-iconbox nv-iconbox--20">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={iconSrc} width="20" height="20" alt="" />
-      </div>
+        <img src={iconSrc} alt="" />
+      </span>
       <div className="stat-card__value">{value}</div>
       <div className="stat-card__label">{label}</div>
       <style jsx>{`
         .stat-card {
-          padding: 20px;
+          padding: 24px;
           display: flex;
           flex-direction: column;
           gap: 8px;
         }
-        .stat-card__icon {
-          width: 40px;
-          height: 40px;
-          border-radius: 10px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          margin-bottom: 4px;
-        }
         .stat-card__value {
-          font-family: var(--font-comfortaa);
+          font-family: var(--nv-font-display);
           font-size: 28px;
           font-weight: 700;
           color: var(--nv-text-heading);
-          line-height: 1;
+          line-height: 1.05;
+          margin-top: 6px;
         }
         .stat-card__label {
-          font-size: 12px;
+          font-size: 13px;
           color: var(--nv-text-muted);
-          font-weight: 500;
         }
       `}</style>
     </div>

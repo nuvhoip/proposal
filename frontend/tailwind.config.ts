@@ -9,22 +9,21 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Nuvho Primary Palette
+        // Nuvho primary palette (nuvho-brand v3 — the only brand colours)
         'nv-blue-slate':    '#28687F',
         'nv-steel-blue':    '#6BA1BF',
         'nv-tropical-teal': '#80B9BF',
         'nv-iron-grey':     '#414B4C',
         'nv-platinum':      '#E9EAEC',
-        // Nuvho Secondary
-        'nv-cherry-rose':   '#982649',
-        'nv-deep-purple':   '#672564',
-        'nv-wisteria':      '#CEA8E6',
-        'nv-tuscan-sun':    '#F3C65D',
-        'nv-taupe':         '#A47F7B',
-        // Status
+        // Blue Slate ladder
+        'nv-blue-500': '#3E7F96', 'nv-blue-300': '#96BFD4', 'nv-teal-300': '#AAD2D6',
+        'nv-blue-200': '#C0D8E5', 'nv-blue-100': '#E3EDF3', 'nv-teal-100': '#E4F1F2',
+        // Status — the only sanctioned extra hues (Deep Purple / Wisteria /
+        // Taupe retired 2026-09-09; never use Tailwind amber/green for status)
         'nv-success':       '#4A8F6E',
         'nv-warning':       '#F3C65D',
         'nv-error':         '#982649',
+        'nv-neutral':       '#5E6B6C',
         'nv-info':          '#6BA1BF',
         // Surfaces
         'nv-surface-page':    '#F5F8F9',
@@ -33,16 +32,20 @@ const config: Config = {
         'nv-surface-darker':  '#1E5163',
       },
       fontFamily: {
-        display: ['var(--font-comfortaa)', 'Comfortaa', 'system-ui', 'sans-serif'],
-        body:    ['var(--font-raleway)', 'Raleway', 'system-ui', '-apple-system', 'sans-serif'],
+        display: ['Comfortaa', 'system-ui', 'sans-serif'],
+        body:    ['Raleway', 'system-ui', '-apple-system', 'sans-serif'],
       },
       borderRadius: {
+        'nv-sm':   '6px',
         'nv-md':   '14px',
+        'nv-lg':   '24px',
         'nv-pill': '999px',
       },
+      // Figma components carry no drop shadows — kept as named no-ops so any
+      // shadow-nv-* utility still compiles but renders flat.
       boxShadow: {
-        'nv-sm': '0 2px 8px rgba(40,104,127,0.07)',
-        'nv-md': '0 10px 28px rgba(40,104,127,0.09)',
+        'nv-sm': 'none',
+        'nv-md': 'none',
       },
       keyframes: {
         'fade-in': {

@@ -1,4 +1,10 @@
-@import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@300;400;500;600;700&family=Raleway:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&family=Great+Vibes&display=swap');
+/* ============================================================
+   Nuvho Proposal System — global styles
+   Brand: nuvho-brand v3.0.1 (2026 refresh, Figma "Nuvho Graphical Assets",
+   signed off 2026-09-08) + nuvho-web-design v1.0.0 browser-app shell law.
+   Component values below are the Figma "Digital Components" values; see
+   the nuvho-brand skill's components.css / references/digital-components.md.
+   ============================================================ */
 
 /* Print/PDF page rules (public/print-rules.css) — imported for print
    media only. Must stay a top-of-file @import (CSS requires @import to
@@ -10,155 +16,256 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---------- Webfonts — self-hosted (public/fonts) ----------
+   Comfortaa + Raleway are byte-identical copies of the Nuvho CDN files
+   (https://sftp.nuvho.com/publicdownloads/nuvho-brand/fonts/). Self-hosted
+   rather than hot-linked because the CDN sends no CORS header, and
+   cross-origin @font-face loads need one. Google Fonts is banned by the
+   brand — the old @import is gone.
+   Great Vibes is NOT a brand face: it is the functional script used to
+   render a typed client/sender signature. Kept (OFL, Latin subset,
+   self-hosted) so typed signatures still look like signatures. */
+@font-face {
+  font-family: 'Comfortaa';
+  src: url('/fonts/Comfortaa-VariableFont_wght.ttf') format('truetype-variations'),
+       url('/fonts/Comfortaa-VariableFont_wght.ttf') format('truetype');
+  font-weight: 300 700; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Raleway';
+  src: url('/fonts/Raleway-VariableFont_wght.ttf') format('truetype-variations'),
+       url('/fonts/Raleway-VariableFont_wght.ttf') format('truetype');
+  font-weight: 100 900; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Raleway';
+  src: url('/fonts/Raleway-Italic-VariableFont_wght.ttf') format('truetype-variations'),
+       url('/fonts/Raleway-Italic-VariableFont_wght.ttf') format('truetype');
+  font-weight: 100 900; font-style: italic; font-display: swap;
+}
+@font-face {
+  font-family: 'Great Vibes';
+  src: url('/fonts/GreatVibes-Regular.woff2') format('woff2');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+
 :root {
-  /* Nuvho CSS tokens */
-  --nv-blue-slate:      #28687F;
-  --nv-steel-blue:      #6BA1BF;
-  --nv-tropical-teal:   #80B9BF;
-  --nv-iron-grey:       #414B4C;
-  --nv-platinum:        #E9EAEC;
+  /* ---------- Primary palette (the only brand colours) ---------- */
+  --nv-blue-slate:    #28687F;  /* the floor · primary CTA · headings */
+  --nv-steel-blue:    #6BA1BF;  /* interaction / info */
+  --nv-tropical-teal: #80B9BF;  /* active indicators · dark-ground accent */
+  --nv-iron-grey:     #414B4C;  /* body text */
+  --nv-platinum:      #E9EAEC;  /* hairlines · quiet ground */
 
-  --nv-cherry-rose:     #982649;
-  --nv-deep-purple:     #672564;
-  --nv-wisteria:        #CEA8E6;
-  --nv-tuscan-sun:      #F3C65D;
-  --nv-taupe:           #A47F7B;
+  /* ---------- Blue Slate ladder ---------- */
+  --nv-blue-600: #28687F; --nv-blue-500: #3E7F96; --nv-blue-400: #6BA1BF;
+  --nv-teal-500: #80B9BF; --nv-blue-300: #96BFD4; --nv-teal-300: #AAD2D6;
+  --nv-blue-200: #C0D8E5; --nv-blue-100: #E3EDF3; --nv-teal-100: #E4F1F2;
 
-  --nv-success:         #4A8F6E;
-  --nv-warning:         #F3C65D;
-  --nv-error:           #982649;
-  --nv-info:            #6BA1BF;
+  /* ---------- Named gradient (Blue Slate direction) ---------- */
+  --nv-grad-ground: linear-gradient(25deg, #28687F 14.5%, #28687F 55.7%, #3E7F96 85.5%);
 
+  /* ---------- Status (the only sanctioned extra hues) ---------- */
+  --nv-success: #4A8F6E;
+  --nv-warning: #F3C65D;   /* text on it is #28687F */
+  --nv-error:   #982649;
+  --nv-neutral: #5E6B6C;
+  --nv-info:    #6BA1BF;
+  --nv-error-hover: #7A1F3A; /* destructive button hover — not in Figma, flagged */
+  /* Legacy aliases still referenced by pages — same values, no retired hues.
+     Deep Purple / Wisteria / Taupe were retired 2026-09-09 and are gone. */
+  --nv-cherry-rose: var(--nv-error);
+  --nv-tuscan-sun:  var(--nv-warning);
+  --nv-danger:      var(--nv-error);
+
+  /* ---------- Surfaces ---------- */
+  --nv-white:           #FFFFFF;
+  --nv-light-2:         #F6F6F6;
   --nv-surface-page:    #F5F8F9;
-  --nv-surface-card:    #ffffff;
+  --nv-surface-card:    #FFFFFF;
+  --nv-surface:         #FFFFFF;
   --nv-surface-dark:    #28687F;
   --nv-surface-darker:  #1E5163;
+  --nv-surface-sidebar: #28687F;  /* sidebar = footer colour */
+  --nv-surface-code:    #1E2A2E;
+  --nv-surface-disabled:#E9EAEC;
 
-  --nv-text-heading:    #28687F;
-  --nv-text-body:       #414B4C;
-  --nv-text-muted:      #5E6B6C;
+  /* ---------- Text ---------- */
+  --nv-text-heading:  #28687F;
+  --nv-text-body:     #414B4C;
+  --nv-text-muted:    #5E6B6C;
+  --nv-text-disabled: #6E767B;
+  --nv-text-link:     #28687F;
+  --nv-text-on-dark:  #FFFFFF;
 
-  --nv-border-hair:     rgba(40,75,76,0.08);
-  --nv-border:          rgba(40,75,76,0.14);
+  /* ---------- Borders / washes ---------- */
+  --nv-border-hair:    rgba(40,104,127,0.12);  /* component hairline (card, table rule) */
+  --nv-border:         rgba(195,202,206,0.55); /* field default border (#C3CACE @55%) */
+  --nv-border-strong:  rgba(40,104,127,0.28);  /* table header rule */
+  --nv-wash-06: rgba(40,104,127,0.06);
+  --nv-wash-08: rgba(40,104,127,0.08);
+  --nv-wash-12: rgba(40,104,127,0.12);
+  --nv-wash-18: rgba(40,104,127,0.18);
+  --nv-wash-26: rgba(40,104,127,0.26);
+  --nv-overlay: rgba(30,40,45,0.45);           /* modal / off-canvas scrim (browser-app-shell §9) */
 
-  --nv-space-xs:  4px;
-  --nv-space-sm:  8px;
-  --nv-space-md:  16px;
-  --nv-space-lg:  24px;
-  --nv-space-xl:  40px;
-  --nv-space-2xl: 64px;
+  /* ---------- Type ---------- */
+  --nv-font-display: 'Comfortaa', system-ui, sans-serif;
+  --nv-font-body:    'Raleway', system-ui, -apple-system, sans-serif;
+  --nv-font-mono:    ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --nv-ui-h1:   600 30px/1.18 var(--nv-font-display);
+  --nv-ui-h2:   500 24px/1.25 var(--nv-font-display);
+  --nv-ui-h3:   600 19px/1.35 var(--nv-font-body);
+  --nv-ui-body: 400 15px/1.6  var(--nv-font-body);
+  --nv-ui-card-title: 500 18px/1.25 var(--nv-font-display);
+  /* Legacy names used throughout the app and the proposal document */
+  --font-comfortaa: var(--nv-font-display);
+  --font-raleway:   var(--nv-font-body);
+  --font-signature: 'Great Vibes', cursive;
 
+  /* ---------- Space / radius / stroke / motion ---------- */
+  --nv-space-xs: 4px;  --nv-space-sm: 8px;  --nv-space-md: 16px; --nv-space-lg: 24px;
+  --nv-space-xl: 40px; --nv-space-2xl: 64px; --nv-space-3xl: 96px;
+  --nv-radius-sm:   6px;
   --nv-radius-md:   14px;
+  --nv-radius-lg:   24px;
   --nv-radius-pill: 999px;
-
-  --nv-shadow-sm: 0 2px 8px rgba(40,104,127,0.07);
-  --nv-shadow-md: 0 10px 28px rgba(40,104,127,0.09);
-
+  --nv-dur-fast: 120ms;
   --nv-dur:  220ms;
   --nv-ease: cubic-bezier(0.4,0,0.2,1);
+  /* Figma components carry NO drop shadows. Both legacy tokens now resolve to
+     none so any remaining reference is inert; the proposal document pins its
+     own values below. */
+  --nv-shadow-sm: none;
+  --nv-shadow-md: none;
 
-  --font-comfortaa: 'Comfortaa', system-ui, sans-serif;
-  --font-raleway:   'Raleway', system-ui, -apple-system, sans-serif;
-  --font-signature: 'Great Vibes', cursive;
+  /* ---------- Layout law ---------- */
+  --sidebar-w: 260px;            /* LOCKED — expanded */
+  --sidebar-w-collapsed: 64px;   /* LOCKED — collapsed rail */
 }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+/* The proposal DOCUMENT is out of scope for this pass (it follows the
+   printed-design medium and every client PDF depends on it). Pin the handful
+   of tokens whose values changed in the refresh back to their previous values
+   inside the document root, so the A4 pages render exactly as before. */
+#proposal-print-root, .a4-saved-pages {
+  --nv-border:      rgba(40,75,76,0.14);
+  --nv-border-hair: rgba(40,75,76,0.08);
+  --nv-shadow-sm:   0 2px 8px rgba(40,104,127,0.07);
 }
+
+/* ============================================================
+   BASE
+   ============================================================ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
 html {
-  font-family: var(--font-raleway);
+  font-family: var(--nv-font-body);
   background-color: var(--nv-surface-page);
   color: var(--nv-text-body);
   -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
 }
+body { font: var(--nv-ui-body); color: var(--nv-text-body); background: var(--nv-surface-page); }
 
 h1, h2, h3, h4, h5, h6 {
-  font-family: var(--font-comfortaa);
+  font-family: var(--nv-font-display);
   color: var(--nv-text-heading);
   font-weight: 600;
   letter-spacing: -0.01em;
 }
+a { color: var(--nv-text-link); }
 
-/* Nuvho button base */
+/* Focus (not defined in Figma for buttons — the field convention, flagged) */
+:focus-visible { outline: 1.5px solid var(--nv-blue-slate); outline-offset: 2px; }
+
+/* ============================================================
+   PAGE SHELL — browser-app-shell §3
+   Main padding 56 64 80 · max-width 960 (document pages) / 1280 (dashboards,
+   data pages) / 900 (wizards). Title = UI H1 Comfortaa 600 30/1.18.
+   ============================================================ */
+/* content-box: the kit's max-widths (960 / 1280 / 900) measure the CONTENT, with the
+   56/64/80 padding outside it — the app's global border-box would otherwise eat 128px. */
+.nv-page          { padding: 56px 64px 80px; max-width: 960px; box-sizing: content-box; }
+.nv-page--wide    { max-width: 1280px; }
+.nv-page--wizard  { max-width: 900px; }
+.nv-page--full    { max-width: none; }
+.nv-page-header   { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 40px; flex-wrap: wrap; }
+.nv-page-title    { font: var(--nv-ui-h1); color: var(--nv-text-heading); letter-spacing: 0; margin: 0; }
+.nv-page-subtitle { font: var(--nv-ui-body); color: var(--nv-text-muted); margin: 8px 0 0; }
+.nv-section-title { font: var(--nv-ui-h2); color: var(--nv-text-heading); letter-spacing: 0; margin: 0; }
+.nv-h3            { font: var(--nv-ui-h3); color: var(--nv-text-body); letter-spacing: 0; margin: 0; }
+.nv-eyebrow       { font: 600 11px/1.4 var(--nv-font-body); letter-spacing: 0.16em; text-transform: uppercase; color: var(--nv-text-muted); } /* eyebrows only — never UI labels */
+@media (max-width: 900px) {
+  .nv-page { padding: 56px 24px 80px; }
+}
+
+/* ============================================================
+   BUTTON — Figma 177:40
+   h40 · pill · padding 24 · Raleway SemiBold 15 · hover recolours only
+   (the old grow-on-hover is retired). Figma names: --primary / --secondary /
+   --ghost. The app's older names (--solid / --outlined) alias them.
+   ============================================================ */
 .nv-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border-radius: var(--nv-radius-pill);
-  font-family: var(--font-comfortaa);
-  font-weight: 600;
-  font-size: 14px;
-  letter-spacing: 0.01em;
-  cursor: pointer;
-  border: none;
-  outline: none;
-  transition: padding var(--nv-dur) var(--nv-ease),
-              background-color var(--nv-dur) var(--nv-ease),
-              box-shadow var(--nv-dur) var(--nv-ease),
-              opacity var(--nv-dur) var(--nv-ease);
-  text-decoration: none;
-  white-space: nowrap;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 40px; padding: 0 24px; border-radius: var(--nv-radius-pill);
+  font: 600 15px/1 var(--nv-font-body); letter-spacing: 0;
+  white-space: nowrap; text-decoration: none;
+  border: 1px solid transparent; outline: none; cursor: pointer; background: transparent;
+  transition: background-color var(--nv-dur) var(--nv-ease), color var(--nv-dur) var(--nv-ease), border-color var(--nv-dur) var(--nv-ease);
 }
+.nv-btn:focus-visible { outline: 1.5px solid var(--nv-blue-slate); outline-offset: 2px; }
+/* Sizes — Figma has ONE size (h40). --md / --lg map to it. --sm is the compact
+   h32 row-action size browser-app-shell §4 allows inside tables (flagged
+   extension, not in Figma). */
+.nv-btn--md, .nv-btn--lg { height: 40px; padding: 0 24px; font-size: 15px; }
+.nv-btn--sm { height: 32px; padding: 0 16px; font-size: 13px; }
+.nv-btn img, .nv-btn svg { flex: 0 0 auto; display: inline-block; }
+/* Tailwind preflight makes every img display:block — inline icons inside text need this */
+.nv-icon-inline { display: inline-block; vertical-align: -2px; }
 
-.nv-btn--sm  { padding: 8px 20px;  font-size: 13px; }
-.nv-btn--md  { padding: 12px 28px; font-size: 14px; }
-.nv-btn--lg  { padding: 16px 36px; font-size: 16px; }
+/* Primary (alias: --solid) */
+.nv-btn--primary, .nv-btn--solid { background: #28687F; color: #FFFFFF; }
+.nv-btn--primary:hover, .nv-btn--solid:hover { background: #3E7F96; color: #FFFFFF; }
+.nv-btn--primary:disabled, .nv-btn--solid:disabled,
+.nv-btn--primary[aria-disabled="true"], .nv-btn--solid[aria-disabled="true"] { background: rgba(195,202,206,0.22); color: #6E767B; }
+/* Secondary (alias: --outlined) */
+.nv-btn--secondary, .nv-btn--outlined { background: transparent; color: #28687F; border-color: #28687F; }
+.nv-btn--secondary:hover, .nv-btn--outlined:hover { background: rgba(40,104,127,0.08); color: #3E7F96; }
+.nv-btn--secondary:disabled, .nv-btn--outlined:disabled,
+.nv-btn--secondary[aria-disabled="true"], .nv-btn--outlined[aria-disabled="true"] { background: transparent; border-color: rgba(195,202,206,0.5); color: #6E767B; }
+/* Ghost */
+.nv-btn--ghost { background: transparent; color: #28687F; }
+.nv-btn--ghost:hover { background: rgba(40,104,127,0.08); color: #3E7F96; }
+.nv-btn--ghost:disabled, .nv-btn--ghost[aria-disabled="true"] { background: transparent; color: #6E767B; }
+/* Destructive — primary anatomy on #982649 (hover #7A1F3A is not in Figma — flagged) */
+.nv-btn--danger { background: #982649; color: #FFFFFF; }
+.nv-btn--danger:hover { background: #7A1F3A; color: #FFFFFF; }
+.nv-btn--danger:disabled { background: rgba(195,202,206,0.22); color: #6E767B; }
+/* Dark ground (alias: --on-dark) */
+.nv-on-dark .nv-btn--primary, .nv-on-dark .nv-btn--solid, .nv-btn--on-dark { background: #80B9BF; color: #28687F; border-color: transparent; }
+.nv-on-dark .nv-btn--primary:hover, .nv-on-dark .nv-btn--solid:hover, .nv-btn--on-dark:hover { background: #FFFFFF; color: #28687F; }
+.nv-on-dark .nv-btn--secondary, .nv-on-dark .nv-btn--outlined { color: #80B9BF; border-color: #80B9BF; }
+.nv-on-dark .nv-btn--secondary:hover, .nv-on-dark .nv-btn--outlined:hover { background: rgba(128,185,191,0.14); color: #FFFFFF; }
+.nv-on-dark .nv-btn--ghost { color: #80B9BF; }
+.nv-on-dark .nv-btn--ghost:hover { background: rgba(255,255,255,0.10); color: #FFFFFF; }
+/* Disabled is a colour state, never a layer opacity (Figma) */
+.nv-btn:disabled, .nv-btn[aria-disabled="true"] { cursor: not-allowed; pointer-events: none; }
 
-.nv-btn--solid {
-  background: var(--nv-blue-slate);
-  color: white;
-}
-.nv-btn--solid:hover {
-  padding-left: 33px;
-  padding-right: 33px;
-  background: var(--nv-surface-darker);
-}
-.nv-btn--lg.nv-btn--solid:hover { padding-left: 41px; padding-right: 41px; }
-
-.nv-btn--outlined {
-  background: transparent;
-  color: var(--nv-blue-slate);
-  border: 1.5px solid var(--nv-blue-slate);
-}
-.nv-btn--outlined:hover {
-  padding-left: 33px;
-  padding-right: 33px;
-  background: rgba(40,104,127,0.05);
-}
-
-.nv-btn--ghost {
-  background: transparent;
-  color: var(--nv-blue-slate);
-  padding-left: 12px;
-  padding-right: 12px;
-}
-.nv-btn--ghost:hover { background: rgba(40,104,127,0.06); }
-
-.nv-btn--on-dark {
-  background: rgba(255,255,255,0.15);
-  color: white;
-  border-color: rgba(255,255,255,0.35);
-}
-.nv-btn--on-dark:hover { background: rgba(255,255,255,0.25); }
-
-.nv-btn:disabled,
-.nv-btn[aria-disabled="true"] {
-  opacity: 0.45;
-  cursor: not-allowed;
-  pointer-events: none;
-}
-
-/* Cards */
+/* ============================================================
+   CARDS — Figma card shell 187:58
+   white · radius 14 · 1px rgba(40,104,127,.12) · NO shadow. Padding stays
+   per-usage (24 is the Figma value; table cards run flush at 0).
+   ============================================================ */
 .nv-card {
   background: var(--nv-surface-card);
   border-radius: var(--nv-radius-md);
   border: 1px solid var(--nv-border-hair);
-  box-shadow: var(--nv-shadow-sm);
+  box-shadow: none;
 }
+.nv-card__title { font: var(--nv-ui-card-title); color: var(--nv-text-heading); margin: 0; letter-spacing: 0; }
+.nv-card__body  { font: 400 13px/1.6 var(--nv-font-body); color: var(--nv-text-body); margin: 0; }
+
 
 /* Settings cards (Settings → Region Settings / User Settings) — shared
    title/description/result-banner styling so each settings sub-page
@@ -166,7 +273,8 @@ h1, h2, h3, h4, h5, h6 {
 .sync-card__title {
   font-family: var(--font-comfortaa);
   font-size: 18px;
-  font-weight: 700;
+  font-weight: 500; /* Figma card title: Comfortaa Medium 18/1.25 */
+  line-height: 1.25;
   color: var(--nv-text-heading);
   margin: 0;
 }
@@ -177,7 +285,7 @@ h1, h2, h3, h4, h5, h6 {
   margin: 0;
 }
 .sync-card__result {
-  border-radius: 10px;
+  border-radius: 6px;
   padding: 10px 14px;
   font-size: 13px;
 }
@@ -190,148 +298,363 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--nv-error);
 }
 
-/* Form inputs */
+/* ============================================================
+   FIELDS — Figma text input 183:48 · select 183:105 · textarea 183:146
+   h44 · radius 6 · padding 0 16 · white · 1px #C3CACE@55% ·
+   focus = 1.5px #28687F (no glow, no ring) · error = 1.5px #982649
+   Label Raleway Medium 13 #414B4C sentence case · helper Raleway Light 11
+   ============================================================ */
 .nv-input {
-  width: 100%;
-  border: 1.5px solid var(--nv-border);
-  border-radius: 10px;
-  padding: 10px 14px;
-  font-family: var(--font-raleway);
-  font-size: 14px;
-  color: var(--nv-text-body);
-  background: white;
-  transition: border-color var(--nv-dur) var(--nv-ease),
-              box-shadow var(--nv-dur) var(--nv-ease);
-  outline: none;
+  width: 100%; height: 44px; padding: 0 16px;
+  border: 1px solid rgba(195,202,206,0.55); border-radius: 6px;
+  background: #FFFFFF; color: #414B4C;
+  font: 400 14px/1.4 var(--nv-font-body);
+  outline: none; box-shadow: none;
+  transition: border-color var(--nv-dur-fast) var(--nv-ease);
 }
-.nv-input:focus {
-  border-color: var(--nv-steel-blue);
-  box-shadow: 0 0 0 3px rgba(107,161,191,0.18);
+.nv-input::placeholder { color: #6E767B; }
+.nv-input:focus { border: 1.5px solid #28687F; padding-left: 15.5px; padding-right: 15.5px; box-shadow: none; }
+.nv-input.error, .nv-input[aria-invalid="true"] { border: 1.5px solid #982649; }
+.nv-input:disabled { background: #E9EAEC; border-color: rgba(195,202,206,0.3); color: #6E767B; }
+textarea.nv-input { height: auto; min-height: 96px; padding: 12px 16px; line-height: 1.6; resize: vertical; }
+textarea.nv-input:focus { padding: 11.5px 15.5px; }
+select.nv-input {
+  appearance: none; -webkit-appearance: none; padding-right: 40px; cursor: pointer;
+  background: #FFFFFF url('/icons/angle-down.svg') no-repeat right 16px center / 12px 13px; /* duotone-thin angle-down */
 }
-.nv-input::placeholder { color: var(--nv-text-muted); }
-.nv-input.error { border-color: var(--nv-error); }
+select.nv-input:focus { padding-right: 39.5px; }
+select.nv-input:disabled { background-color: #E9EAEC; }
+/* Compact field for dense table rows (fee rows, scope lines) — flagged
+   extension; Figma defines only h44. */
+.nv-input--sm { height: 36px; padding: 0 12px; font-size: 13px; }
+.nv-input--sm:focus { padding-left: 11.5px; padding-right: 11.5px; }
 
-/* Status badges */
+.nv-field { display: flex; flex-direction: column; gap: 6px; }
+/* Native file picker button → secondary pill (compact) */
+input[type="file"] { font: 400 13px/1.4 var(--nv-font-body); color: #5E6B6C; }
+input[type="file"]::file-selector-button {
+  height: 32px; padding: 0 16px; margin-right: 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid #28687F; background: transparent; color: #28687F; font: 600 13px/1 var(--nv-font-body);
+  transition: background-color var(--nv-dur) var(--nv-ease);
+}
+input[type="file"]::file-selector-button:hover { background: rgba(40,104,127,0.08); color: #3E7F96; }
+.nv-field__label { font: 500 13px/1.4 var(--nv-font-body); color: #414B4C; letter-spacing: 0; text-transform: none; }
+.nv-field:focus-within .nv-field__label { color: #28687F; }
+.nv-field__hint, .nv-field__helper { font: 300 11px/1.4 var(--nv-font-body); color: #5E6B6C; }
+.nv-field__error { font: 400 11px/1.4 var(--nv-font-body); color: #982649; }
+.nv-required { color: #982649; }
+
+/* Error banner — browser-app-shell §5 */
+.nv-alert--error {
+  background: rgba(152,38,73,0.07); border: 1px solid rgba(152,38,73,0.2); border-radius: 6px;
+  padding: 10px 14px; font: 400 13px/1.5 var(--nv-font-body); color: #982649;
+}
+
+/* ============================================================
+   CHECKBOX 178:58 · RADIO 178:59 — applied to every native control
+   20px · 1.5px #5E6B6C · checkbox radius 4 · checked #28687F ·
+   12px duotone-thin check mark (retinted white)
+   ============================================================ */
+input[type="checkbox"], input[type="radio"] {
+  appearance: none; -webkit-appearance: none; margin: 0;
+  width: 20px; height: 20px; flex: 0 0 20px;
+  border: 1.5px solid #5E6B6C; background: #FFFFFF;
+  display: inline-grid; place-content: center; vertical-align: middle; cursor: pointer;
+  transition: background-color var(--nv-dur-fast) var(--nv-ease), border-color var(--nv-dur-fast) var(--nv-ease);
+}
+input[type="checkbox"] { border-radius: 4px; }
+input[type="radio"]    { border-radius: 50%; }
+input[type="checkbox"]:checked { background: #28687F; border-color: #28687F; }
+input[type="checkbox"]:checked::after {
+  content: ""; width: 12px; height: 12px;
+  background: url('/icons/check.svg') center / contain no-repeat;
+  filter: brightness(0) invert(1);
+}
+input[type="radio"]:checked { border-color: #28687F; }
+input[type="radio"]:checked::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #28687F; }
+input[type="checkbox"]:disabled, input[type="radio"]:disabled { border-color: rgba(195,202,206,0.5); cursor: not-allowed; }
+input[type="checkbox"]:disabled:checked { background: rgba(195,202,206,0.5); }
+
+/* ============================================================
+   BADGES — Figma 179:84 · h26 pill · Raleway Medium 12 · 14px status mark
+   Status mapping (browser-app-shell §8):
+     draft / generated          → Mono neutral
+     pending / awaiting         → Semantic warning (#F3C65D, text #28687F)
+     sent                       → Mono good (teal wash)
+     signed / fully_signed      → Semantic good #4A8F6E
+     expired / rejected / error → Semantic critical #982649
+   Sentence case — never letterspaced caps.
+   ============================================================ */
 .nv-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  font-family: var(--font-comfortaa);
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 26px; padding: 5px 12px 5px 10px; box-sizing: border-box;
+  border-radius: var(--nv-radius-pill);
+  font: 500 12px/16px var(--nv-font-body); letter-spacing: 0; text-transform: none;
+  white-space: nowrap;
+  background: rgba(40,104,127,0.08); color: #414B4C;
 }
-.nv-badge--draft    { background: rgba(40,104,127,0.1);  color: var(--nv-blue-slate); }
-.nv-badge--sent     { background: rgba(107,161,191,0.15); color: #2563a8; }
-.nv-badge--signed   { background: rgba(74,143,110,0.13);  color: var(--nv-success); }
-.nv-badge--expired  { background: rgba(152,38,73,0.1);    color: var(--nv-error); }
-.nv-badge--pending  { background: rgba(243,198,93,0.15);  color: #9a6e00; }
+.nv-badge::before {
+  content: ""; width: 14px; height: 14px; flex: 0 0 14px;
+  background: url('/icons/circle-info.svg') center / contain no-repeat;
+}
+/* Semantic */
+.nv-badge--neutral  { background: #5E6B6C; color: #FFFFFF; }
+.nv-badge--good     { background: #4A8F6E; color: #FFFFFF; }
+.nv-badge--warning  { background: #F3C65D; color: #28687F; }
+.nv-badge--critical { background: #982649; color: #FFFFFF; }
+/* Mono */
+.nv-badge--mono-neutral  { background: rgba(40,104,127,0.08); color: #414B4C; }
+.nv-badge--mono-good     { background: rgba(40,104,127,0.12); color: #414B4C; }
+.nv-badge--mono-warning  { background: rgba(40,104,127,0.18); color: #414B4C; }
+.nv-badge--mono-critical { background: rgba(40,104,127,0.26); color: #414B4C; }
+/* App statuses → Figma variants */
+.nv-badge--draft, .nv-badge--generated { background: rgba(40,104,127,0.08); color: #414B4C; }
+.nv-badge--sent                        { background: rgba(40,104,127,0.12); color: #414B4C; }
+.nv-badge--pending                     { background: #F3C65D; color: #28687F; }
+.nv-badge--signed, .nv-badge--fully_signed { background: #4A8F6E; color: #FFFFFF; }
+.nv-badge--expired                     { background: #982649; color: #FFFFFF; }
+/* Status marks — circle-info / circle-check / triangle-exclamation / circle-exclamation */
+.nv-badge--good::before, .nv-badge--signed::before, .nv-badge--fully_signed::before { background-image: url('/icons/circle-check.svg'); }
+.nv-badge--warning::before, .nv-badge--pending::before { background-image: url('/icons/triangle-exclamation.svg'); }
+.nv-badge--critical::before, .nv-badge--expired::before { background-image: url('/icons/circle-exclamation.svg'); }
+.nv-badge--sent::before, .nv-badge--mono-good::before { background-image: url('/icons/circle-check.svg'); }
+/* On solid fills the duotone mark is retinted white */
+.nv-badge--neutral::before, .nv-badge--good::before, .nv-badge--critical::before,
+.nv-badge--signed::before, .nv-badge--fully_signed::before, .nv-badge--expired::before { filter: brightness(0) invert(1); }
 
-/* Sidebar nav */
-.nv-sidebar {
-  width: 260px;
-  min-height: 100vh;
-  background: var(--nv-surface-dark);
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
+/* ============================================================
+   TABLE — Figma 184:60 / 184:77
+   rows 48 · cell padding 0 16 · bottom rule only · header #28687F@8% +
+   @28% rule, Raleway SemiBold 12 #28687F SENTENCE CASE · body Raleway 13
+   #414B4C · rules #28687F@12% · row hover #F5F8F9 · numeric right-aligned.
+   Wrap in .nv-card (radius 14, overflow hidden, padding 0).
+   ============================================================ */
+.nv-table { width: 100%; border-collapse: collapse; background: #FFFFFF; font: 400 13px/1.4 var(--nv-font-body); color: #414B4C; }
+.nv-table th, .nv-table td { height: 48px; padding: 0 16px; text-align: left; vertical-align: middle; border-bottom: 1px solid rgba(40,104,127,0.12); }
+.nv-table thead th {
+  background: rgba(40,104,127,0.08); border-bottom-color: rgba(40,104,127,0.28);
+  font: 600 12px/1.4 var(--nv-font-body); color: #28687F; letter-spacing: 0; text-transform: none; white-space: nowrap;
 }
+.nv-table tbody tr:last-child td { border-bottom: 0; }
+.nv-table tbody tr { transition: background-color var(--nv-dur-fast) var(--nv-ease); }
+.nv-table tbody tr:hover td { background: #F5F8F9; }
+.nv-table--zebra tbody tr:nth-child(even) td { background: #F5F8F9; }
+.nv-table .nv-num, .nv-table th.nv-num { text-align: right; font-weight: 500; }
+.nv-table-card { padding: 0; overflow: hidden; }
+@media (max-width: 900px) { .nv-table-card { overflow-x: auto; } .nv-table-card .nv-table { min-width: 720px; } }
+.nv-empty { padding: 40px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px; color: #5E6B6C; }
 
-.nv-sidebar-nav-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
-  border-radius: 10px;
-  font-family: var(--font-raleway);
-  font-size: 14px;
-  font-weight: 500;
-  color: rgba(255,255,255,0.75);
-  text-decoration: none;
-  transition: background var(--nv-dur) var(--nv-ease),
-              color var(--nv-dur) var(--nv-ease);
-  cursor: pointer;
-  border: none;
-  background: transparent;
-  width: 100%;
-  text-align: left;
+/* ============================================================
+   TABS — Figma 185:18 · 44 high · 2px track · active 2px #80B9BF + SemiBold
+   ============================================================ */
+.nv-tabs { display: flex; flex-wrap: wrap; }
+.nv-tab {
+  min-width: 150px; height: 44px; display: inline-flex; align-items: center; justify-content: center;
+  padding: 0 16px; border: 0; background: none; border-bottom: 2px solid rgba(40,104,127,0.14);
+  font: 500 14px/1 var(--nv-font-body); color: #5E6B6C; cursor: pointer; text-decoration: none;
 }
-.nv-sidebar-nav-item:hover,
-.nv-sidebar-nav-item.active {
-  background: rgba(255,255,255,0.12);
-  color: white;
-}
-.nv-sidebar-nav-item.active {
-  background: rgba(255,255,255,0.16);
-  color: white;
-  font-weight: 600;
-}
+.nv-tab--active { border-bottom-color: #80B9BF; font-weight: 600; color: #28687F; }
 
-/* Settings sidebar submenu (Region Settings / Service Lines / User Settings)
-   — plain global rule, not styled-jsx, so it can't be lost to a
-   component-scoped hot-reload miss. Every visual property that must match
-   the main nav item (.nv-sidebar-nav-item above) lives here as !important
-   for that same reason — font-size/hover previously only lived in
-   AppShell.tsx's <style jsx> and were intermittently overridden. */
-a.nv-sidebar-subnav-item,
-a.nv-sidebar-subnav-item:visited {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  padding: 10px 16px !important;
-  border-radius: 10px !important;
-  font-family: var(--font-raleway) !important;
-  font-size: 14px !important;
-  font-weight: 500 !important;
-  color: rgba(255,255,255,0.85) !important;
-  text-decoration: none !important;
-  background: transparent !important;
-  transition: background 180ms ease, color 180ms ease !important;
+/* ============================================================
+   MODAL — browser-app-shell §9
+   overlay rgba(30,40,45,.45) · white panel · radius 14 · max-width 520
+   (confirm 440) · header 24 28 + hairline · title Comfortaa 500 22 ·
+   body 24 · footer right-aligned, gap 12 · close 32×32 ghost (xmark 14)
+   ============================================================ */
+.nv-modal-overlay, .nv-confirm-overlay {
+  position: fixed; inset: 0; z-index: 300; background: var(--nv-overlay);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
 }
-a.nv-sidebar-subnav-item:hover {
-  background: rgba(255,255,255,0.12) !important;
-  color: #ffffff !important;
+.nv-modal, .nv-confirm-modal {
+  width: 100%; max-width: 520px; max-height: calc(100vh - 48px); overflow-y: auto;
+  background: #FFFFFF; border-radius: 14px; box-shadow: none;
 }
-a.nv-sidebar-subnav-item.nv-sidebar-subnav-item--active {
-  background: rgba(255,255,255,0.16) !important;
-  color: #ffffff !important;
-  font-weight: 600 !important;
+.nv-modal--confirm, .nv-confirm-modal { max-width: 440px; }
+.nv-modal__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 24px 28px; border-bottom: 1px solid var(--nv-border-hair); }
+.nv-modal__title, .nv-confirm-modal h3 { font: 500 22px/1.25 var(--nv-font-display); color: #28687F; letter-spacing: 0; margin: 0; }
+.nv-modal__body { padding: 24px 28px; display: flex; flex-direction: column; gap: 16px; }
+.nv-modal__footer, .nv-confirm-actions { display: flex; justify-content: flex-end; gap: 12px; }
+.nv-modal__footer { padding: 16px 28px 24px; }
+.nv-modal__close {
+  width: 32px; height: 32px; border-radius: 6px; border: 0; background: none; cursor: pointer;
+  display: grid; place-content: center;
 }
+.nv-modal__close:hover { background: rgba(40,104,127,0.08); }
+.nv-modal__close img { width: 14px; height: 14px; }
+/* Simple confirm dialog (single body block): header / body / actions inline */
+.nv-confirm-modal { padding: 28px; }
+.nv-confirm-modal h3 { margin-bottom: 12px; }
+.nv-confirm-modal p { margin: 0 0 24px; font: 400 14px/1.6 var(--nv-font-body); color: #5E6B6C; }
 
-/* Step indicator */
+/* ============================================================
+   WIZARD STEPPER — browser-app-shell §10
+   28px circles · Raleway SemiBold 12 · 2px ring #5E6B6C → active #28687F
+   fill → done #4A8F6E fill + check · label Raleway 500 13 · 1px connectors.
+   Class names match the wizard's JSX (nv-step--active / --done / __number) —
+   the old CSS used .active / .completed / __num, which never matched.
+   ============================================================ */
+.nv-steps { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 0; margin-bottom: 32px; }
 .nv-step {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-family: var(--font-comfortaa);
-  font-weight: 600;
-  color: var(--nv-text-muted);
+  display: inline-flex; align-items: center; gap: 8px; background: none; border: 0; padding: 0;
+  font: 500 13px/1.3 var(--nv-font-body); color: #5E6B6C; cursor: default; white-space: nowrap;
 }
-.nv-step__num {
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  border: 2px solid currentColor;
+.nv-step__number, .nv-step__num {
+  width: 28px; height: 28px; flex: 0 0 28px; border-radius: 50%;
+  display: inline-grid; place-content: center;
+  font: 600 12px/1 var(--nv-font-body); border: 2px solid #5E6B6C; color: #5E6B6C; background: #FFFFFF;
 }
-.nv-step.active { color: var(--nv-blue-slate); }
-.nv-step.active .nv-step__num {
-  background: var(--nv-blue-slate);
-  border-color: var(--nv-blue-slate);
-  color: white;
+.nv-step__label { font: 500 13px/1.3 var(--nv-font-body); }
+.nv-step--active, .nv-step.active { color: #28687F; }
+.nv-step--active .nv-step__number, .nv-step.active .nv-step__num { background: #28687F; border-color: #28687F; color: #FFFFFF; }
+.nv-step--done, .nv-step.completed { color: #414B4C; }
+.nv-step--done .nv-step__number, .nv-step.completed .nv-step__num { background: #4A8F6E; border-color: #4A8F6E; color: #FFFFFF; }
+.nv-step__connector { width: 24px; height: 1px; background: rgba(40,104,127,0.12); margin: 0 12px; flex: 0 0 24px; }
+
+/* ============================================================
+   SPINNER — was referenced by the wizard but never defined.
+   Duotone-thin spinner-third, 32px, rotating.
+   ============================================================ */
+.nv-spinner {
+  width: 32px; height: 32px; display: inline-block;
+  background: url('/icons/spinner-third.svg') center / contain no-repeat;
+  animation: nv-spin 0.9s linear infinite;
 }
-.nv-step.completed { color: var(--nv-success); }
-.nv-step.completed .nv-step__num {
-  background: var(--nv-success);
-  border-color: var(--nv-success);
-  color: white;
+.nv-spinner--sm { width: 16px; height: 16px; }
+@keyframes nv-spin { to { transform: rotate(360deg); } }
+
+/* ============================================================
+   ICON CONTAINER — Figma 191:98 · 2× icon · radius 6 · #28687F @8%
+   ============================================================ */
+.nv-iconbox { display: inline-grid; place-content: center; border-radius: 6px; background: rgba(40,104,127,0.08); flex: 0 0 auto; }
+.nv-iconbox--16 { width: 32px; height: 32px; } .nv-iconbox--16 img { width: 16px; height: 16px; }
+.nv-iconbox--20 { width: 40px; height: 40px; } .nv-iconbox--20 img { width: 20px; height: 20px; }
+.nv-iconbox--24 { width: 48px; height: 48px; } .nv-iconbox--24 img { width: 24px; height: 24px; }
+.nv-iconbox--32 { width: 64px; height: 64px; } .nv-iconbox--32 img { width: 32px; height: 32px; }
+
+/* ============================================================
+   APP SHELL — sidebar law (dimensions.md §2/§2b/§2c + Figma sidebar item 186:63)
+   Lives here (not styled-jsx) so it can't be lost on hot reload.
+   260px expanded / 64px collapsed — the only two widths. #28687F. Logo 60.
+   Items 44 high · radius 6 · padding 0 16 · gap 12 · icon 18 white ·
+   Raleway Medium 14 white@78% · hover white@8% · active white@12% +
+   3px #80B9BF left bar + SemiBold. No lists, no bullets, no all-caps.
+   ============================================================ */
+.nv-shell { display: flex; min-height: 100vh; background: var(--nv-surface-page); }
+.nv-sidebar {
+  position: sticky; top: 0; height: 100vh; flex: 0 0 var(--sidebar-w); width: var(--sidebar-w);
+  background: var(--nv-surface-sidebar); color: #FFFFFF;
+  display: flex; flex-direction: column; overflow: hidden; z-index: 100;
+  transition: width var(--nv-dur) var(--nv-ease), flex-basis var(--nv-dur) var(--nv-ease);
+}
+.nv-sidebar--collapsed { flex-basis: var(--sidebar-w-collapsed); width: var(--sidebar-w-collapsed); }
+.nv-sidebar__brand {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); flex: 0 0 auto;
+}
+.nv-sidebar__logo { height: 60px; width: auto; display: block; }
+.nv-sidebar__toggle {
+  width: 36px; height: 36px; flex: 0 0 36px; border-radius: 8px; border: 0; background: none;
+  display: grid; place-content: center; cursor: pointer;
+  transition: background-color var(--nv-dur-fast) var(--nv-ease);
+}
+.nv-sidebar__toggle:hover { background: rgba(255,255,255,0.10); }
+.nv-sidebar__toggle img { width: 14px; height: 14px; filter: brightness(0) invert(1); opacity: 0.7; }
+.nv-sidebar__nav {
+  flex: 1; overflow-y: auto; overflow-x: hidden; padding: 16px 12px;
+  display: flex; flex-direction: column; gap: 4px; scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.15) transparent;
+}
+.nv-sidebar__nav::-webkit-scrollbar { width: 4px; }
+.nv-sidebar__nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+.nv-navgroup { display: flex; flex-direction: column; gap: 4px; }
+.nv-navrow { position: relative; }
+.nv-navitem {
+  display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 16px 0 13px;
+  border-radius: 6px; border-left: 3px solid transparent;
+  font: 500 14px/1 var(--nv-font-body); color: rgba(255,255,255,0.78); text-decoration: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: background-color var(--nv-dur-fast) var(--nv-ease), color var(--nv-dur-fast) var(--nv-ease);
+}
+.nv-navitem:visited { color: rgba(255,255,255,0.78); }
+.nv-navitem__icon { width: 18px; height: 18px; flex: 0 0 18px; filter: brightness(0) invert(1); }
+.nv-navitem__label { overflow: hidden; text-overflow: ellipsis; }
+.nv-navitem:hover { background: rgba(255,255,255,0.08); color: #FFFFFF; }
+.nv-navitem--active, .nv-navitem--active:visited { background: rgba(255,255,255,0.12); border-left-color: #80B9BF; color: #FFFFFF; font-weight: 600; }
+.nv-navitem--has-children { padding-right: 48px; }
+.nv-navrow__toggle {
+  position: absolute; top: 6px; right: 6px; width: 32px; height: 32px; border-radius: 6px; border: 0; background: none;
+  display: grid; place-content: center; cursor: pointer;
+  transition: background-color var(--nv-dur-fast) var(--nv-ease);
+}
+.nv-navrow__toggle:hover { background: rgba(255,255,255,0.10); }
+.nv-navrow__toggle img { width: 14px; height: 14px; filter: brightness(0) invert(1); opacity: 0.7; transform: rotate(-90deg); transition: transform var(--nv-dur) var(--nv-ease); }
+.nv-navrow__toggle--open img { transform: rotate(0deg); }
+/* Sub-items: text only, indented 44, same type */
+.nv-subnav { display: flex; flex-direction: column; gap: 4px; }
+.nv-navitem--sub { padding-left: 41px; } /* 44 inset incl. the 3px bar slot */
+.nv-sidebar__badge {
+  margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;
+  background: #80B9BF; color: #28687F; font: 600 11px/20px var(--nv-font-body); text-align: center;
+}
+/* Account block */
+.nv-sidebar__footer { padding: 16px; border-top: 1px solid rgba(255,255,255,0.1); flex: 0 0 auto; display: flex; flex-direction: column; gap: 12px; }
+.nv-account { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.nv-account__avatar {
+  width: 32px; height: 32px; flex: 0 0 32px; border-radius: 50%;
+  background: #80B9BF; color: #28687F; font: 700 12px/1 var(--nv-font-display);
+  display: grid; place-content: center;
+}
+.nv-account__info { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+.nv-account__name  { font: 600 13px/1.3 var(--nv-font-body); color: #FFFFFF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nv-account__email { font: 400 12px/1.3 var(--nv-font-body); color: rgba(255,255,255,0.5); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nv-signout {
+  display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 8px; margin: 0 -8px;
+  border: 0; border-radius: 6px; background: none; cursor: pointer;
+  font: 400 14px/1 var(--nv-font-body); color: rgba(255,255,255,0.78);
+  transition: background-color var(--nv-dur-fast) var(--nv-ease), color var(--nv-dur-fast) var(--nv-ease);
+}
+.nv-signout:hover:not(:disabled) { background: rgba(255,255,255,0.08); color: #FFFFFF; }
+.nv-signout:disabled { cursor: wait; }
+.nv-signout img { width: 16px; height: 16px; filter: brightness(0) invert(1); opacity: 0.78; }
+.nv-sidebar__copyright { font: 400 10px/1.4 var(--nv-font-body); color: rgba(255,255,255,0.35); white-space: nowrap; }
+/* Collapsed rail — white icon mark 32 · 36×36 buttons · active @15% */
+.nv-sidebar--collapsed .nv-sidebar__brand { flex-direction: column; justify-content: center; padding: 20px 14px; gap: 12px; }
+.nv-sidebar--collapsed .nv-sidebar__nav { padding: 16px 14px; align-items: center; }
+.nv-sidebar--collapsed .nv-navitem { width: 36px; height: 36px; padding: 0; justify-content: center; border-left: 0; border-radius: 8px; }
+.nv-sidebar--collapsed .nv-navitem--active { background: rgba(255,255,255,0.15); }
+.nv-sidebar--collapsed .nv-navitem__label, .nv-sidebar--collapsed .nv-navrow__toggle,
+.nv-sidebar--collapsed .nv-subnav, .nv-sidebar--collapsed .nv-sidebar__badge,
+.nv-sidebar--collapsed .nv-account__info, .nv-sidebar--collapsed .nv-signout__label,
+.nv-sidebar--collapsed .nv-sidebar__copyright { display: none; }
+.nv-sidebar--collapsed .nv-sidebar__footer { padding: 16px 14px; align-items: center; }
+.nv-sidebar--collapsed .nv-signout { width: 36px; height: 36px; padding: 0; margin: 0; justify-content: center; }
+/* Main column */
+.nv-main { flex: 1; min-width: 0; }
+/* Mobile — ≤900px: off-canvas sidebar + 36×36 toggle (the rail is desktop-only) */
+.nv-mobile-toggle { display: none; }
+.nv-sidebar-scrim { display: none; }
+@media (max-width: 900px) {
+  .nv-sidebar, .nv-sidebar--collapsed {
+    position: fixed; inset: 0 auto 0 0; height: 100vh; width: var(--sidebar-w); flex-basis: var(--sidebar-w);
+    transform: translateX(-100%); transition: transform .25s var(--nv-ease); z-index: 250;
+  }
+  .nv-sidebar.nv-open { transform: none; }
+  .nv-sidebar__toggle { display: none; }
+  /* Below the breakpoint the sidebar is only ever the full 260 — undo rail rules */
+  .nv-sidebar--collapsed .nv-navitem { width: auto; height: 44px; padding: 0 16px 0 13px; justify-content: flex-start; border-left: 3px solid transparent; border-radius: 6px; }
+  .nv-sidebar--collapsed .nv-navitem--active { background: rgba(255,255,255,0.12); border-left-color: #80B9BF; }
+  .nv-sidebar--collapsed .nv-navitem__label, .nv-sidebar--collapsed .nv-account__info,
+  .nv-sidebar--collapsed .nv-signout__label, .nv-sidebar--collapsed .nv-sidebar__copyright { display: revert; }
+  .nv-sidebar--collapsed .nv-sidebar__brand { flex-direction: row; justify-content: space-between; padding: 20px; }
+  .nv-sidebar--collapsed .nv-sidebar__nav { padding: 16px 12px; align-items: stretch; }
+  .nv-sidebar--collapsed .nv-sidebar__footer { padding: 16px; align-items: stretch; }
+  .nv-sidebar--collapsed .nv-signout { width: auto; height: 36px; padding: 0 8px; margin: 0 -8px; justify-content: flex-start; }
+  .nv-mobile-toggle {
+    display: grid; place-content: center; position: fixed; top: 12px; left: 12px; z-index: 200;
+    width: 36px; height: 36px; border-radius: 8px; border: 0; background: #28687F; cursor: pointer;
+  }
+  .nv-mobile-toggle img { width: 16px; height: 16px; filter: brightness(0) invert(1); }
+  .nv-sidebar-scrim { display: block; position: fixed; inset: 0; z-index: 240; background: var(--nv-overlay); }
 }
 
 /* Animations */
@@ -359,7 +682,9 @@ a.nv-sidebar-subnav-item.nv-sidebar-subnav-item--active {
   box-sizing: border-box; width: 210mm; height: 297mm; padding: 15mm 14mm;
   background: white; color: var(--nv-text-body); font-family: var(--font-raleway), Arial, sans-serif;
   font-size: 13px; line-height: 1.7; flex-shrink: 0;
-  box-shadow: 0 0 0 1px #d1d5db, 0 3px 10px rgba(0,0,0,.12);
+  /* Viewer chrome only (print-rules.css strips it for PDF): a brand hairline
+     instead of the old grey outline + drop shadow — Figma surfaces carry no shadows. */
+  box-shadow: 0 0 0 1px var(--nv-border-hair);
   overflow: auto;
 }
 .a4-sheet p { margin: 0 0 14px; }
@@ -372,4 +697,4 @@ a.nv-sidebar-subnav-item.nv-sidebar-subnav-item--active {
 .a4-sheet li { margin-bottom: 4px; }
 .a4-sheet--cover { padding: 0; }
 .a4-sheet .doc-cover { margin: 0; width: 210mm; max-width: none; height: 297mm; min-height: 0; box-shadow: none; border-radius: 0; }
-.a4-saved-pages { display: flex; flex-direction: column; align-items: center; gap: 40px; padding: 24px 16px; background: #e5e7eb; }
+.a4-saved-pages { display: flex; flex-direction: column; align-items: center; gap: 40px; padding: 24px 16px; background: var(--nv-platinum); }

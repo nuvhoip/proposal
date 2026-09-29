@@ -305,7 +305,7 @@ export default function BodyConfigurationPage() {
 
   return (
     <div className="nv-card bc-card">
-      <h2 className="sync-card__title">Body Configuration</h2>
+      <h2 className="sync-card__title">Body configuration</h2>
       <p className="sync-card__desc">
         Configure the main service-line categories offered on Step 2 (Services) when creating a new
         proposal. Rename, reorder, deactivate, or delete a category — deactivated categories stop
@@ -322,8 +322,8 @@ export default function BodyConfigurationPage() {
             <div key={cat.code} className="bc-row-group">
               <div className={`bc-row ${cat.active ? '' : 'bc-row--inactive'}`}>
                 <div className="bc-row__order">
-                  <button type="button" className="bc-order-btn" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Move up">▲</button>
-                  <button type="button" className="bc-order-btn" disabled={i === categories.length - 1} onClick={() => move(i, 1)} aria-label="Move down">▼</button>
+                  <button type="button" className="bc-order-btn" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Move up">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/angle-up.svg" width={12} height={12} alt="" className="nv-icon-inline" /></button>
+                  <button type="button" className="bc-order-btn" disabled={i === categories.length - 1} onClick={() => move(i, 1)} aria-label="Move down">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/angle-down.svg" width={12} height={12} alt="" className="nv-icon-inline" /></button>
                 </div>
 
                 <span className="bc-row__code" title="Stable code — used internally, not editable">{cat.code}</span>
@@ -379,7 +379,7 @@ export default function BodyConfigurationPage() {
               {expandedCode === cat.code && (
                 <div className="scope-panel">
                   <p className="scope-panel__hint">
-                    Default Scope of Work for <strong>{cat.label}</strong> — copied onto Step 3 (Scope) of a
+                    Default scope of work for <strong>{cat.label}</strong> — copied onto Step 3 (Scope) of a
                     new proposal whenever this service line is added on Step 2. Editing it here only affects
                     proposals created afterward.
                   </p>
@@ -393,9 +393,9 @@ export default function BodyConfigurationPage() {
                       <div className="scope-section__header">
                         <div className="scope-order">
                           <button type="button" className="bc-order-btn" disabled={si === 0}
-                            onClick={() => moveScopeSection(si, -1)} aria-label="Move section up">▲</button>
+                            onClick={() => moveScopeSection(si, -1)} aria-label="Move section up">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/angle-up.svg" width={12} height={12} alt="" className="nv-icon-inline" /></button>
                           <button type="button" className="bc-order-btn" disabled={si === scopeDraft.length - 1}
-                            onClick={() => moveScopeSection(si, 1)} aria-label="Move section down">▼</button>
+                            onClick={() => moveScopeSection(si, 1)} aria-label="Move section down">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/angle-down.svg" width={12} height={12} alt="" className="nv-icon-inline" /></button>
                         </div>
                         <input
                           className="nv-input scope-section__heading"
@@ -405,7 +405,7 @@ export default function BodyConfigurationPage() {
                         />
                         <button type="button" className="nv-btn nv-btn--ghost nv-btn--sm bc-delete"
                           onClick={() => removeScopeSection(section.id)}>
-                          Remove Section
+                          Remove section
                         </button>
                       </div>
 
@@ -414,9 +414,9 @@ export default function BodyConfigurationPage() {
                           <div key={item.id} className="scope-item">
                             <div className="scope-order">
                               <button type="button" className="bc-order-btn" disabled={ii === 0}
-                                onClick={() => moveScopeItem(section.id, ii, -1)} aria-label="Move bullet up">▲</button>
+                                onClick={() => moveScopeItem(section.id, ii, -1)} aria-label="Move bullet up">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/angle-up.svg" width={12} height={12} alt="" className="nv-icon-inline" /></button>
                               <button type="button" className="bc-order-btn" disabled={ii === section.items.length - 1}
-                                onClick={() => moveScopeItem(section.id, ii, 1)} aria-label="Move bullet down">▼</button>
+                                onClick={() => moveScopeItem(section.id, ii, 1)} aria-label="Move bullet down">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/angle-down.svg" width={12} height={12} alt="" className="nv-icon-inline" /></button>
                             </div>
                             <textarea
                               className="nv-input scope-item__text"
@@ -433,7 +433,7 @@ export default function BodyConfigurationPage() {
                         ))}
                         <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm"
                           onClick={() => addScopeItem(section.id)}>
-                          + Add Bullet
+                          {/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/plus.svg" width={14} height={14} alt="" className="nv-icon-inline" /> Add bullet
                         </button>
                       </div>
                     </div>
@@ -441,13 +441,13 @@ export default function BodyConfigurationPage() {
 
                   <div className="scope-panel__actions">
                     <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm" onClick={addScopeSection}>
-                      + Add Section
+                      {/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/plus.svg" width={14} height={14} alt="" className="nv-icon-inline" /> Add section
                     </button>
                     <button type="button" className="nv-btn nv-btn--solid nv-btn--sm"
                       onClick={() => saveScope(cat.code)} disabled={scopeSaving}>
                       {scopeSaving ? 'Saving…' : 'Save Scope of Work'}
                     </button>
-                    {scopeSaved && <span className="scope-panel__saved">Saved ✓</span>}
+                    {scopeSaved && <span className="scope-panel__saved">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/check.svg" width={12} height={12} alt="" className="nv-icon-inline" /> Saved</span>}
                   </div>
                   {scopeError && <div className="bc-row__error" style={{ position: 'static' }}>{scopeError}</div>}
                 </div>
@@ -456,7 +456,7 @@ export default function BodyConfigurationPage() {
               {expandedFootnotesCode === cat.code && (
                 <div className="footnotes-panel">
                   <p className="scope-panel__hint">
-                    Default Small Print / Footnotes for <strong>{cat.label}</strong> — copied onto Step 4
+                    Default small print / footnotes for <strong>{cat.label}</strong> — copied onto Step 4
                     (Pricing) of a new proposal whenever this service line is added on Step 2, alongside
                     every other selected service&apos;s footnotes in one combined, unlabelled list. Editing it
                     here only affects proposals created afterward.
@@ -471,9 +471,9 @@ export default function BodyConfigurationPage() {
                       <div key={item.id} className="footnotes-item">
                         <div className="scope-order">
                           <button type="button" className="bc-order-btn" disabled={ii === 0}
-                            onClick={() => moveFootnoteItem(ii, -1)} aria-label="Move footnote up">▲</button>
+                            onClick={() => moveFootnoteItem(ii, -1)} aria-label="Move footnote up">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/angle-up.svg" width={12} height={12} alt="" className="nv-icon-inline" /></button>
                           <button type="button" className="bc-order-btn" disabled={ii === footnotesDraft.length - 1}
-                            onClick={() => moveFootnoteItem(ii, 1)} aria-label="Move footnote down">▼</button>
+                            onClick={() => moveFootnoteItem(ii, 1)} aria-label="Move footnote down">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/angle-down.svg" width={12} height={12} alt="" className="nv-icon-inline" /></button>
                         </div>
                         <textarea
                           className="nv-input footnotes-item__text"
@@ -492,13 +492,13 @@ export default function BodyConfigurationPage() {
 
                   <div className="scope-panel__actions">
                     <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm" onClick={addFootnoteItem}>
-                      + Add Footnote
+                      {/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/plus.svg" width={14} height={14} alt="" className="nv-icon-inline" /> Add footnote
                     </button>
                     <button type="button" className="nv-btn nv-btn--solid nv-btn--sm"
                       onClick={() => saveFootnotes(cat.code)} disabled={footnotesSaving}>
-                      {footnotesSaving ? 'Saving…' : 'Save Footnotes'}
+                      {footnotesSaving ? 'Saving…' : 'Save footnotes'}
                     </button>
-                    {footnotesSaved && <span className="scope-panel__saved">Saved ✓</span>}
+                    {footnotesSaved && <span className="scope-panel__saved">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/check.svg" width={12} height={12} alt="" className="nv-icon-inline" /> Saved</span>}
                   </div>
                   {footnotesError && <div className="bc-row__error" style={{ position: 'static' }}>{footnotesError}</div>}
                 </div>
@@ -508,7 +508,7 @@ export default function BodyConfigurationPage() {
         </div>
       )}
 
-      <h3 className="bc-add-title">Add Service Line</h3>
+      <h3 className="bc-add-title">Add service line</h3>
       <div className="bc-add-form">
         <input className="nv-input" value={newLabel} onChange={e => setNewLabel(e.target.value)}
           placeholder="Label — e.g. Consulting" />
@@ -517,7 +517,7 @@ export default function BodyConfigurationPage() {
         <input className="nv-input" value={newDesc} onChange={e => setNewDesc(e.target.value)}
           placeholder="Short description (optional)" />
         <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm" onClick={handleAdd} disabled={adding}>
-          {adding ? 'Adding…' : '+ Add Service Line'}
+          {!adding && <img src="/icons/plus.svg" width={14} height={14} alt="" className="nv-icon-inline" />}{adding ? 'Adding…' : 'Add service line'}
         </button>
       </div>
       {addError && <div className="sync-card__result sync-card__result--error">{addError}</div>}
@@ -526,7 +526,7 @@ export default function BodyConfigurationPage() {
         .bc-card {
           max-width: 760px;
           width: 100%;
-          padding: 28px;
+          padding: 24px;
           display: flex;
           flex-direction: column;
           gap: 6px;
@@ -540,7 +540,7 @@ export default function BodyConfigurationPage() {
           gap: 10px;
           padding: 12px;
           border: 1px solid var(--nv-border-hair);
-          border-radius: 8px;
+          border-radius: 6px;
           background: rgba(40,104,127,0.03);
           position: relative;
         }
@@ -558,7 +558,7 @@ export default function BodyConfigurationPage() {
           border-radius: 6px;
           padding: 3px 8px;
           font-size: 11px;
-          font-weight: 700;
+          font-weight: 600;
           letter-spacing: 0.04em;
           align-self: center;
         }
@@ -568,7 +568,7 @@ export default function BodyConfigurationPage() {
         .bc-row__toolbar {
           display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
           margin-top: 6px; padding: 8px 12px;
-          border: 1px solid var(--nv-border-hair); border-radius: 8px;
+          border: 1px solid var(--nv-border-hair); border-radius: 6px;
           background: rgba(40,104,127,0.015);
         }
         .bc-active-toggle {
@@ -580,7 +580,7 @@ export default function BodyConfigurationPage() {
           position: absolute; bottom: -18px; left: 12px; font-size: 11px; color: var(--nv-error);
         }
         .bc-add-title {
-          font-family: var(--font-comfortaa); font-size: 14px; font-weight: 700;
+          font-family: var(--nv-font-body); font-size: 14px; font-weight: 600;
           color: var(--nv-text-heading); margin: 12px 0 4px;
         }
         .bc-add-form {
@@ -589,7 +589,7 @@ export default function BodyConfigurationPage() {
           gap: 8px;
           align-items: center;
         }
-        @media (max-width: 760px) { .bc-add-form { grid-template-columns: 1fr; } }
+        @media (max-width: 900px) { .bc-add-form { grid-template-columns: 1fr; } }
 
         .scope-panel {
           border: 1px solid var(--nv-border-hair);
@@ -609,9 +609,9 @@ export default function BodyConfigurationPage() {
 
         .scope-section {
           border: 1px solid var(--nv-border-hair);
-          border-radius: 8px;
+          border-radius: 6px;
           padding: 10px;
-          background: var(--nv-surface, #fff);
+          background: var(--nv-surface-card);
           display: flex;
           flex-direction: column;
           gap: 8px;

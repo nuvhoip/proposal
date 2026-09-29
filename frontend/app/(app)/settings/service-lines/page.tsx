@@ -136,7 +136,7 @@ export default function ServiceLinesPage() {
 
   return (
     <div className="nv-card sl-card">
-      <h2 className="sync-card__title">Service Lines</h2>
+      <h2 className="sync-card__title">Service lines</h2>
       <p className="sync-card__desc">
         Configure the main service-line categories offered on Step 2 (Services) when creating a new
         proposal. Rename, reorder, deactivate, or delete a category — deactivated categories stop
@@ -152,8 +152,8 @@ export default function ServiceLinesPage() {
           {categories.map((cat, i) => (
             <div key={cat.code} className={`sl-row ${cat.active ? '' : 'sl-row--inactive'}`}>
               <div className="sl-row__order">
-                <button type="button" className="sl-order-btn" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Move up">▲</button>
-                <button type="button" className="sl-order-btn" disabled={i === categories.length - 1} onClick={() => move(i, 1)} aria-label="Move down">▼</button>
+                <button type="button" className="sl-order-btn" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Move up">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/angle-up.svg" width={12} height={12} alt="" className="nv-icon-inline" /></button>
+                <button type="button" className="sl-order-btn" disabled={i === categories.length - 1} onClick={() => move(i, 1)} aria-label="Move down">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/angle-down.svg" width={12} height={12} alt="" className="nv-icon-inline" /></button>
               </div>
 
               <span className="sl-row__code" title="Stable code — used internally, not editable">{cat.code}</span>
@@ -191,7 +191,7 @@ export default function ServiceLinesPage() {
         </div>
       )}
 
-      <h3 className="sl-add-title">Add Service Line</h3>
+      <h3 className="sl-add-title">Add service line</h3>
       <div className="sl-add-form">
         <input className="nv-input" value={newLabel} onChange={e => setNewLabel(e.target.value)}
           placeholder="Label — e.g. Consulting" />
@@ -200,7 +200,7 @@ export default function ServiceLinesPage() {
         <input className="nv-input" value={newDesc} onChange={e => setNewDesc(e.target.value)}
           placeholder="Short description (optional)" />
         <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm" onClick={handleAdd} disabled={adding}>
-          {adding ? 'Adding…' : '+ Add Service Line'}
+          {!adding && <img src="/icons/plus.svg" width={14} height={14} alt="" className="nv-icon-inline" />}{adding ? 'Adding…' : 'Add service line'}
         </button>
       </div>
       {addError && <div className="sync-card__result sync-card__result--error">{addError}</div>}
@@ -209,7 +209,7 @@ export default function ServiceLinesPage() {
         .sl-card {
           max-width: 760px;
           width: 100%;
-          padding: 28px;
+          padding: 24px;
           display: flex;
           flex-direction: column;
           gap: 6px;
@@ -222,7 +222,7 @@ export default function ServiceLinesPage() {
           gap: 10px;
           padding: 12px;
           border: 1px solid var(--nv-border-hair);
-          border-radius: 8px;
+          border-radius: 6px;
           background: rgba(40,104,127,0.03);
           position: relative;
         }
@@ -240,7 +240,7 @@ export default function ServiceLinesPage() {
           border-radius: 6px;
           padding: 3px 8px;
           font-size: 11px;
-          font-weight: 700;
+          font-weight: 600;
           letter-spacing: 0.04em;
           align-self: center;
         }
@@ -256,7 +256,7 @@ export default function ServiceLinesPage() {
           position: absolute; bottom: -18px; left: 12px; font-size: 11px; color: var(--nv-error);
         }
         .sl-add-title {
-          font-family: var(--font-comfortaa); font-size: 14px; font-weight: 700;
+          font-family: var(--nv-font-body); font-size: 14px; font-weight: 600;
           color: var(--nv-text-heading); margin: 12px 0 4px;
         }
         .sl-add-form {
@@ -265,7 +265,7 @@ export default function ServiceLinesPage() {
           gap: 8px;
           align-items: center;
         }
-        @media (max-width: 760px) { .sl-add-form { grid-template-columns: 1fr; } }
+        @media (max-width: 900px) { .sl-add-form { grid-template-columns: 1fr; } }
       `}</style>
     </div>
   )

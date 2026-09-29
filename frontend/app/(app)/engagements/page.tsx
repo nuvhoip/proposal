@@ -19,7 +19,7 @@ export default function EngagementsPage() {
 
         <h1 className="coming-soon__heading">Engagements</h1>
 
-        <div className="coming-soon__badge">Coming Soon</div>
+        <div className="coming-soon__badge">Coming soon</div>
 
         <p className="coming-soon__body">
           Track every client relationship from first contact through to contract renewal.
@@ -27,7 +27,7 @@ export default function EngagementsPage() {
         </p>
 
         <Link href="/dashboard" className="nv-btn nv-btn--outlined nv-btn--md">
-          ← Back to Dashboard
+          {/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/arrow-left.svg" width={14} height={14} alt="" className="nv-icon-inline" /> Back to dashboard
         </Link>
       </div>
 
@@ -82,9 +82,7 @@ export default function EngagementsPage() {
           border: 1px solid rgba(128, 185, 191, 0.3);
           color: var(--nv-blue-slate);
           font-size: 12px;
-          font-weight: 700;
-          letter-spacing: 0.1em;
-          text-transform: uppercase;
+          font-weight: 600;
         }
 
         .coming-soon__body {

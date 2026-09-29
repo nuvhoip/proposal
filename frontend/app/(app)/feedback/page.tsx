@@ -123,9 +123,9 @@ export default function FeedbackPage() {
   }
 
   return (
-    <div className="step-content feedback-page">
-      <h1 className="step-title">Feedback &amp; report an issue</h1>
-      <p className="step-desc">
+    <div className="nv-page step-content feedback-page">
+      <h1 className="nv-page-title">Feedback &amp; report an issue</h1>
+      <p className="nv-page-subtitle step-desc">
         Spotted a bug or have a suggestion about the Proposal System? Let us know below —
         this goes straight to the dev team.
       </p>
@@ -208,7 +208,7 @@ export default function FeedbackPage() {
               {files.map((f, i) => (
                 <li key={`${f.name}-${i}`} className="attachment-list__item">
                   <span>{f.name}</span>
-                  <button type="button" onClick={() => removeFile(i)} aria-label={`Remove ${f.name}`}>×</button>
+                  <button type="button" onClick={() => removeFile(i)} aria-label={`Remove ${f.name}`}>{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/xmark.svg" width={14} height={14} alt="" className="nv-icon-inline" /></button>
                 </li>
               ))}
             </ul>
@@ -229,24 +229,15 @@ export default function FeedbackPage() {
       )}
 
       <style jsx>{`
-        .feedback-page {
-          padding: 32px;
-          max-width: 720px;
-        }
+        /* Shell = global .nv-page (56/64/80); a form page reads best narrower */
+        .feedback-page { max-width: 720px; }
         /* Mirrors the wizard's runtime-injected stepStyles (.step-content /
            .step-title / .step-desc in proposals/new/page.tsx) so this
            standalone page's heading matches the rest of the app — this
            page isn't part of the wizard, so it doesn't get that
            document.head injection for free. */
         .step-content { display: flex; flex-direction: column; gap: 20px; }
-        .step-title {
-          font-family: var(--font-comfortaa);
-          font-size: 22px;
-          font-weight: 700;
-          color: var(--nv-text-heading);
-          margin-bottom: 2px;
-        }
-        .step-desc { font-size: 14px; color: var(--nv-text-muted); line-height: 1.55; }
+        .step-desc { margin-top: -12px; }
         .feedback-form {
           display: flex;
           flex-direction: column;
@@ -258,24 +249,7 @@ export default function FeedbackPage() {
           grid-template-columns: 1fr 1fr;
           gap: 16px;
         }
-        .nv-field {
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-        }
-        .nv-field__label {
-          font-size: 13px;
-          font-weight: 600;
-          color: var(--nv-text-heading);
-        }
-        .nv-field__hint {
-          font-size: 12px;
-          color: var(--nv-text-muted);
-        }
-        .nv-field__error {
-          font-size: 12px;
-          color: var(--nv-error);
-        }
+        /* .nv-field / __label / __hint / __error come from the global Figma field styles */
         .feedback-textarea {
           resize: vertical;
           font-family: inherit;
@@ -322,7 +296,7 @@ export default function FeedbackPage() {
           gap: 16px;
           align-items: flex-start;
         }
-        @media (max-width: 640px) {
+        @media (max-width: 900px) {
           .form-grid { grid-template-columns: 1fr; }
         }
       `}</style>

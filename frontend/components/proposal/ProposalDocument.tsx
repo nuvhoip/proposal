@@ -178,40 +178,15 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
   // cover unchanged below, so existing proposals are unaffected.
   const { template: brandedTemplate, photoUrl: brandedPhotoUrl } = parseCoverUrl(model.coverUrl || '')
 
-  return (
-    <div className="doc-preview" id="proposal-print-root">
-      {savedPages ? <>
-        <A4Pages document={savedPages} />
-        {/* NUVCL fix (2026-09-10): beforeAppendix (the public sign page's
-            "Accept This Proposal" form) and the client-acceptance note used
-            to render bare here, as a direct sibling of <A4Pages>'s own
-            .a4-saved-pages wrapper — inheriting the full width of
-            .doc-preview/.public-doc-wrap instead of the document's real
-            210mm page width, and with none of .doc-flow's white
-            background/padding/shadow, so it looked like a plain, overly
-            wide strip of text below the actual A4 pages rather than another
-            page of the document. This only ever showed up once a proposal
-            had saved A4-editor page data (the `savedPages` branch) — the
-            classic branch below already wraps the same content in a
-            .doc-flow card via the sectionPages box-grouping logic. Reusing
-            the existing :global(.doc-flow) rule here (same white card,
-            210mm width, 15mm/14mm padding, shadow — see its definition
-            further down this file) makes both branches consistent, and it
-            already has real print/no-print handling in print-rules.css
-            (#proposal-print-root .doc-flow / .no-print), so nothing else
-            needs to change for Download PDF. */}
-        {(beforeAppendix || model.clientSignedAt) && (
-          <div className="doc-flow">
-            {beforeAppendix}
-            {model.clientSignedAt && <div className="doc-client-acceptance">
-              <h4>Client Acceptance</h4>
-              {model.clientSignatureMethod === 'draw' && model.clientSignatureDataUrl && <img src={model.clientSignatureDataUrl} alt="Client signature" className="doc-signature__img" />}
-              <strong>{model.clientSignatoryName}</strong> {model.clientSignatoryTitle}<br />
-              Signed {model.clientSignedAt}
-            </div>}
-          </div>
-        )}
-      </> : <>
+  // The cover, rendered LIVE from the model. Shared by the classic branch below
+  // and by the saved-A4-pages branch (passed to <A4Pages> as coverNode), so a
+  // cover chosen after the A4 layout was first saved still shows — the saved
+  // pages used to carry a frozen HTML snapshot of whichever cover existed at
+  // that moment (and a stripped blob: preview URL for custom uploads), which is
+  // why every later cover choice rendered blank. The cover page isn't editable
+  // in the A4 editor, so there's nothing in the snapshot worth preserving.
+  const coverNode = (
+    <>
       {/* Cover — NUVCL-102: full-bleed A4 image. The "Nuvho PTY LTD" wordmark
           and a "Date of Issue" label were never actually rendered here (both
           already live on the Letter page below); the date VALUE that was
@@ -336,6 +311,55 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
           </div>
         </div>
       )}
+    </>
+  )
+
+  return (
+    <div className="doc-preview" id="proposal-print-root">
+      {savedPages ? <>
+        {/* NUVCL fix (2026-09-10 / revised 2026-09-25): beforeAppendix (the
+            public sign page's "Accept This Proposal" form) and the
+            client-acceptance note used to render bare here, as a direct
+            sibling of <A4Pages>'s own .a4-saved-pages wrapper — inheriting
+            the full width of .doc-preview/.public-doc-wrap instead of the
+            document's real 210mm page width, and with none of .doc-flow's
+            white background/padding/shadow, so it looked like a plain,
+            overly wide strip of text below the actual A4 pages rather than
+            another page of the document. Reusing the existing
+            :global(.doc-flow) rule (same white card, 210mm width, 15mm/14mm
+            padding, shadow — see its definition further down this file)
+            makes this branch consistent with the classic one below, and it
+            already has real print/no-print handling in print-rules.css
+            (#proposal-print-root .doc-flow / .no-print), so nothing else
+            needs to change for Download PDF.
+
+            2026-09-25: it was still rendering AFTER the whole <A4Pages>
+            run — i.e. at the very bottom of the document, below the entire
+            Terms & Conditions appendix — because this branch has no section
+            items to slot it between the way the classic branch's
+            beforeAppendix/appendix box-grouping does. It's now handed to
+            A4Pages as insertBeforeTerms, which renders it right where T&C
+            begins — splitting a saved page at the T&C heading when Fee
+            Structure's table and the start of T&C share one page, so Fee
+            Structure stays wholly above the form and T&C wholly below it.
+            Falls back to appending at the end if no T&C heading is found. */}
+        <A4Pages
+          document={savedPages}
+          coverNode={coverNode}
+          insertBeforeTerms={(beforeAppendix || model.clientSignedAt) ? (
+            <div className="doc-flow">
+              {beforeAppendix}
+              {model.clientSignedAt && <div className="doc-client-acceptance">
+                <h4>Client Acceptance</h4>
+                {model.clientSignatureMethod === 'draw' && model.clientSignatureDataUrl && <img src={model.clientSignatureDataUrl} alt="Client signature" className="doc-signature__img" />}
+                <strong>{model.clientSignatoryName}</strong> {model.clientSignatoryTitle}<br />
+                Signed {model.clientSignedAt}
+              </div>}
+            </div>
+          ) : undefined}
+        />
+      </> : <>
+      {coverNode}
 
       {/* Letter — always its own printed page (page 2, right after the cover);
           see the .doc-letter print rule in globals.css for the forced

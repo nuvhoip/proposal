@@ -73,7 +73,7 @@ export default function RegionSettingsPage() {
 
   return (
     <div className="nv-card region-card">
-      <h2 className="sync-card__title">Region Settings</h2>
+      <h2 className="sync-card__title">Region settings</h2>
       <p className="sync-card__desc">
         Configure Nuvho&rsquo;s address, about-us text, legal footer, currency, and default Terms &amp;
         Conditions per operating region. These are applied automatically onto a new proposal&rsquo;s
@@ -97,7 +97,7 @@ export default function RegionSettingsPage() {
         <>
           <div className="region-form-grid">
             <label className="region-field">
-              <span className="region-field__label">Nuvho Company Name</span>
+              <span className="region-field__label">Nuvho company name</span>
               <input className="nv-input" type="text"
                 value={activeRegionSettings.companyName}
                 onChange={e => updateActiveRegion({ companyName: e.target.value })}
@@ -108,7 +108,7 @@ export default function RegionSettingsPage() {
               </span>
             </label>
             <label className="region-field">
-              <span className="region-field__label">Nuvho Address</span>
+              <span className="region-field__label">Nuvho address</span>
               <textarea className="nv-input region-textarea"
                 value={activeRegionSettings.address}
                 onChange={e => updateActiveRegion({ address: e.target.value })}
@@ -125,7 +125,7 @@ export default function RegionSettingsPage() {
               </span>
             </label>
             <label className="region-field">
-              <span className="region-field__label">Legal Footer</span>
+              <span className="region-field__label">Legal footer</span>
               <textarea className="nv-input region-textarea"
                 value={activeRegionSettings.footerText}
                 onChange={e => updateActiveRegion({ footerText: e.target.value })}
@@ -140,7 +140,7 @@ export default function RegionSettingsPage() {
             </label>
           </div>
 
-          <h3 className="region-clauses-title">Default Terms &amp; Conditions</h3>
+          <h3 className="region-clauses-title">Default terms &amp; conditions</h3>
           <RegionClausesEditor
             clauses={activeRegionSettings.clauses}
             onChange={clauses => updateActiveRegion({ clauses })}
@@ -164,14 +164,14 @@ export default function RegionSettingsPage() {
         .region-card {
           max-width: 720px;
           width: 100%;
-          padding: 28px;
+          padding: 24px;
           display: flex;
           flex-direction: column;
           gap: 14px;
         }
         .region-tabs { display: flex; gap: 6px; margin: 8px 0 20px; }
         .region-tab {
-          padding: 8px 18px; border-radius: 999px; border: 1.5px solid var(--nv-border);
+          padding: 8px 18px; border-radius: 999px; border: 1px solid var(--nv-border-hair);
           background: none; font-size: 13px; font-weight: 600; color: var(--nv-text-muted); cursor: pointer;
         }
         .region-tab--active {
@@ -185,7 +185,7 @@ export default function RegionSettingsPage() {
         .region-textarea--tall { min-height: 110px; }
         .region-field--currency select { max-width: 160px; }
         .region-clauses-title {
-          font-family: var(--font-comfortaa); font-size: 14px; font-weight: 700;
+          font-family: var(--nv-font-body); font-size: 14px; font-weight: 600;
           color: var(--nv-text-heading); margin: 4px 0 10px;
         }
       `}</style>
@@ -224,16 +224,16 @@ function RegionClausesEditor({ clauses, onChange }: {
             onClick={() => remove(c.id)}>Remove</button>
         </div>
       ))}
-      <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm" onClick={add}>+ Add Clause</button>
+      <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm" onClick={add}>{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/plus.svg" width={14} height={14} alt="" className="nv-icon-inline" /> Add clause</button>
 
       <style jsx>{`
         .clause-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
         .clause-empty { font-size: 13px; color: var(--nv-text-muted); font-style: italic; margin: 0 0 8px; }
         .clause-row {
           display: flex; flex-direction: column; gap: 6px; padding: 10px 12px;
-          border: 1px solid var(--nv-border-hair); border-radius: 8px; background: rgba(40,104,127,0.03);
+          border: 1px solid var(--nv-border-hair); border-radius: 6px; background: rgba(40,104,127,0.03);
         }
-        .clause-heading { font-size: 12px; font-weight: 700; }
+        .clause-heading { font-size: 12px; font-weight: 600; }
         .clause-text { font-size: 12px; min-height: 56px; resize: vertical; }
         .clause-remove { align-self: flex-end; color: var(--nv-error); }
       `}</style>

@@ -53,6 +53,11 @@ function TinyMcePageEditorImpl({ page, onNode, onDirty, onFocus, onBreak, onMove
       tinymceScriptSrc="/tinymce/tinymce.min.js"
       licenseKey="gpl"
       initialValue={page.html}
+      // The cover is regenerated from the proposal (Step 5 template/photo, title,
+      // hotel name, date) every time the editor loads — see refreshCoverPages in
+      // lib/a4Document.ts — so typing on it would be silently lost. Read-only
+      // makes that explicit: change the cover in Step 5 instead.
+      disabled={page.kind === 'cover'}
       onInit={(_evt, editor) => {
         const node = editor.getBody()
         node.classList.add('a4-sheet', `a4-sheet--${page.kind}`)

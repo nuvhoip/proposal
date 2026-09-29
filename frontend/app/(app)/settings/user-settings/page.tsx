@@ -35,7 +35,7 @@ export default function UserSettingsPage() {
       <MySignatureCard />
 
       <div className="nv-card sync-card">
-        <h2 className="sync-card__title">Microsoft 365 Sync</h2>
+        <h2 className="sync-card__title">Microsoft 365 sync</h2>
         <p className="sync-card__desc">
           Pull every active @nuvho.com account from Microsoft 365 into the staff roster,
           so they show up in the proposal wizard&rsquo;s &ldquo;Sending on behalf of&rdquo; list.
@@ -68,7 +68,7 @@ export default function UserSettingsPage() {
         .sync-card {
           width: 100%;
           margin: 0;
-          padding: 28px;
+          padding: 24px;
           display: flex;
           flex-direction: column;
           gap: 14px;
@@ -137,7 +137,7 @@ function MyProfileCard() {
 
   return (
     <div className="nv-card profile-card">
-      <h2 className="profile-card__title">My Profile</h2>
+      <h2 className="sync-card__title">My profile</h2>
       <p className="profile-card__desc">
         Your role/position is shown alongside your name wherever staff are listed in the app.
       </p>
@@ -167,7 +167,7 @@ function MyProfileCard() {
             disabled={saving || !role.trim()}
             aria-busy={saving}
           >
-            {saving ? 'Saving…' : 'Save Role'}
+            {saving ? 'Saving…' : 'Save role'}
           </button>
 
           {saved && <div className="sync-card__result sync-card__result--ok">Role saved.</div>}
@@ -176,14 +176,13 @@ function MyProfileCard() {
       )}
 
       <style jsx>{`
-        .profile-card { width: 100%; margin: 0; padding: 28px; display: flex; flex-direction: column; gap: 14px; }
+        .profile-card { width: 100%; margin: 0; padding: 24px; display: flex; flex-direction: column; gap: 14px; }
         .profile-card__loading { color: var(--nv-text-muted); font-size: 13px; }
         .profile-card__identity { display: flex; flex-direction: column; gap: 2px; }
         .profile-card__name { font-weight: 700; color: var(--nv-text-heading); font-size: 15px; }
         .profile-card__email { color: var(--nv-text-muted); font-size: 13px; }
         .profile-card__label {
-          font-size: 11px; font-weight: 700; color: var(--nv-text-muted);
-          text-transform: uppercase; letter-spacing: 0.06em;
+          font-size: 13px; font-weight: 500; color: var(--nv-text-body);
         }
       `}</style>
     </div>
@@ -252,7 +251,7 @@ function MySignatureCard() {
 
   return (
     <div className="nv-card sig-card">
-      <h2 className="sig-card__title">My Signature</h2>
+      <h2 className="sync-card__title">My signature</h2>
       <p className="sig-card__desc">
         Set your signature once here — new proposals you create will pre-fill their
         Signature step with it (you can still change it per proposal if needed).
@@ -262,14 +261,14 @@ function MySignatureCard() {
         <p className="sig-card__loading">Loading…</p>
       ) : (
         <>
-          <div className="signature-method" role="tablist" aria-label="Signature method">
+          <div className="nv-tabs signature-method" role="tablist" aria-label="Signature method">
             <button type="button" role="tab" aria-selected={method === 'type'}
-              className={`signature-method__btn ${method === 'type' ? 'signature-method__btn--active' : ''}`}
+              className={`nv-tab ${method === 'type' ? 'nv-tab--active' : ''}`}
               onClick={() => setMethod('type')}>
               Type name
             </button>
             <button type="button" role="tab" aria-selected={method === 'draw'}
-              className={`signature-method__btn ${method === 'draw' ? 'signature-method__btn--active' : ''}`}
+              className={`nv-tab ${method === 'draw' ? 'nv-tab--active' : ''}`}
               onClick={() => setMethod('draw')}>
               Draw signature
             </button>
@@ -293,7 +292,7 @@ function MySignatureCard() {
             disabled={saving || (method === 'draw' && !dataUrl)}
             aria-busy={saving}
           >
-            {saving ? 'Saving…' : 'Save Signature'}
+            {saving ? 'Saving…' : 'Save signature'}
           </button>
 
           {saved   && <div className="sync-card__result sync-card__result--ok">Signature saved.</div>}
@@ -302,20 +301,14 @@ function MySignatureCard() {
       )}
 
       <style jsx>{`
-        .sig-card { width: 100%; margin: 0; padding: 28px; display: flex; flex-direction: column; gap: 14px; }
+        .sig-card { width: 100%; margin: 0; padding: 24px; display: flex; flex-direction: column; gap: 14px; }
         .sig-card__loading { color: var(--nv-text-muted); font-size: 13px; }
 
-        .signature-method { display: flex; gap: 8px; }
-        .signature-method__btn {
-          padding: 7px 16px; border-radius: 20px; border: 2px solid var(--nv-border);
-          background: white; color: var(--nv-text-body); font-size: 12px; font-weight: 600;
-          font-family: var(--font-comfortaa); cursor: pointer;
-        }
-        .signature-method__btn--active { border-color: var(--nv-blue-slate); background: var(--nv-blue-slate); color: white; }
+        /* type / draw choice = Figma tab bar (185:18) */
+        .signature-method { margin-bottom: 4px; }
 
         .signature-preview__label {
-          display: block; font-size: 11px; font-weight: 700; color: var(--nv-text-muted);
-          text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px;
+          display: block; font-size: 13px; font-weight: 500; color: var(--nv-text-body); margin-bottom: 6px;
         }
         .signature-preview__script {
           font-family: var(--font-signature);
@@ -323,7 +316,7 @@ function MySignatureCard() {
           line-height: 1.3;
           color: var(--nv-text-heading);
           padding: 6px 14px 10px;
-          border-bottom: 1.5px solid var(--nv-border);
+          border-bottom: 1px solid var(--nv-border-hair);
           max-width: 420px;
         }
       `}</style>

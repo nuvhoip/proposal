@@ -148,7 +148,7 @@ export default function EntitiesPage() {
 
           <div className="region-form-grid">
             <label className="region-field">
-              <span className="region-field__label">Nuvho Address</span>
+              <span className="region-field__label">Nuvho address</span>
               <textarea className="nv-input region-textarea"
                 value={active.address}
                 onChange={e => updateActive({ address: e.target.value })}
@@ -165,7 +165,7 @@ export default function EntitiesPage() {
               </span>
             </label>
             <label className="region-field">
-              <span className="region-field__label">Legal Footer</span>
+              <span className="region-field__label">Legal footer</span>
               <textarea className="nv-input region-textarea"
                 value={active.footerText}
                 onChange={e => updateActive({ footerText: e.target.value })}
@@ -180,7 +180,7 @@ export default function EntitiesPage() {
             </label>
           </div>
 
-          <h3 className="region-clauses-title">Default Terms &amp; Conditions</h3>
+          <h3 className="region-clauses-title">Default terms &amp; conditions</h3>
           <RegionClausesEditor
             clauses={active.clauses}
             onChange={clauses => updateActive({ clauses })}
@@ -204,14 +204,14 @@ export default function EntitiesPage() {
         .entities-card {
           max-width: 900px;
           width: 100%;
-          padding: 28px;
+          padding: 24px;
           display: flex;
           flex-direction: column;
           gap: 14px;
         }
         .region-tabs { display: flex; gap: 6px; margin: 8px 0 12px; flex-wrap: wrap; }
         .region-tab {
-          padding: 8px 18px; border-radius: 999px; border: 1.5px solid var(--nv-border);
+          padding: 8px 18px; border-radius: 999px; border: 1px solid var(--nv-border-hair);
           background: none; font-size: 13px; font-weight: 600; color: var(--nv-text-muted); cursor: pointer;
         }
         .region-tab--active {
@@ -219,7 +219,7 @@ export default function EntitiesPage() {
         }
         .entity-meta {
           display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 10px 14px; margin-bottom: 8px;
-          border: 1px solid var(--nv-border-hair); border-radius: 8px; background: rgba(40,104,127,0.03);
+          border: 1px solid var(--nv-border-hair); border-radius: 6px; background: rgba(40,104,127,0.03);
           font-size: 12px; color: var(--nv-text-body);
         }
         .entity-meta__item strong { font-weight: 700; color: var(--nv-text-heading); margin-right: 4px; }
@@ -231,14 +231,16 @@ export default function EntitiesPage() {
         .region-textarea--tall { min-height: 110px; }
         .region-field--currency select { max-width: 160px; }
         .region-clauses-title {
-          font-family: var(--font-comfortaa); font-size: 14px; font-weight: 700;
+          font-family: var(--nv-font-body); font-size: 14px; font-weight: 600;
           color: var(--nv-text-heading); margin: 4px 0 10px;
         }
+        /* Figma badge anatomy: h26 pill, Raleway Medium 12 — active = semantic good, inactive = mono neutral */
         .entities-status {
-          display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 600;
+          display: inline-flex; align-items: center; height: 26px; padding: 0 12px; border-radius: 999px;
+          font-size: 12px; font-weight: 500;
         }
-        .entities-status--active { color: #1a7f4e; background: rgba(26,127,78,0.1); }
-        .entities-status--inactive { color: var(--nv-text-muted); background: rgba(0,0,0,0.05); }
+        .entities-status--active { color: #FFFFFF; background: var(--nv-success); }
+        .entities-status--inactive { color: var(--nv-text-body); background: var(--nv-wash-08); }
       `}</style>
     </div>
   )
@@ -275,16 +277,16 @@ function RegionClausesEditor({ clauses, onChange }: {
             onClick={() => remove(c.id)}>Remove</button>
         </div>
       ))}
-      <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm" onClick={add}>+ Add Clause</button>
+      <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm" onClick={add}>{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/plus.svg" width={14} height={14} alt="" className="nv-icon-inline" /> Add clause</button>
 
       <style jsx>{`
         .clause-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
         .clause-empty { font-size: 13px; color: var(--nv-text-muted); font-style: italic; margin: 0 0 8px; }
         .clause-row {
           display: flex; flex-direction: column; gap: 6px; padding: 10px 12px;
-          border: 1px solid var(--nv-border-hair); border-radius: 8px; background: rgba(40,104,127,0.03);
+          border: 1px solid var(--nv-border-hair); border-radius: 6px; background: rgba(40,104,127,0.03);
         }
-        .clause-heading { font-size: 12px; font-weight: 700; }
+        .clause-heading { font-size: 12px; font-weight: 600; }
         .clause-text { font-size: 12px; min-height: 56px; resize: vertical; }
         .clause-remove { align-self: flex-end; color: var(--nv-error); }
       `}</style>

@@ -15,12 +15,14 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
+    <html lang="en-AU">
       <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        {/* Brand fonts are self-hosted from /public/fonts (see globals.css) —
+            the Google Fonts preconnects are gone with the Google Fonts @import. */}
+        <link rel="preload" href="/fonts/Raleway-VariableFont_wght.ttf" as="font" type="font/ttf" crossOrigin="anonymous" />
+        <link rel="preload" href="/fonts/Comfortaa-VariableFont_wght.ttf" as="font" type="font/ttf" crossOrigin="anonymous" />
       </head>
-      <body style={{ fontFamily: 'var(--font-raleway)' }}>
+      <body>
         {children}
       </body>
     </html>

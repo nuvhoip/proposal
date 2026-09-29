@@ -16,11 +16,19 @@ const SERVICE_LABELS: Record<string, string> = {
   CR: 'Corporate Rate',
 }
 const STATUS_CLASSES: Record<string, string> = {
-  draft:   'nv-badge--draft',
-  sent:    'nv-badge--sent',
-  signed:  'nv-badge--signed',
-  expired: 'nv-badge--expired',
-  pending: 'nv-badge--pending',
+  draft:        'nv-badge--draft',
+  generated:    'nv-badge--generated',
+  sent:         'nv-badge--sent',
+  signed:       'nv-badge--signed',
+  fully_signed: 'nv-badge--fully_signed',
+  expired:      'nv-badge--expired',
+  pending:      'nv-badge--pending',
+}
+
+// Sentence-case status labels (badges are never letterspaced caps)
+const STATUS_LABELS: Record<string, string> = {
+  draft: 'Draft', generated: 'Generated', sent: 'Sent', signed: 'Signed',
+  fully_signed: 'Fully signed', expired: 'Expired', pending: 'Pending',
 }
 
 type AuditEntry = { id: string; event: string; actor: string; meta: string | null; created_at: string }
@@ -234,40 +242,35 @@ export default function ProposalDetailPage() {
   }
 
   return (
-    <div style={{ padding: '32px', maxWidth: 960, margin: '0 auto' }}>
+    <div className="nv-page detail-page">
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
-                    flexWrap: 'wrap', gap: 16, marginBottom: 32 }}>
+      <div className="nv-page-header">
         <div style={{ minWidth: 240 }}>
           <button
             onClick={() => router.push('/proposals')}
-            style={{ background: 'none', border: 'none', cursor: 'pointer',
-                     color: 'var(--nv-blue-slate)', fontSize: 14, marginBottom: 8,
-                     padding: 0, display: 'flex', alignItems: 'center', gap: 4 }}
+            className="nv-btn nv-btn--ghost nv-btn--sm detail-back"
           >
-            ← Back to proposals
+            {/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/arrow-left.svg" width={14} height={14} alt="" className="nv-icon-inline" /> Back to proposals
           </button>
-          <h1 style={{ fontSize: 26, fontFamily: 'var(--nv-font-display)', fontWeight: 700,
-                       color: 'var(--nv-text-heading)', margin: 0 }}>
+          <h1 className="nv-page-title">
             {proposal.hotel_name}
           </h1>
-          <p style={{ color: 'var(--nv-text-muted)', fontSize: 14, marginTop: 4 }}>
+          <p className="nv-page-subtitle">
             {proposal.region?.toUpperCase()} · Created {new Date(proposal.created_at).toLocaleDateString('en-AU')}
           </p>
           <button
             onClick={() => copyToClipboard(proposal.prop_id || proposal.np_id || proposal.id, 'id')}
-            title="Click to copy the Proposal ID"
+            title="Click to copy the proposal ID"
             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0,
                      marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}
           >
-            <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--nv-text-muted)',
-                           background: 'var(--nv-platinum)', borderRadius: 6, padding: '2px 8px' }}>
+            <span className="detail-id-chip">
               {proposal.prop_id || proposal.np_id || proposal.id}
             </span>
             <span style={{ fontSize: 11, color: copied === 'id' ? 'var(--nv-success)' : 'var(--nv-blue-slate)',
-                           fontWeight: copied === 'id' ? 700 : 400 }}>
-              {copied === 'id' ? '✓ Copied!' : 'Copy'}
+                           fontWeight: copied === 'id' ? 600 : 400 }}>
+              {copied === 'id' ? 'Copied' : 'Copy'}
             </span>
           </button>
 
@@ -291,18 +294,17 @@ export default function ProposalDetailPage() {
                   <button
                     key={link.service_line}
                     onClick={() => copyToClipboard(link.eid, `eid-${link.service_line}`)}
-                    title="Click to copy the Engagement ID (EID)"
+                    title="Click to copy the engagement ID (EID)"
                     style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0,
                              display: 'flex', alignItems: 'center', gap: 6 }}
                   >
-                    <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--nv-text-muted)',
-                                   background: 'var(--nv-platinum)', borderRadius: 6, padding: '2px 8px' }}>
+                    <span className="detail-id-chip">
                       EID ({link.service_line}) {link.eid}
                     </span>
                     <span style={{ fontSize: 11,
                                    color: copied === `eid-${link.service_line}` ? 'var(--nv-success)' : 'var(--nv-blue-slate)',
-                                   fontWeight: copied === `eid-${link.service_line}` ? 700 : 400 }}>
-                      {copied === `eid-${link.service_line}` ? '✓ Copied!' : 'Copy'}
+                                   fontWeight: copied === `eid-${link.service_line}` ? 600 : 400 }}>
+                      {copied === `eid-${link.service_line}` ? 'Copied' : 'Copy'}
                     </span>
                   </button>
                 ) : (
@@ -317,16 +319,16 @@ export default function ProposalDetailPage() {
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <span className={`nv-badge ${STATUS_CLASSES[proposal.status] || ''}`}>
-            {proposal.status}
+            {STATUS_LABELS[proposal.status] || proposal.status}
           </span>
           {/* NUVCL-126: PDF gated to signed proposals only; Word download removed. */}
           {canDownloadPdf && (
             <button
-              className="nv-btn nv-btn--ghost nv-btn--md"
+              className="nv-btn nv-btn--ghost"
               onClick={handleDownloadPdf}
               disabled={exporting !== null}
             >
-              {exporting === 'pdf' ? 'Preparing…' : '⬇ PDF'}
+              {/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/download.svg" width={14} height={14} alt="" className="nv-icon-inline" />{exporting === 'pdf' ? 'Preparing…' : 'PDF'}
             </button>
           )}
           {/* NUVCL-99: Copy Link promoted from the "Signing Link" card at the
@@ -334,41 +336,48 @@ export default function ProposalDetailPage() {
               removed below) so staff don't have to scroll to grab the link. */}
           {proposal.signing_token && (
             <button
-              className="nv-btn nv-btn--ghost nv-btn--md"
+              className="nv-btn nv-btn--ghost"
               onClick={() => copyToClipboard(publicUrl, 'link')}
             >
-              {copied === 'link' ? '✓ Copied!' : '🔗 Copy Link'}
+              {/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/link-simple.svg" width={14} height={14} alt="" className="nv-icon-inline" />{copied === 'link' ? 'Copied' : 'Copy link'}
             </button>
           )}
           {/* NUVCL-99: renamed from "View Public Page ↗" to "View ↗" */}
           {proposal.status === 'sent' && (
             <a href={publicUrl} target="_blank" rel="noreferrer"
-               className="nv-btn nv-btn--outlined nv-btn--md">
-              View ↗
+               className="nv-btn nv-btn--secondary">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/icons/arrow-up-right-from-square.svg" width={14} height={14} alt="" />
+              View
             </a>
           )}
           {canSend && (
             <Link href={`/proposals/new?edit=${proposal.id}`}
-                  className="nv-btn nv-btn--outlined nv-btn--md">
-              ✎ Edit
+                  className="nv-btn nv-btn--secondary">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/icons/pen.svg" width={14} height={14} alt="" />
+              Edit
             </Link>
           )}
           {canSend && (
             <button
-              className="nv-btn nv-btn--outlined nv-btn--md"
-              style={{ borderColor: 'var(--nv-error)', color: 'var(--nv-error)' }}
+              className="nv-btn nv-btn--danger"
               onClick={handleDelete}
               disabled={deleting}
             >
-              {deleting ? 'Deleting…' : '🗑 Delete'}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/icons/trash-can.svg" width={14} height={14} alt="" style={{ filter: 'brightness(0) invert(1)' }} />
+              {deleting ? 'Deleting…' : 'Delete'}
             </button>
           )}
           {proposal.sent_at && (
             <button
-              className="nv-btn nv-btn--outlined nv-btn--md"
+              className="nv-btn nv-btn--secondary"
               onClick={openResendModal}
             >
-              ↻ Resend
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/icons/arrows-rotate.svg" width={14} height={14} alt="" />
+              Resend
             </button>
           )}
         </div>
@@ -379,7 +388,7 @@ export default function ProposalDetailPage() {
         <div className="resend-modal-overlay" onMouseDown={() => !resending && setShowResend(false)}>
           <div className="resend-modal" onMouseDown={e => e.stopPropagation()}>
             <div className="resend-modal__header">
-              <h3>Resend Proposal</h3>
+              <h3>Resend proposal</h3>
               <button type="button" className="resend-modal__close" aria-label="Close"
                       onClick={() => setShowResend(false)}>
                 ×
@@ -413,15 +422,15 @@ export default function ProposalDetailPage() {
                 <p style={{ color: 'var(--nv-error)', fontSize: 13, margin: 0 }}>{resendError}</p>
               )}
               {resendNotice && (
-                <p style={{ color: 'var(--nv-success)', fontSize: 13, margin: 0 }}>✓ {resendNotice}</p>
+                <p style={{ color: 'var(--nv-success)', fontSize: 13, margin: 0 }}>{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/circle-check.svg" width={14} height={14} alt="" className="nv-icon-inline" /> {resendNotice}</p>
               )}
             </div>
             <div className="resend-modal__footer">
-              <button className="nv-btn nv-btn--outlined nv-btn--md"
+              <button className="nv-btn nv-btn--secondary"
                       onClick={() => setShowResend(false)} disabled={resending}>
                 Cancel
               </button>
-              <button className="nv-btn nv-btn--solid nv-btn--md"
+              <button className="nv-btn nv-btn--primary"
                       onClick={handleResend} disabled={resending}>
                 {resending ? 'Sending…' : 'Send'}
               </button>
@@ -430,15 +439,13 @@ export default function ProposalDetailPage() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: 24 }}>
+      <div className="detail-grid">
         {/* Left column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
           {/* Contact */}
           <div className="nv-card" style={{ padding: 24 }}>
-            <h2 style={{ fontSize: 14, fontFamily: 'var(--nv-font-display)',
-                         color: 'var(--nv-text-muted)', textTransform: 'uppercase',
-                         letterSpacing: '0.08em', margin: '0 0 16px' }}>
+            <h2 className="nv-card__title detail-card__title">
               Contact
             </h2>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -452,57 +459,49 @@ export default function ProposalDetailPage() {
 
           {/* Services */}
           <div className="nv-card" style={{ padding: 24 }}>
-            <h2 style={{ fontSize: 14, fontFamily: 'var(--nv-font-display)',
-                         color: 'var(--nv-text-muted)', textTransform: 'uppercase',
-                         letterSpacing: '0.08em', margin: '0 0 16px' }}>
+            <h2 className="nv-card__title detail-card__title">
               Services
             </h2>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+            <div className="detail-table-wrap">
+            <table className="nv-table">
               <thead>
-                <tr style={{ borderBottom: '1px solid var(--nv-border)' }}>
-                  <th style={{ textAlign: 'left', padding: '6px 0', color: 'var(--nv-text-muted)', fontWeight: 600 }}>Service</th>
-                  <th style={{ textAlign: 'right', padding: '6px 0', color: 'var(--nv-text-muted)', fontWeight: 600 }}>Monthly</th>
-                  <th style={{ textAlign: 'right', padding: '6px 0', color: 'var(--nv-text-muted)', fontWeight: 600 }}>Setup</th>
-                  <th style={{ textAlign: 'right', padding: '6px 0', color: 'var(--nv-text-muted)', fontWeight: 600 }}>Term</th>
+                <tr>
+                  <th>Service</th>
+                  <th className="nv-num">Monthly</th>
+                  <th className="nv-num">Setup</th>
+                  <th className="nv-num">Term</th>
                 </tr>
               </thead>
               <tbody>
                 {(proposal.services || []).map((s: any) => (
-                  <tr key={s.id} style={{ borderBottom: '1px solid var(--nv-border-hair)' }}>
-                    <td style={{ padding: '10px 0' }}>
-                      <span style={{ background: 'var(--nv-platinum)', borderRadius: 6,
-                                     padding: '2px 8px', fontSize: 12, fontWeight: 700,
-                                     color: 'var(--nv-blue-slate)', marginRight: 8 }}>
-                        {s.code}
-                      </span>
+                  <tr key={s.id}>
+                    <td>
+                      <span className="detail-service-tag">{s.code}</span>
                       {SERVICE_LABELS[s.code] || s.code}
                     </td>
-                    <td style={{ textAlign: 'right', padding: '10px 0' }}>${s.monthly_fee.toLocaleString()}</td>
-                    <td style={{ textAlign: 'right', padding: '10px 0' }}>${s.setup_fee.toLocaleString()}</td>
-                    <td style={{ textAlign: 'right', padding: '10px 0' }}>{s.term_months}m</td>
+                    <td className="nv-num">${s.monthly_fee.toLocaleString()}</td>
+                    <td className="nv-num">${s.setup_fee.toLocaleString()}</td>
+                    <td className="nv-num">{s.term_months}m</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
-                <tr style={{ borderTop: '2px solid var(--nv-border)' }}>
-                  <td colSpan={4} style={{ padding: '12px 0', textAlign: 'right',
-                                           fontFamily: 'var(--nv-font-display)', fontWeight: 700,
-                                           color: 'var(--nv-blue-slate)', fontSize: 15 }}>
+                <tr>
+                  <td colSpan={4} className="nv-num detail-table__total">
                     Total contract value: ${totalContract.toLocaleString()}
                   </td>
                 </tr>
               </tfoot>
             </table>
+            </div>
           </div>
 
           {/* Sender message */}
           {proposal.sender_message && (
             <div className="nv-card" style={{ padding: 24,
-                                              borderLeft: '4px solid var(--nv-tropical-teal)' }}>
-              <h2 style={{ fontSize: 14, fontFamily: 'var(--nv-font-display)',
-                           color: 'var(--nv-text-muted)', textTransform: 'uppercase',
-                           letterSpacing: '0.08em', margin: '0 0 12px' }}>
-                Personal Message
+                                              borderLeft: '3px solid var(--nv-tropical-teal)' }}>
+              <h2 className="nv-card__title detail-card__title">
+                Personal message
               </h2>
               {/* sender_message is rich HTML from the wizard's RichTextEditor
                   (same field lib/documentModel.ts feeds into the generated
@@ -526,18 +525,16 @@ export default function ProposalDetailPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
           {/* Value summary */}
-          <div className="nv-card" style={{ padding: 24,
-                                            background: 'var(--nv-surface-dark)' }}>
-            <h2 style={{ fontSize: 13, fontFamily: 'var(--nv-font-display)',
-                         color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase',
-                         letterSpacing: '0.08em', margin: '0 0 16px' }}>
-              Proposal Value
+          <div className="nv-card nv-on-dark" style={{ padding: 24,
+                                            background: 'var(--nv-surface-dark)', borderColor: 'rgba(255,255,255,0.16)' }}>
+            <h2 className="nv-card__title detail-card__title detail-card__title--on-dark">
+              Proposal value
             </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <ValueRow label="Monthly Retainer" value={`$${totalMRR.toLocaleString()}`} />
-              <ValueRow label="Setup Fees" value={`$${totalSetup.toLocaleString()}`} />
+              <ValueRow label="Monthly retainer" value={`$${totalMRR.toLocaleString()}`} />
+              <ValueRow label="Setup fees" value={`$${totalSetup.toLocaleString()}`} />
               <div style={{ borderTop: '1px solid rgba(255,255,255,0.15)', paddingTop: 12 }} />
-              <ValueRow label="Total Contract"
+              <ValueRow label="Total contract"
                 value={`$${totalContract.toLocaleString()}`}
                 highlight />
             </div>
@@ -545,9 +542,7 @@ export default function ProposalDetailPage() {
 
           {/* Timeline */}
           <div className="nv-card" style={{ padding: 24 }}>
-            <h2 style={{ fontSize: 13, fontFamily: 'var(--nv-font-display)',
-                         color: 'var(--nv-text-muted)', textTransform: 'uppercase',
-                         letterSpacing: '0.08em', margin: '0 0 16px' }}>
+            <h2 className="nv-card__title detail-card__title">
               Timeline
             </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -572,10 +567,8 @@ export default function ProposalDetailPage() {
             const milestoneAudit = audit.filter(e => e.event !== 'viewed' && e.event !== 'link_previewed')
             return milestoneAudit.length > 0 && (
               <div className="nv-card" style={{ padding: 24 }}>
-                <h2 style={{ fontSize: 13, fontFamily: 'var(--nv-font-display)',
-                             color: 'var(--nv-text-muted)', textTransform: 'uppercase',
-                             letterSpacing: '0.08em', margin: '0 0 16px' }}>
-                  Activity Log
+                <h2 className="nv-card__title detail-card__title">
+                  Activity log
                 </h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {milestoneAudit.slice(0, 10).map(e => (
@@ -609,10 +602,8 @@ export default function ProposalDetailPage() {
             return (
               <div className="nv-card" style={{ padding: 24 }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-                  <h2 style={{ fontSize: 13, fontFamily: 'var(--nv-font-display)',
-                               color: 'var(--nv-text-muted)', textTransform: 'uppercase',
-                               letterSpacing: '0.08em', margin: '0 0 16px' }}>
-                    Link Views
+                  <h2 className="nv-card__title detail-card__title">
+                    Link views
                   </h2>
                   <span style={{ fontSize: 12, color: 'var(--nv-text-muted)' }}>
                     {proposal.viewCount ?? viewEvents.length} total
@@ -663,10 +654,8 @@ export default function ProposalDetailPage() {
       {/* Document Preview */}
       <div className="nv-card" style={{ padding: 24, marginTop: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h2 style={{ fontSize: 14, fontFamily: 'var(--nv-font-display)',
-                       color: 'var(--nv-text-muted)', textTransform: 'uppercase',
-                       letterSpacing: '0.08em', margin: 0 }}>
-            Document Preview
+          <h2 className="nv-card__title">
+            Document preview
           </h2>
           <button
             className="nv-btn nv-btn--ghost nv-btn--sm"
@@ -686,39 +675,55 @@ export default function ProposalDetailPage() {
         .sender-message-rich :global(p) { margin: 0 0 10px; }
         .sender-message-rich :global(p:last-child) { margin-bottom: 0; }
         .sender-message-rich :global(ul), .sender-message-rich :global(ol) { margin: 0 0 10px 20px; }
+        /* Modal — browser-app-shell §9: overlay rgba(30,40,45,.45), white panel r14,
+           max 520, header 24 28 + hairline, title Comfortaa 500 22, 32×32 xmark close */
         .resend-modal-overlay {
-          position: fixed; inset: 0; background: rgba(15, 23, 32, 0.45);
+          position: fixed; inset: 0; background: var(--nv-overlay);
           display: flex; align-items: center; justify-content: center;
-          z-index: 1000; padding: 20px;
+          z-index: 300; padding: 24px;
         }
         .resend-modal {
-          background: white; border-radius: 14px; width: 100%; max-width: 460px;
-          box-shadow: 0 20px 60px rgba(0,0,0,0.25); max-height: 90vh; overflow-y: auto;
+          background: #FFFFFF; border-radius: 14px; width: 100%; max-width: 520px; max-height: calc(100vh - 48px); overflow-y: auto;
         }
         .resend-modal__header {
           display: flex; align-items: center; justify-content: space-between;
-          padding: 20px 24px; border-bottom: 1px solid var(--nv-border);
+          padding: 24px 28px; border-bottom: 1px solid var(--nv-border-hair);
         }
         .resend-modal__header h3 {
-          margin: 0; font-size: 17px; font-family: var(--nv-font-display);
-          color: var(--nv-text-heading);
+          margin: 0; font: 500 22px/1.25 var(--nv-font-display);
+          color: var(--nv-text-heading); letter-spacing: 0;
         }
         .resend-modal__close {
-          background: none; border: none; cursor: pointer; font-size: 22px;
-          line-height: 1; color: var(--nv-text-muted); padding: 0;
+          width: 32px; height: 32px; border-radius: 6px; background: none; border: none; cursor: pointer;
+          display: grid; place-content: center; padding: 0; font-size: 0;
         }
-        .resend-modal__close:hover { color: var(--nv-text-body); }
-        .resend-modal__body { padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; }
+        .resend-modal__close::before { content: ""; width: 14px; height: 14px; background: url('/icons/xmark.svg') center / contain no-repeat; }
+        .resend-modal__close:hover { background: rgba(40,104,127,0.08); }
+        .resend-modal__body { padding: 24px 28px; display: flex; flex-direction: column; gap: 16px; }
         .resend-modal__field { display: flex; flex-direction: column; gap: 6px; }
-        .resend-modal__label {
-          font-size: 12px; font-weight: 600; color: var(--nv-text-muted);
-          text-transform: uppercase; letter-spacing: 0.06em;
-        }
-        .resend-modal__hint { margin: 0; font-size: 12px; color: var(--nv-text-muted); line-height: 1.5; }
+        .resend-modal__label { font-size: 13px; font-weight: 500; color: var(--nv-text-body); }
+        .resend-modal__hint { margin: 0; font-size: 13px; color: var(--nv-text-muted); line-height: 1.6; }
         .resend-modal__footer {
-          display: flex; justify-content: flex-end; gap: 10px;
-          padding: 16px 24px; border-top: 1px solid var(--nv-border);
+          display: flex; justify-content: flex-end; gap: 12px;
+          padding: 16px 28px 24px;
         }
+
+        /* Page layout */
+        .detail-page :global(.detail-back) { margin: 0 0 8px -16px; }
+        .detail-grid { display: grid; grid-template-columns: 1fr 360px; gap: 24px; }
+        @media (max-width: 900px) { .detail-grid { grid-template-columns: 1fr; } }
+        .detail-page :global(.detail-card__title) { margin: 0 0 16px; }
+        .detail-page :global(.detail-card__title--on-dark) { color: #FFFFFF; }
+        .detail-id-chip {
+          font-family: var(--nv-font-mono); font-size: 12px; color: var(--nv-text-muted);
+          background: var(--nv-wash-08); border-radius: 6px; padding: 2px 8px;
+        }
+        .detail-table-wrap { margin: 0 -24px -24px; border-top: 1px solid var(--nv-border-hair); overflow-x: auto; }
+        .detail-service-tag {
+          background: var(--nv-wash-08); border-radius: 6px; padding: 2px 8px; margin-right: 8px;
+          font-size: 12px; font-weight: 500; color: var(--nv-blue-slate);
+        }
+        .detail-table__total { font: 600 15px/1.4 var(--nv-font-body); color: var(--nv-blue-slate); }
       `}</style>
     </div>
   )
@@ -727,8 +732,7 @@ export default function ProposalDetailPage() {
 function Field({ label, value, style }: { label: string; value: string; style?: React.CSSProperties }) {
   return (
     <div style={style}>
-      <div style={{ fontSize: 11, color: 'var(--nv-text-muted)', textTransform: 'uppercase',
-                    letterSpacing: '0.1em', marginBottom: 2 }}>
+      <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--nv-text-muted)', marginBottom: 2 }}>
         {label}
       </div>
       <div style={{ fontSize: 14, color: 'var(--nv-text-body)', fontWeight: 500 }}>
@@ -741,12 +745,12 @@ function Field({ label, value, style }: { label: string; value: string; style?: 
 function ValueRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-      <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.65)' }}>{label}</span>
+      <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.78)' }}>{label}</span>
       <span style={{
-        fontSize:   highlight ? 18 : 15,
+        fontSize:   highlight ? 28 : 15,
         fontWeight: highlight ? 700 : 600,
         color:      highlight ? 'var(--nv-tropical-teal)' : 'white',
-        fontFamily: 'var(--nv-font-display)',
+        fontFamily: highlight ? 'var(--nv-font-display)' : 'var(--nv-font-body)',
       }}>
         {value}
       </span>

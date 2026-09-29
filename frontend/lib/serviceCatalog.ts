@@ -75,7 +75,7 @@ export function currencySymbol(code: string): string {
 // getServiceColor() below instead of indexing this directly.
 export const SERVICE_CATALOG: Partial<Record<string, ServiceCatalogEntry>> = {
   RM: {
-    code: 'RM', label: 'Revenue Management', color: 'var(--nv-blue-slate, #28687f)',
+    code: 'RM', label: 'Revenue Management', color: 'var(--nv-blue-slate)',
     sections: [
       { id: 'rm_21', heading: 'Revenue Management Services', items: [
         { id: 'rm_audit',     text: 'Audit – Conduct market assessment and market share analysis to inform broad recommendations for yield strategy based on the value matrix.' },
@@ -101,7 +101,7 @@ export const SERVICE_CATALOG: Partial<Record<string, ServiceCatalogEntry>> = {
     ],
   },
   SM: {
-    code: 'SM', label: 'Sales Management', color: 'var(--nv-steel-blue, #6ba1bf)',
+    code: 'SM', label: 'Sales Management', color: 'var(--nv-steel-blue)',
     sections: [
       { id: 'sm_21', heading: 'New Property Set Up', items: [
         { id: 'sm_planning',  text: 'Sales Planning – Develop a sales activity plan by market segment including strategy and tactics.' },
@@ -132,7 +132,7 @@ export const SERVICE_CATALOG: Partial<Record<string, ServiceCatalogEntry>> = {
     ],
   },
   CR: {
-    code: 'CR', label: 'Central Reservations', color: 'var(--nv-teal-light, #80b9bf)',
+    code: 'CR', label: 'Central Reservations', color: 'var(--nv-tropical-teal)',
     sections: [
       { id: 'cr_21', heading: 'Reservation Management Services', items: [
         { id: 'cr_setup',      text: 'Systems Setup – Setup the systems associated with the provision of central reservations including the reservations system, telephony system and chatbot.' },
@@ -155,7 +155,7 @@ export const SERVICE_CATALOG: Partial<Record<string, ServiceCatalogEntry>> = {
     ],
   },
   MK: {
-    code: 'MK', label: 'Marketing Services', color: 'var(--nv-plum, #8b6fb5)',
+    code: 'MK', label: 'Marketing Services', color: 'var(--nv-iron-grey)',
     sections: [
       { id: 'mkt_21', heading: 'Marketing Services', items: [
         { id: 'mkt_strategy',   text: 'Marketing Strategy – Develop a marketing strategy aligned to commercial objectives and seasonal demand patterns.' },
@@ -184,12 +184,13 @@ function generateId(prefix: string): string {
   return `${prefix}_${Date.now()}_${uidCounter}_${Math.random().toString(36).slice(2, 7)}`
 }
 
-// Fallback colors cycled (by a stable hash of the code) for any service code
+// Fallback colours cycled (by a stable hash of the code) for any service code
 // that has no hardcoded SERVICE_CATALOG entry — e.g. Systems/Advisory, or any
 // custom category added from Settings → Body Configuration. Same hash every render
-// so a given code always gets the same color.
+// so a given code always gets the same colour. Drawn only from the brand's five
+// primaries + Blue Slate ladder (nuvho-brand v3) — the old off-palette hues are gone.
 const FALLBACK_SERVICE_COLORS = [
-  '#c98a3e', '#5c6bc0', '#4d8f6b', '#a2557c', '#3f8fa8', '#8a7548',
+  '#3E7F96', '#6BA1BF', '#80B9BF', '#414B4C', '#96BFD4', '#28687F',
 ]
 
 function hashCode(code: string): number {

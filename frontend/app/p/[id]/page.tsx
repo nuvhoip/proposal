@@ -132,8 +132,10 @@ export default function PublicProposalPage() {
   return (
     <div className="public-page">
       {/* Header */}
+      {/* Client-portal top-header shell (browser-app-shell §1): white bar,
+          2px #C0D8E5 rule, Logo / Primary at the locked 36px topbar height. */}
       <header className="public-header">
-        <NuvhoLogo variant="white" height={40} />
+        <NuvhoLogo variant="primary" height={36} />
         <div className="public-header__meta">
           <span className="public-header__ref">
             Proposal #{raw.np_id || (raw.id ? raw.id.slice(0, 8).toUpperCase() : '')}
@@ -160,7 +162,7 @@ export default function PublicProposalPage() {
           beforeAppendix={!signed && !isExpired ? (
             <div className="public-sign-form-wrap no-print">
                 <div className="public-sign-form">
-                  <h2 className="public-section-title">Accept This Proposal</h2>
+                  <h2 className="public-section-title">Accept this proposal</h2>
                   <p style={{ fontSize: 14, color: 'var(--nv-text-muted)', marginBottom: 20 }}>
                     By signing below, you acknowledge and accept the terms and services outlined in this proposal.
                   </p>
@@ -189,14 +191,14 @@ export default function PublicProposalPage() {
                   {/* Same Type name / Draw signature toggle as the internal
                       wizard's Terms & Conditions step — the client picks how
                       they sign rather than being locked to one method. */}
-                  <div className="signature-method" role="tablist" aria-label="Signature method">
+                  <div className="nv-tabs signature-method" role="tablist" aria-label="Signature method">
                     <button type="button" role="tab" aria-selected={sigMethod === 'type'}
-                      className={`signature-method__btn ${sigMethod === 'type' ? 'signature-method__btn--active' : ''}`}
+                      className={`nv-tab ${sigMethod === 'type' ? 'nv-tab--active' : ''}`}
                       onClick={() => setSigMethod('type')}>
                       Type name
                     </button>
                     <button type="button" role="tab" aria-selected={sigMethod === 'draw'}
-                      className={`signature-method__btn ${sigMethod === 'draw' ? 'signature-method__btn--active' : ''}`}
+                      className={`nv-tab ${sigMethod === 'draw' ? 'nv-tab--active' : ''}`}
                       onClick={() => setSigMethod('draw')}>
                       Draw signature
                     </button>
@@ -221,17 +223,17 @@ export default function PublicProposalPage() {
                       <a href="#doc-section-appendix" onClick={e => {
                         e.preventDefault()
                         document.getElementById('doc-section-appendix')?.scrollIntoView({ behavior: 'smooth' })
-                      }}>Terms and Conditions</a>.
+                      }}>terms and conditions</a>.
                     </span>
                   </label>
 
                   <button
-                    className="nv-btn nv-btn--solid nv-btn--lg"
+                    className="nv-btn nv-btn--primary"
                     onClick={handleSign}
                     disabled={signing || !approved || !sigName.trim() || (sigMethod === 'draw' && !sigDataUrl)}
                     aria-busy={signing}
                   >
-                    {signing ? 'Signing…' : 'Accept & Sign'}
+                    {signing ? 'Signing…' : 'Accept and sign'}
                   </button>
 
                   {error && (
@@ -252,28 +254,24 @@ export default function PublicProposalPage() {
           <section className="public-section public-sign-section">
             {signed ? (
               <div className="public-signed">
-                <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-                  <circle cx="24" cy="24" r="22" fill="var(--nv-success)" fillOpacity="0.1"/>
-                  <circle cx="24" cy="24" r="22" stroke="var(--nv-success)" strokeWidth="2"/>
-                  <path d="M14 24l7 7 13-13" stroke="var(--nv-success)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-                <h3>Proposal Accepted</h3>
+                <span className="nv-iconbox nv-iconbox--32 public-signed__mark">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/circle-check.svg" alt="" /></span>
+                <h3>Proposal accepted</h3>
                 <p>Thank you for accepting this proposal. Our team will be in touch shortly to begin onboarding.</p>
                 {/* NUVCL-131: download the signed proposal, including the
                     client's own signature (now rendered in the Appendix —
                     see ProposalDocument.tsx's doc-client-acceptance block). */}
                 <button
-                  className="nv-btn nv-btn--ghost nv-btn--lg"
+                  className="nv-btn nv-btn--secondary"
                   onClick={handleDownloadPdf}
                   disabled={exporting}
                   style={{ marginTop: 16 }}
                 >
-                  {exporting ? 'Preparing…' : '⬇ Download PDF'}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/download.svg" width={14} height={14} alt="" className="nv-icon-inline" />{exporting ? 'Preparing…' : 'Download PDF'}
                 </button>
               </div>
             ) : (
               <div className="public-expired">
-                <h3>Proposal Expired</h3>
+                <h3>Proposal expired</h3>
                 <p>This proposal has expired. Please contact your Nuvho representative to receive an updated proposal.</p>
               </div>
             )}
@@ -283,7 +281,7 @@ export default function PublicProposalPage() {
 
       {/* Footer */}
       <footer className="public-footer">
-        <span>© Nuvho Systems Pty Ltd · Smart Hoteliers</span>
+        <span>© Nuvho Systems Pty Ltd</span>
       </footer>
 
       <style jsx>{`
@@ -294,18 +292,20 @@ export default function PublicProposalPage() {
           flex-direction: column;
         }
 
-        /* Header */
+        /* Header — client-portal top-header shell */
         .public-header {
-          background: var(--nv-surface-dark);
+          background: #FFFFFF;
+          border-bottom: 2px solid #C0D8E5;
           padding: 16px 40px;
           display: flex;
           align-items: center;
           justify-content: space-between;
+          gap: 16px;
         }
-        @media (max-width: 600px) { .public-header { padding: 16px; } }
+        @media (max-width: 900px) { .public-header { padding: 16px 24px; } }
         .public-header__meta { text-align: right; }
-        .public-header__ref  { font-size: 12px; color: rgba(255,255,255,0.6); display: block; }
-        .public-header__expiry { font-size: 11px; color: rgba(255,255,255,0.45); }
+        .public-header__ref  { font-size: 14px; color: var(--nv-text-muted); display: block; }
+        .public-header__expiry { font-size: 12px; color: var(--nv-text-muted); }
 
         /* Document wrapper — ProposalDocument renders its own cover/letter/
            section pages inside this, so it just needs the page's top/bottom
@@ -350,7 +350,7 @@ export default function PublicProposalPage() {
            so "Accept This Proposal" reads as another section of the document
            rather than a visually distinct widget. */
         .public-section-title {
-          font-family: var(--font-comfortaa);
+          font-family: var(--nv-font-body);
           font-size: 16px;
           font-weight: 700;
           color: var(--nv-text-heading);
@@ -376,10 +376,9 @@ export default function PublicProposalPage() {
           margin: 0 auto;
           padding: 40px 48px;
           border-radius: 4px;
-          box-shadow: var(--nv-shadow-sm);
           font-family: var(--font-raleway);
         }
-        @media (max-width: 600px) {
+        @media (max-width: 900px) {
           .public-sign-section { padding: 28px 24px; }
         }
 
@@ -390,23 +389,16 @@ export default function PublicProposalPage() {
         }
         .sign-field { flex: 1; display: flex; flex-direction: column; gap: 6px; }
         .sign-label {
-          font-size: 11px; font-weight: 700; color: var(--nv-text-muted);
-          text-transform: uppercase; letter-spacing: 0.06em;
+          font-size: 13px; font-weight: 500; color: var(--nv-text-body);
         }
-        @media (max-width: 600px) { .sign-fields { flex-direction: column; } }
+        @media (max-width: 900px) { .sign-fields { flex-direction: column; } }
 
-        .signature-method { display: flex; gap: 8px; margin-bottom: 20px; }
-        .signature-method__btn {
-          padding: 7px 16px; border-radius: 20px; border: 2px solid var(--nv-border);
-          background: white; color: var(--nv-text-body); font-size: 12px; font-weight: 600;
-          font-family: var(--font-comfortaa); cursor: pointer;
-        }
-        .signature-method__btn--active { border-color: var(--nv-blue-slate); background: var(--nv-blue-slate); color: white; }
+        /* Figma tab bar (185:18) for the type / draw choice */
+        .signature-method { margin-bottom: 20px; }
 
         .sign-capture { margin-bottom: 20px; }
         .sign-capture__label {
-          display: block; font-size: 11px; font-weight: 700; color: var(--nv-text-muted);
-          text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px;
+          display: block; font-size: 13px; font-weight: 500; color: var(--nv-text-body); margin-bottom: 8px;
         }
         .sign-capture__script {
           font-family: var(--font-signature);
@@ -414,7 +406,7 @@ export default function PublicProposalPage() {
           line-height: 1.3;
           color: var(--nv-text-heading);
           padding: 6px 14px 10px;
-          border-bottom: 1.5px solid var(--nv-border);
+          border-bottom: 1px solid var(--nv-border-hair);
           /* Was max-width: 420px, which made the sign-here line noticeably
              narrower than the A4 page (.public-sign-section, 210mm) it sits
              on — width: 100% lets it span the same content width as the
@@ -426,7 +418,7 @@ export default function PublicProposalPage() {
           display: flex; align-items: flex-start; gap: 8px; font-size: 13px;
           color: var(--nv-text-muted); margin: 16px 0; cursor: pointer;
         }
-        .approval-check input[type="checkbox"] { margin-top: 2px; cursor: pointer; }
+        .approval-check { color: var(--nv-text-body); font-size: 14px; align-items: center; }
         .approval-check a { color: var(--nv-blue-slate); text-decoration: underline; }
 
         .public-signed, .public-expired {
@@ -437,11 +429,11 @@ export default function PublicProposalPage() {
            parent's text-align:center above have no effect on it (that only
            centers inline/inline-block content) — the checkmark was sitting
            flush left instead of centered above the heading. */
-        .public-signed svg { display: block; margin: 0 auto; }
+        .public-signed :global(.public-signed__mark) { display: grid; margin: 0 auto; }
         .public-signed h3, .public-expired h3 {
-          font-family: var(--font-comfortaa);
-          font-size: 22px;
-          font-weight: 700;
+          font-family: var(--nv-font-display);
+          font-size: 24px;
+          font-weight: 500;
           color: var(--nv-text-heading);
           margin: 16px 0 8px;
         }
@@ -453,21 +445,14 @@ export default function PublicProposalPage() {
           margin: 0 auto;
         }
 
-        /* Footer */
+        /* Footer — centred copyright, 11px (client-portal shell) */
         .public-footer {
-          background: var(--nv-surface-dark);
-          padding: 24px 40px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 16px;
-        }
-        @media (max-width: 600px) {
-          .public-footer { padding: 20px 16px; flex-direction: column; gap: 8px; }
+          padding: 24px;
+          text-align: center;
         }
         .public-footer span {
-          font-size: 12px;
-          color: rgba(255,255,255,0.5);
+          font-size: 11px;
+          color: var(--nv-text-muted);
         }
       `}</style>
     </div>
@@ -479,12 +464,7 @@ function LoadingScreen() {
     <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center',
       flexDirection:'column', gap:20, background:'var(--nv-surface-page)' }}>
       <NuvhoLogo variant="primary" height={40} />
-      <svg width="36" height="36" viewBox="0 0 36 36" fill="none"
-        style={{ animation:'spin 0.8s linear infinite' }}>
-        <style>{`@keyframes spin { to { transform:rotate(360deg); } }`}</style>
-        <circle cx="18" cy="18" r="15" stroke="var(--nv-platinum)" strokeWidth="3"/>
-        <path d="M18 3a15 15 0 0 1 15 15" stroke="var(--nv-blue-slate)" strokeWidth="3" strokeLinecap="round"/>
-      </svg>
+      <span className="nv-spinner" aria-label="Loading" />
     </div>
   )
 }
@@ -494,7 +474,7 @@ function ErrorScreen({ message }: { message: string }) {
     <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center',
       flexDirection:'column', gap:16, background:'var(--nv-surface-page)', padding:24 }}>
       <NuvhoLogo variant="primary" height={40} />
-      <h2 style={{ fontFamily:'var(--font-comfortaa)', color:'var(--nv-text-heading)', fontSize:22 }}>
+      <h2 style={{ font: 'var(--nv-ui-h2)', color:'var(--nv-text-heading)', letterSpacing: 0 }}>
         Proposal not found
       </h2>
       <p style={{ color:'var(--nv-text-muted)', fontSize:14, textAlign:'center', maxWidth:360 }}>

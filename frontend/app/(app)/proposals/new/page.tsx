@@ -32,13 +32,13 @@ import { useSession } from '@/components/auth/AuthGuard'
 // The Signature step was later removed too, for the same reason — see the
 // comment above Step7Preview below.
 const STEPS = [
-  { id: 1, label: 'Hotel Details'  },
+  { id: 1, label: 'Hotel details'  },
   { id: 2, label: 'Services'       },
   { id: 3, label: 'Scope'          },
   { id: 4, label: 'Pricing'        },
-  { id: 5, label: 'Cover Image'    },
+  { id: 5, label: 'Cover image'    },
   { id: 6, label: 'Terms'          },
-  { id: 7, label: 'Preview & Save' },
+  { id: 7, label: 'Preview & save' },
 ]
 
 // Steps that offer a "Skip" control beside Continue — Services/Scope/Pricing
@@ -659,7 +659,7 @@ export default function NewProposalPage() {
   }
 
   return (
-    <div className={`wizard-page${step === 7 ? " wizard-page--preview" : ""}`}>
+    <div className={`nv-page nv-page--wizard wizard-page${step === 7 ? " wizard-page--preview" : ""}`}>
       {editId && (
         <div style={{ marginBottom: 16, fontSize: 13, color: 'var(--nv-text-muted)' }}>
           Editing existing proposal
@@ -676,10 +676,8 @@ export default function NewProposalPage() {
             >
               <span className="nv-step__number">
                 {step > s.id
-                  ? <svg width="10" height="10" viewBox="0 0 448 512" fill="white">
-                      {/* nuvho-brand icon: check (duotone-thin) */}
-                      <path d="M444.7 65.5c3.6 2.6 4.3 7.6 1.7 11.2l-288 392c-1.4 1.9-3.5 3.1-5.8 3.2s-4.6-.7-6.3-2.3l-144-144c-3.1-3.1-3.1-8.2 0-11.3s8.2-3.1 11.3 0L151.1 451.8 433.6 67.3c2.6-3.6 7.6-4.3 11.2-1.7z"/>
-                    </svg>
+                  // eslint-disable-next-line @next/next/no-img-element
+                  ? <img src="/icons/check.svg" width={12} height={12} alt="" style={{ filter: 'brightness(0) invert(1)' }} />
                   : s.id}
               </span>
               <span className="nv-step__label">{s.label}</span>
@@ -726,19 +724,23 @@ export default function NewProposalPage() {
           {/* Navigation */}
           <div className="wizard-nav">
             {step > 1
-              ? <button className="nv-btn nv-btn--outlined nv-btn--md" onClick={goBack}>
-                  ← Back
+              ? <button className="nv-btn nv-btn--secondary" onClick={goBack}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/icons/arrow-left.svg" width={14} height={14} alt="" />
+                  Back
                 </button>
               : <div />}
             {step < STEPS.length
               ? <div style={{ display: 'flex', gap: 12 }}>
                   {SKIPPABLE_STEPS.includes(step) && (
-                    <button className="nv-btn nv-btn--outlined nv-btn--md" onClick={goSkip}>
+                    <button className="nv-btn nv-btn--secondary" onClick={goSkip}>
                       Skip
                     </button>
                   )}
-                  <button className="nv-btn nv-btn--solid nv-btn--md" onClick={goNext}>
-                    Continue →
+                  <button className="nv-btn nv-btn--primary" onClick={goNext}>
+                    Continue
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src="/icons/arrow-right.svg" width={14} height={14} alt="" style={{ filter: 'brightness(0) invert(1)' }} />
                   </button>
                 </div>
               : <div style={{ display: 'flex', gap: 12 }}>
@@ -748,7 +750,7 @@ export default function NewProposalPage() {
                     disabled={saving || savingDraft || !documentReady}
                     aria-busy={savingDraft}
                   >
-                    {savingDraft ? 'Saving…' : 'Save as Draft'}
+                    {savingDraft ? 'Saving…' : 'Save as draft'}
                   </button>
                   <button
                     className="nv-btn nv-btn--solid nv-btn--md"
@@ -756,7 +758,7 @@ export default function NewProposalPage() {
                     disabled={saving || savingDraft || !documentReady}
                     aria-busy={saving}
                   >
-                    {saving ? 'Saving…' : 'Save Document'}
+                    {saving ? 'Saving…' : 'Save document'}
                   </button>
                 </div>}
           </div>
@@ -764,26 +766,28 @@ export default function NewProposalPage() {
       </div>
 
       <style jsx>{`
-        .wizard-page { padding: 32px 40px; max-width: 900px; }
+        /* Shell = global .nv-page.nv-page--wizard (56/64/80, max 900 — browser-app-shell §3).
+           The Preview & Save step needs room for the A4 preview beside its controls. */
         .wizard-page--preview { max-width: 1440px; }
-        @media (max-width: 768px) { .wizard-page { padding: 16px; } }
 
         .wizard-steps {
           display: flex;
           align-items: center;
-          gap: 0;
+          flex-wrap: wrap;
+          row-gap: 12px;
           margin-bottom: 32px;
-          overflow-x: auto;
-          padding-bottom: 4px;
         }
 
+        /* 1px #28687F@12% connectors (browser-app-shell §10) */
         .wizard-steps__divider {
           flex: 1;
           height: 1px;
-          background: var(--nv-border);
-          min-width: 24px;
-          max-width: 60px;
+          background: rgba(40,104,127,0.12);
+          min-width: 12px;
+          max-width: 48px;
+          margin: 0 8px;
         }
+        .wizard-steps :global(.nv-step:not(:disabled)) { cursor: pointer; }
 
         .wizard-body { }
 
@@ -798,12 +802,13 @@ export default function NewProposalPage() {
           border-top: 1px solid var(--nv-border-hair);
         }
 
+        /* Error banner (browser-app-shell §5) */
         .wizard-error {
           background: rgba(152,38,73,0.07);
           border: 1px solid rgba(152,38,73,0.2);
-          border-radius: 10px;
+          border-radius: 6px;
           color: var(--nv-error);
-          padding: 12px 16px;
+          padding: 10px 14px;
           font-size: 13px;
           margin-top: 16px;
         }
@@ -1482,7 +1487,7 @@ function Step1HotelDetails({
     <div className="step-content">
       <div className="step-header-row">
         <div>
-          <h2 className="step-title">Hotel Details</h2>
+          <h2 className="step-title">Hotel details</h2>
           <p className="step-desc">Enter the hotel and primary contact information.</p>
         </div>
         {SHOW_CONFIDENTIAL_TOGGLE && (
@@ -1515,7 +1520,7 @@ function Step1HotelDetails({
           just a country — region/currency/market/jurisdiction downstream
           are then derived from that entity rather than picked separately. */}
       <div className="form-grid">
-        <FormField label="Governing Entity *" error={errors.region} span={2}>
+        <FormField label="Governing entity *" error={errors.region} span={2}>
           <select className="nv-input" value={h.entityCode}
             disabled={entitiesLoading}
             onChange={e => {
@@ -1562,7 +1567,7 @@ function Step1HotelDetails({
       {/* Unified account search — Master Registry + HubSpot together.
           Replaces the old separate "HubSpot" box above this one. */}
       <div className="hs-section">
-        <div className="hs-section__label">Hotel Group / Account</div>
+        <div className="hs-section__label">Hotel group / account</div>
         {h.hgid ? (
           <div className="hg-selected">
             <span>
@@ -1623,7 +1628,7 @@ function Step1HotelDetails({
                   <button type="button" className="hg-dropdown__item hg-dropdown__item--add"
                     onMouseDown={e => e.preventDefault()}
                     onClick={openAddHotelGroup}>
-                    + Add &quot;{acctQuery.trim()}&quot; as a new hotel group
+                    {/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/plus.svg" width={12} height={12} alt="" className="nv-icon-inline" /> Add &quot;{acctQuery.trim()}&quot; as a new hotel group
                   </button>
                 )}
               </div>
@@ -1695,7 +1700,7 @@ function Step1HotelDetails({
             value={h.propertyAddress} onChange={e => update('propertyAddress', e.target.value)} />
         </FormField>
 
-        <FormField label="HubSpot Deal" error={errors.hubspotDealId || dealError} span={2}>
+        <FormField label="HubSpot deal" error={errors.hubspotDealId || dealError} span={2}>
           {h.hubspotDealId ? (
             <div className="hg-selected">
               <span>{h.hubspotDealName || '(unnamed deal)'} <code>{h.hubspotDealId}</code></span>
@@ -1739,7 +1744,7 @@ function Step1HotelDetails({
         {/* NUVCL-118: moved here from the removed Sender step — Account
             Manager is a real client-relationship field, not part of the
             send workflow that step otherwise existed for. */}
-        <FormField label="Account Manager" error={errors.accountManagerId}>
+        <FormField label="Account manager" error={errors.accountManagerId}>
           <select className="nv-input"
             disabled={staffLoading}
             value={draft.sender.accountManagerId}
@@ -1828,7 +1833,7 @@ function Step1HotelDetails({
                     and property id onto it.
                   </p>
                   <div className="hg-modal__field">
-                    <label className="hg-modal__label">Company Name *</label>
+                    <label className="hg-modal__label">Company name *</label>
                     <input className="nv-input" value={syncCompanyName}
                       onChange={e => setSyncCompanyName(e.target.value)} />
                   </div>
@@ -1846,7 +1851,7 @@ function Step1HotelDetails({
                   {!syncPickedPid && (
                     <>
                       <div className="hg-modal__field">
-                        <label className="hg-modal__label">Property Name *</label>
+                        <label className="hg-modal__label">Property name *</label>
                         <input className="nv-input" value={syncPropertyName}
                           onChange={e => setSyncPropertyName(e.target.value)} />
                       </div>
@@ -1864,12 +1869,12 @@ function Step1HotelDetails({
                     the HubSpot company.
                   </p>
                   <div className="hg-modal__field">
-                    <label className="hg-modal__label">Group Name *</label>
+                    <label className="hg-modal__label">Group name *</label>
                     <input className="nv-input" value={syncCompanyName}
                       onChange={e => setSyncCompanyName(e.target.value)} />
                   </div>
                   <div className="hg-modal__field">
-                    <label className="hg-modal__label">Entity Code *</label>
+                    <label className="hg-modal__label">Entity code *</label>
                     <select className="nv-input" value={syncEntityCode} onChange={e => setSyncEntityCode(e.target.value)}>
                       <option value="">Select…</option>
                       {syncGeoEntities.map(en => (
@@ -1878,7 +1883,7 @@ function Step1HotelDetails({
                     </select>
                   </div>
                   <div className="hg-modal__field">
-                    <label className="hg-modal__label">Property Name *</label>
+                    <label className="hg-modal__label">Property name *</label>
                     <input className="nv-input" value={syncPropertyName}
                       onChange={e => setSyncPropertyName(e.target.value)} />
                   </div>
@@ -1907,7 +1912,7 @@ function Step1HotelDetails({
         <div className="hg-modal-overlay" onMouseDown={() => setHgAddOpen(false)}>
           <div className="hg-modal" onMouseDown={e => e.stopPropagation()}>
             <div className="hg-modal__header">
-              <h3>New Hotel Group</h3>
+              <h3>New hotel group</h3>
               <button type="button" className="hg-modal__close" aria-label="Close"
                 onClick={() => setHgAddOpen(false)}>
                 ×
@@ -1916,7 +1921,7 @@ function Step1HotelDetails({
 
             <div className="hg-modal__body">
               <div className="hg-modal__field">
-                <label className="hg-modal__label">Entity Code</label>
+                <label className="hg-modal__label">Entity code</label>
                 <select className="nv-input" value={hgAddEntityCode}
                   onChange={e => setHgAddEntityCode(e.target.value)}>
                   <option value="">Select…</option>
@@ -1932,13 +1937,13 @@ function Step1HotelDetails({
               </div>
 
               <div className="hg-modal__field">
-                <label className="hg-modal__label">Group Name *</label>
+                <label className="hg-modal__label">Group name *</label>
                 <input className="nv-input" placeholder="e.g. Aria Hotels & Resorts"
                   value={hgAddGroupName} onChange={e => setHgAddGroupName(e.target.value)} />
               </div>
 
               <div className="hg-modal__field">
-                <label className="hg-modal__label">Trading Name</label>
+                <label className="hg-modal__label">Trading name</label>
                 <input className="nv-input" placeholder="e.g. Aria Hotels"
                   value={hgAddTradingName} onChange={e => setHgAddTradingName(e.target.value)} />
                 <p className="hg-modal__hint">
@@ -2007,18 +2012,18 @@ function Step1HotelDetails({
 
       <style jsx>{`
         .hs-section {
-          padding: 14px 16px; border: 1.5px solid var(--nv-border); border-radius: var(--nv-radius-md);
+          padding: 14px 16px; border: 1px solid var(--nv-border-hair); border-radius: var(--nv-radius-md);
         }
         .hs-section__label {
-          font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
-          color: var(--nv-text-muted); margin-bottom: 8px;
+          font-size: 13px; font-weight: 500;
+          color: var(--nv-text-body); margin-bottom: 8px;
         }
         .hs-section__hint { margin: 8px 0 0; font-size: 12px; color: var(--nv-text-muted); line-height: 1.5; }
         .hg-search { position: relative; }
         .hg-dropdown {
           position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20;
-          background: white; border: 1px solid var(--nv-border); border-radius: 10px;
-          max-height: 220px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+          background: white; border: 1px solid var(--nv-border); border-radius: 6px;
+          max-height: 220px; overflow-y: auto;
         }
         .hg-dropdown__item {
           display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
@@ -2036,7 +2041,7 @@ function Step1HotelDetails({
         .hg-dropdown__meta { font-size: 11px; color: var(--nv-text-muted); }
         .hg-selected {
           display: flex; align-items: center; justify-content: space-between;
-          padding: 10px 14px; border: 1.5px solid var(--nv-border); border-radius: var(--nv-radius-md);
+          padding: 10px 14px; border: 1px solid var(--nv-border); border-radius: var(--nv-radius-md);
           font-size: 14px;
         }
         .hg-selected code { font-size: 11px; color: var(--nv-text-muted); margin-left: 6px; }
@@ -2049,26 +2054,27 @@ function Step1HotelDetails({
         .hg-modal {
           width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto;
           background: var(--nv-surface-card); border-radius: var(--nv-radius-md);
-          box-shadow: var(--nv-shadow-md);
         }
         .hg-modal__header {
           display: flex; align-items: center; justify-content: space-between;
           padding: 24px 28px; border-bottom: 1px solid var(--nv-border-hair);
         }
         .hg-modal__header h3 {
-          margin: 0; font-family: var(--font-comfortaa); font-size: 22px;
-          font-weight: 700; color: var(--nv-text-heading);
+          margin: 0; font-family: var(--nv-font-display); font-size: 22px;
+          font-weight: 500; color: var(--nv-text-heading); letter-spacing: 0;
         }
+        /* 32×32 ghost close with the duotone-thin xmark (browser-app-shell §9) */
         .hg-modal__close {
-          background: none; border: none; cursor: pointer; font-size: 22px;
-          line-height: 1; color: var(--nv-text-muted); padding: 4px;
+          width: 32px; height: 32px; border-radius: 6px; background: none; border: none; cursor: pointer;
+          display: grid; place-content: center; padding: 0; font-size: 0;
         }
-        .hg-modal__close:hover { color: var(--nv-text-body); }
+        .hg-modal__close::before { content: ""; width: 14px; height: 14px; background: url('/icons/xmark.svg') center / contain no-repeat; }
+        .hg-modal__close:hover { background: rgba(40,104,127,0.08); }
         .hg-modal__body { padding: 24px 28px; display: flex; flex-direction: column; gap: 20px; }
         .hg-modal__field { display: flex; flex-direction: column; gap: 8px; }
         .hg-modal__label {
-          font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
-          color: var(--nv-text-muted);
+          font-size: 13px; font-weight: 500;
+          color: var(--nv-text-body);
         }
         .hg-modal__hint { margin: 0; font-size: 12px; color: var(--nv-text-muted); line-height: 1.5; }
         .hg-modal__footer {
@@ -2193,17 +2199,16 @@ function Step2Services({ draft, setDraft, errors, serviceCategories = [], servic
           display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600;
           color: var(--nv-text-muted); cursor: pointer; margin-top: 10px;
         }
-        .services-select-all input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; accent-color: var(--nv-blue-slate); }
         .services-grid {
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 16px;
           margin-top: 8px;
         }
-        @media (max-width: 600px) { .services-grid { grid-template-columns: 1fr; } }
+        @media (max-width: 900px) { .services-grid { grid-template-columns: 1fr; } }
 
         .service-card {
-          border: 1.5px solid var(--nv-border);
+          border: 1px solid var(--nv-border-hair);
           border-radius: var(--nv-radius-md);
           padding: 16px;
           cursor: pointer;
@@ -2227,14 +2232,10 @@ function Step2Services({ draft, setDraft, errors, serviceCategories = [], servic
           border-radius: 6px;
           padding: 2px 8px;
           font-size: 11px;
-          font-weight: 700;
+          font-weight: 600;
           letter-spacing: 0.06em;
         }
-        .service-card__check {
-          width: 16px;
-          height: 16px;
-          accent-color: var(--nv-blue-slate);
-        }
+        .service-card__check { }
         .service-card__name {
           font-weight: 600;
           color: var(--nv-text-heading);
@@ -2278,7 +2279,7 @@ function Step3Scope({ draft, setDraft, serviceCategories = [] }: StepProps) {
   if (services.length === 0) {
     return (
       <div className="step-content">
-        <h2 className="step-title">Scope of Work</h2>
+        <h2 className="step-title">Scope of work</h2>
         <p className="step-desc">Select at least one service in the previous step to define its scope.</p>
       </div>
     )
@@ -2288,7 +2289,7 @@ function Step3Scope({ draft, setDraft, serviceCategories = [] }: StepProps) {
 
   return (
     <div className="step-content">
-      <h2 className="step-title">Scope of Work</h2>
+      <h2 className="step-title">Scope of work</h2>
       <p className="step-desc">
         Drag rows to reorder, click text to edit, uncheck to exclude an item from this proposal.
       </p>
@@ -2384,10 +2385,13 @@ function ScopeServiceGroup({ label, color, showLabel, scopeItems, onChange }: {
               onDragEnd={onDragEnd}
               onDragOver={e => e.preventDefault()}
             >
-              <span className="scope-row__handle">⠿</span>
+              <span className="scope-row__handle" aria-hidden="true">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/grip-dots-vertical.svg" width={14} height={14} alt="" /></span>
               <button type="button" className={`nv-checkbox ${item.enabled ? 'nv-checkbox--checked' : ''}`}
                 onClick={() => toggleItem(item.id)} aria-label="Toggle item">
-                {item.enabled && '✓'}
+                {item.enabled && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src="/icons/check.svg" width={12} height={12} alt="" style={{ filter: 'brightness(0) invert(1)' }} />
+                )}
               </button>
               <div className="scope-row__text" onClick={() => !isEditing && setEditingId(item.id)}>
                 {isEditing ? (
@@ -2415,7 +2419,7 @@ function ScopeServiceGroup({ label, color, showLabel, scopeItems, onChange }: {
       })}
 
       <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm scope-add" onClick={addCustom}>
-        + Add Custom Item
+        {/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/plus.svg" width={14} height={14} alt="" className="nv-icon-inline" /> Add custom item
       </button>
 
       <style jsx>{`
@@ -2423,23 +2427,21 @@ function ScopeServiceGroup({ label, color, showLabel, scopeItems, onChange }: {
         .scope-group:last-child { margin-bottom: 0; }
         .scope-group-label {
           padding: 6px 12px; margin-bottom: 12px; border-radius: 6px; color: white;
-          font-size: 11px; font-weight: 700; font-family: var(--font-comfortaa);
-          text-transform: uppercase; letter-spacing: 0.05em;
+          font-size: 13px; font-weight: 600; font-family: var(--nv-font-body);
         }
         .scope-heading {
-          font-size: 11px; font-weight: 700; font-family: var(--font-comfortaa);
-          margin-bottom: 6px; padding-bottom: 5px; border-bottom: 1.5px solid var(--nv-border-hair);
+          font-size: 13px; font-weight: 600; font-family: var(--nv-font-body);
+          margin-bottom: 6px; padding-bottom: 5px; border-bottom: 1px solid var(--nv-border-hair);
         }
         .scope-heading__select-all {
           display: flex; align-items: center; gap: 7px; cursor: pointer;
-          text-transform: uppercase; letter-spacing: 0.05em;
         }
         .scope-heading__select-all input[type="checkbox"] {
-          width: 13px; height: 13px; cursor: pointer; accent-color: var(--nv-blue-slate); flex-shrink: 0;
+           cursor: pointer;  flex-shrink: 0;
         }
         .scope-row {
           display: flex; gap: 8px; align-items: flex-start; padding: 7px 10px; margin-bottom: 6px;
-          border-radius: 8px; cursor: grab; border: 1px solid var(--nv-border-hair);
+          border-radius: 6px; cursor: grab; border: 1px solid var(--nv-border-hair);
         }
         .scope-row--on  { background: rgba(40,104,127,0.04); }
         .scope-row--off { background: var(--nv-platinum); }
@@ -2450,10 +2452,11 @@ function ScopeServiceGroup({ label, color, showLabel, scopeItems, onChange }: {
         .scope-row__actions { display: flex; gap: 2px; flex-shrink: 0; }
         .scope-row__remove { color: var(--nv-error); }
         .scope-add { margin-top: 10px; }
+        /* Figma checkbox 178:58 — 20px · radius 4 · 1.5px #5E6B6C · checked #28687F + 12px check */
         .nv-checkbox {
-          width: 18px; height: 18px; border-radius: 4px; border: 2px solid var(--nv-border);
-          background: transparent; cursor: pointer; flex-shrink: 0; margin-top: 2px;
-          display: flex; align-items: center; justify-content: center; font-size: 11px; color: white;
+          width: 20px; height: 20px; border-radius: 4px; border: 1.5px solid #5E6B6C;
+          background: #FFFFFF; cursor: pointer; flex-shrink: 0; margin-top: 1px; padding: 0;
+          display: grid; place-content: center;
         }
         .nv-checkbox--checked { border-color: var(--nv-blue-slate); background: var(--nv-blue-slate); }
       `}</style>
@@ -2503,7 +2506,7 @@ function Step4Pricing({ draft, setDraft, serviceCategories = [] }: StepProps) {
         <div className="pricing-row pricing-row--header">
           <span />
           <span>Component</span>
-          <span>Fee Type</span>
+          <span>Fee type</span>
           <span>Amount</span>
           <span>Months</span>
           <span>Note</span>
@@ -2529,7 +2532,7 @@ function Step4Pricing({ draft, setDraft, serviceCategories = [] }: StepProps) {
 
       <div className="footnotes-box">
         <div className="footnotes-box__header">
-          <span>Small Print / Footnotes</span>
+          <span>Small print / footnotes</span>
         </div>
         {/* Requested follow-up: footnotes used to be split into a labelled
             "Marketing" / "Sales Management" etc. sub-group per service,
@@ -2557,17 +2560,18 @@ function Step4Pricing({ draft, setDraft, serviceCategories = [] }: StepProps) {
       </div>
 
       <style jsx>{`
-        .pricing-table { border-radius: 8px; overflow: hidden; border: 1px solid var(--nv-border-hair); }
+        .pricing-table { border-radius: 6px; overflow: hidden; border: 1px solid var(--nv-border-hair); }
         .pricing-row--header {
           display: grid; grid-template-columns: 20px 1.4fr 1fr 0.8fr 0.6fr 1.2fr 20px;
-          gap: 6px; padding: 7px 10px; align-items: center;
-          background: var(--nv-blue-slate); color: white; font-size: 10px; font-weight: 700;
-          text-transform: uppercase; letter-spacing: 0.06em; cursor: default;
+          gap: 6px; padding: 0 10px; min-height: 40px; align-items: center;
+          /* Figma table header: #28687F @8% fill + @28% rule, Raleway SemiBold 12 #28687F, sentence case */
+          background: rgba(40,104,127,0.08); border-bottom: 1px solid rgba(40,104,127,0.28);
+          color: #28687F; font-size: 12px; font-weight: 600; cursor: default;
         }
         .pricing-footer { display: flex; align-items: center; justify-content: flex-end; margin-top: 10px; }
-        .pricing-total { font-size: 12px; font-weight: 700; color: var(--nv-blue-slate); }
+        .pricing-total { font-size: 13px; font-weight: 600; color: var(--nv-blue-slate); }
         .footnotes-box { margin-top: 18px; }
-        .footnotes-box__header { margin-bottom: 10px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--nv-text-muted); }
+        .footnotes-box__header { margin-bottom: 10px; font-size: 13px; font-weight: 500; color: var(--nv-text-body); }
         .footnotes-box__empty { font-size: 11px; color: var(--nv-text-muted); font-style: italic; margin-bottom: 6px; }
       `}</style>
     </div>
@@ -2615,7 +2619,7 @@ function PricingServiceGroup({ label, color, showLabel, feeRows, onChange }: {
           onDragEnd={onDragEnd}
           onDragOver={e => e.preventDefault()}
         >
-          <span className="pricing-row__handle">⠿</span>
+          <span className="pricing-row__handle" aria-hidden="true">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/grip-dots-vertical.svg" width={14} height={14} alt="" /></span>
           <input className="nv-input nv-input--sm" placeholder="e.g. Monthly Retainer"
             value={row.component} onChange={e => update(row.id, 'component', e.target.value)} />
           <select className="nv-input nv-input--sm" value={row.feeType}
@@ -2628,11 +2632,11 @@ function PricingServiceGroup({ label, color, showLabel, feeRows, onChange }: {
             value={row.term} onChange={e => update(row.id, 'term', e.target.value === '' ? '' : +e.target.value)} />
           <input className="nv-input nv-input--sm" placeholder="Optional note…"
             value={row.note} onChange={e => update(row.id, 'note', e.target.value)} />
-          <button type="button" className="pricing-row__remove" onClick={() => removeRow(row.id)}>×</button>
+          <button type="button" className="pricing-row__remove" onClick={() => removeRow(row.id)} aria-label="Remove row">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/xmark.svg" width={14} height={14} alt="" /></button>
         </div>
       ))}
       <div className="pricing-row-add">
-        <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm" onClick={addRow}>+ Add Row</button>
+        <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm" onClick={addRow}>{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/plus.svg" width={14} height={14} alt="" className="nv-icon-inline" /> Add row</button>
       </div>
 
       <style jsx>{`
@@ -2643,10 +2647,11 @@ function PricingServiceGroup({ label, color, showLabel, feeRows, onChange }: {
         }
         .pricing-row-add { display: flex; justify-content: flex-end; padding: 8px 10px; }
         .pricing-row__handle { color: var(--nv-text-muted); }
-        .pricing-row__remove { background: none; border: none; cursor: pointer; color: var(--nv-error); font-size: 16px; line-height: 1; }
+        .pricing-row__remove { width: 32px; height: 32px; border-radius: 6px; background: none; border: none; cursor: pointer; display: grid; place-content: center; }
+        .pricing-row__remove:hover { background: rgba(152,38,73,0.07); }
         .pricing-group-label {
-          padding: 6px 12px; color: white; font-size: 11px; font-weight: 700;
-          font-family: var(--font-comfortaa); text-transform: uppercase; letter-spacing: 0.05em;
+          padding: 6px 12px; color: white; font-size: 11px; font-weight: 600;
+          font-family: var(--nv-font-body);
         }
         .nv-input--sm { padding: 6px 8px; font-size: 12px; }
       `}</style>
@@ -2698,8 +2703,8 @@ function FootnotesGroup({ footnotes, onChange, showAddButton = true }: {
             onDragEnd={onDragEnd}
             onDragOver={e => e.preventDefault()}
           >
-            <span className="footnote-row__handle">⠿</span>
-            <span className="footnote-row__check" aria-hidden="true">✓</span>
+            <span className="footnote-row__handle" aria-hidden="true">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/grip-dots-vertical.svg" width={14} height={14} alt="" /></span>
+            <span className="footnote-row__check" aria-hidden="true">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/check.svg" width={12} height={12} alt="" style={{ filter: 'brightness(0) invert(1)' }} /></span>
             <div className="footnote-row__text" onClick={() => !isEditing && setEditingId(fn.id)}>
               {isEditing ? (
                 <input autoFocus className="nv-input nv-input--sm footnote-row__input" value={fn.text}
@@ -2722,7 +2727,7 @@ function FootnotesGroup({ footnotes, onChange, showAddButton = true }: {
 
       {showAddButton && (
         <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm footnote-add" onClick={addFootnote}>
-          + Add Custom Item
+          {/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/plus.svg" width={14} height={14} alt="" className="nv-icon-inline" /> Add custom item
         </button>
       )}
 
@@ -2730,7 +2735,7 @@ function FootnotesGroup({ footnotes, onChange, showAddButton = true }: {
         .footnotes-group { margin-bottom: 0; }
         .footnote-row {
           display: flex; gap: 8px; align-items: flex-start; padding: 7px 10px; margin-bottom: 6px;
-          border-radius: 8px; cursor: grab; border: 1px solid var(--nv-border-hair); background: rgba(40,104,127,0.04);
+          border-radius: 6px; cursor: grab; border: 1px solid var(--nv-border-hair); background: rgba(40,104,127,0.04);
         }
         .footnote-row__handle { color: var(--nv-text-muted); flex-shrink: 0; }
         .footnote-row__check {
@@ -2795,7 +2800,7 @@ function Step5Cover({ draft, setDraft, errors }: StepProps) {
   const photosDisabled = selectedTemplate === 'circles' || !!selectedTemplate?.startsWith('brand-')
   return (
     <div className="step-content">
-      <h2 className="step-title">Cover Image</h2>
+      <h2 className="step-title">Cover image</h2>
       <p className="step-desc">
         Choose a branded cover layout, a cover photo, or leave as default.
         You can also upload a custom image specific to this property.
@@ -2892,11 +2897,11 @@ function Step5Cover({ draft, setDraft, errors }: StepProps) {
           gap: 12px;
           margin: 16px 0;
         }
-        @media (max-width: 600px) { .cover-grid { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 900px) { .cover-grid { grid-template-columns: repeat(2, 1fr); } }
 
         .cover-option {
           border: 2px solid var(--nv-border);
-          border-radius: 10px;
+          border-radius: 6px;
           overflow: hidden;
           cursor: pointer;
           background: none;
@@ -2924,8 +2929,7 @@ function Step5Cover({ draft, setDraft, errors }: StepProps) {
         .cover-upload { display: block; }
 
         .step-subtitle {
-          font-family: var(--font-comfortaa); font-size: 12px; font-weight: 700;
-          letter-spacing: 0.06em; text-transform: uppercase; color: var(--nv-text-muted);
+          font-family: var(--nv-font-body); font-size: 12px; font-weight: 600; color: var(--nv-text-muted);
           margin: 18px 0 4px;
         }
         .cover-photos-hint { font-size: 12px; color: var(--nv-text-muted); margin: 0 0 8px; }
@@ -2964,18 +2968,18 @@ function Step6Terms({ draft, setDraft, errors, entities = [], entitiesLoading }:
 
   return (
     <div className="step-content">
-      <h2 className="step-title">Terms &amp; Conditions</h2>
+      <h2 className="step-title">Terms &amp; conditions</h2>
       <p className="step-desc">
         Standard clauses seeded from Nuvho&apos;s template — drag to reorder, click to edit, uncheck to exclude.
       </p>
 
       <div className="form-grid">
-        <FormField label="Proposal Validity" error={errors.validityDays}>
+        <FormField label="Proposal validity" error={errors.validityDays}>
           <input className="nv-input" type="number"
             value={terms.validityDays}
             onChange={e => updateTerms({ validityDays: +e.target.value })} />
         </FormField>
-        <FormField label="Governing Entity" error={errors.governingEntityCode}>
+        <FormField label="Governing entity" error={errors.governingEntityCode}>
           <select className="nv-input" value={terms.governingEntityCode}
             onChange={e => updateTerms({ governingEntityCode: e.target.value })}
             disabled={entitiesLoading}>
@@ -2991,7 +2995,7 @@ function Step6Terms({ draft, setDraft, errors, entities = [], entitiesLoading }:
 
       <TermsEditor clauses={terms.clauses} onChange={updateClauses} />
       <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm terms-add-clause" onClick={addClause}>
-        + Add Clause
+        {/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/plus.svg" width={14} height={14} alt="" className="nv-icon-inline" /> Add clause
       </button>
 
       <style jsx>{`
@@ -3036,10 +3040,13 @@ function TermsEditor({ clauses, onChange }: { clauses: TermsClause[]; onChange: 
             onDragEnd={onDragEnd}
             onDragOver={e => e.preventDefault()}
           >
-            <span className="clause-row__handle">⠿</span>
+            <span className="clause-row__handle" aria-hidden="true">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/grip-dots-vertical.svg" width={14} height={14} alt="" /></span>
             <button type="button" className={`nv-checkbox ${clause.enabled ? 'nv-checkbox--checked' : ''}`}
               onClick={() => update(clause.id, 'enabled', !clause.enabled)}>
-              {clause.enabled && '✓'}
+              {clause.enabled && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src="/icons/check.svg" width={12} height={12} alt="" style={{ filter: 'brightness(0) invert(1)' }} />
+              )}
             </button>
             <div className="clause-row__body" onClick={() => !isEditing && setEditingId(clause.id)}>
               {isEditing ? (
@@ -3072,22 +3079,23 @@ function TermsEditor({ clauses, onChange }: { clauses: TermsClause[]; onChange: 
         .clause-list { display: flex; flex-direction: column; margin-bottom: 8px; }
         .clause-row {
           display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; margin-bottom: 8px;
-          border-radius: 8px; cursor: grab; border: 1px solid var(--nv-border-hair);
+          border-radius: 6px; cursor: grab; border: 1px solid var(--nv-border-hair);
         }
         .clause-row--on  { background: rgba(40,104,127,0.04); }
         .clause-row--off { background: var(--nv-platinum); }
         .clause-row__handle { color: var(--nv-text-muted); flex-shrink: 0; margin-top: 2px; }
         .clause-row__body { flex: 1; cursor: text; }
-        .clause-row__heading { font-size: 12px; font-weight: 700; font-family: var(--font-comfortaa); margin-bottom: 3px; color: var(--nv-blue-slate); }
+        .clause-row__heading { font-size: 12px; font-weight: 600; font-family: var(--nv-font-body); margin-bottom: 3px; color: var(--nv-blue-slate); }
         .clause-row__text { font-size: 12px; line-height: 1.6; }
-        .clause-row__heading-input { font-size: 12px; font-weight: 700; margin-bottom: 6px; }
+        .clause-row__heading-input { font-size: 12px; font-weight: 600; margin-bottom: 6px; }
         .clause-row__text-input { font-size: 12px; min-height: 60px; }
         .clause-row__actions { display: flex; gap: 2px; flex-shrink: 0; }
         .clause-row__remove { color: var(--nv-error); }
+        /* Figma checkbox 178:58 — 20px · radius 4 · 1.5px #5E6B6C · checked #28687F + 12px check */
         .nv-checkbox {
-          width: 18px; height: 18px; border-radius: 4px; border: 2px solid var(--nv-border);
-          background: transparent; cursor: pointer; flex-shrink: 0; margin-top: 2px;
-          display: flex; align-items: center; justify-content: center; font-size: 11px; color: white;
+          width: 20px; height: 20px; border-radius: 4px; border: 1.5px solid #5E6B6C;
+          background: #FFFFFF; cursor: pointer; flex-shrink: 0; margin-top: 1px; padding: 0;
+          display: grid; place-content: center;
         }
         .nv-checkbox--checked { border-color: var(--nv-blue-slate); background: var(--nv-blue-slate); }
       `}</style>
@@ -3113,7 +3121,7 @@ function Step7Preview({ draft, setDraft, staff = [], onDocumentReady }: StepProp
     setDraft(d => ({ ...d, terms: { ...d.terms, pageBreaks: { ...d.terms.pageBreaks, _document: document } } }))
   }
   return <div className="step-content">
-    <h2 className="step-title">Preview & Save</h2>
+    <h2 className="step-title">Preview & save</h2>
     <p className="step-desc">Edit directly on each A4 sheet — content flows onto the next page automatically as you type or delete, just like Word. Use each page’s own toolbar for a manual page break or a precise move. Save Document below saves the pages exactly as arranged.</p>
     <A4DocumentEditor model={model} onChange={savePages} onReady={onDocumentReady!} />
   </div>
@@ -3182,7 +3190,7 @@ function FormField({ label, error, children, span }: {
       {error && <span className="form-field__error">{error}</span>}
       <style jsx>{`
         .form-field { display: flex; flex-direction: column; gap: 6px; }
-        .form-field__label { font-size: 13px; font-weight: 600; color: var(--nv-text-body); }
+        .form-field__label { font-size: 13px; font-weight: 500; color: var(--nv-text-body); }
         .form-field__error { font-size: 12px; color: var(--nv-error); }
       `}</style>
     </div>
@@ -3192,26 +3200,29 @@ function FormField({ label, error, children, span }: {
 /* Common styles for step content */
 const stepStyles = `
   .step-content { display: flex; flex-direction: column; gap: 20px; }
+  /* Step heading = UI H2 (Comfortaa 500 24/1.25); description = subtitle (Raleway 15 muted) */
   .step-title {
-    font-family: var(--font-comfortaa);
-    font-size: 22px;
-    font-weight: 700;
+    font-family: var(--nv-font-display);
+    font-size: 24px;
+    font-weight: 500;
+    line-height: 1.25;
+    letter-spacing: 0;
     color: var(--nv-text-heading);
     margin-bottom: 2px;
   }
-  .step-desc { font-size: 14px; color: var(--nv-text-muted); line-height: 1.55; }
+  .step-desc { font-size: 15px; color: var(--nv-text-muted); line-height: 1.6; }
   .step-header-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
   .confidential-toggle {
     display: flex; align-items: center; gap: 8px; flex-shrink: 0;
-    padding: 7px 14px 7px 10px; border-radius: 999px; border: 1.5px solid var(--nv-border);
-    background: none; font-size: 12.5px; font-weight: 600; color: var(--nv-text-muted);
+    padding: 7px 14px 7px 10px; border-radius: 999px; border: 1px solid var(--nv-border);
+    background: none; font-size: 13px; font-weight: 500; color: var(--nv-text-muted);
     cursor: pointer; white-space: nowrap;
   }
   .confidential-toggle--active {
     border-color: var(--nv-blue-slate); color: var(--nv-blue-slate); background: rgba(40,104,127,0.06);
   }
   .confidential-toggle__check {
-    width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid var(--nv-border);
+    width: 20px; height: 20px; border-radius: 4px; border: 1.5px solid #5E6B6C;
     display: flex; align-items: center; justify-content: center; flex-shrink: 0;
     transition: background 150ms, border-color 150ms;
   }
@@ -3223,7 +3234,7 @@ const stepStyles = `
     grid-template-columns: 1fr 1fr;
     gap: 16px;
   }
-  @media (max-width: 600px) { .form-grid { grid-template-columns: 1fr; } }
+  @media (max-width: 900px) { .form-grid { grid-template-columns: 1fr; } }
 `
 
 /* Inject step styles once */
