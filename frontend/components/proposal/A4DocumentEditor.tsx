@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { ProposalDocument } from './ProposalDocument'
 import { TinyMcePageEditor } from './TinyMcePageEditor'
 import type { ProposalDocModel } from '@/lib/documentModel'
-import { pageId, readA4Document, refreshCoverPages, sanitizePageHtml, type A4Document, type A4Page } from '@/lib/a4Document'
+import { contentChildren, pageHeaderVars, pageId, readA4Document, refreshCoverPages, sanitizePageHtml, type A4Document, type A4Page } from '@/lib/a4Document'
 
 /** Fast, approximate page-count estimate shown the instant the source
  *  content is ready — before the accurate chunker below (which runs a
@@ -163,13 +163,19 @@ export function A4DocumentEditor({ model, onChange, onReady }: {
       // content has no purpose — drop it before measuring/pushing, so it
       // can never be mistaken for "the content to push forward" nor sit
       // as a stray empty line ahead of content that lands here later.
-      if (node.children.length > 1) {
-        const blank = Array.from(node.children).find(isBlankPlaceholder)
+      // NUVCL-150: measure/move only real content — never TinyMCE's live
+      // resize handles/ghost image appended to the body while the logo (or
+      // any image) is selected, which used to be the lastElementChild and
+      // got pushed onto the next page as if it were a paragraph.
+      const blocks = contentChildren(node)
+      if (blocks.length > 1) {
+        const blank = blocks.find(isBlankPlaceholder)
         if (blank) blank.remove()
       }
       if (!pageOverflows(node)) { i++; continue }
-      const lastChild = node.lastElementChild
-      if (!lastChild || node.children.length <= 1) { i++; continue }
+      const remaining = contentChildren(node)
+      const lastChild = remaining[remaining.length - 1]
+      if (!lastChild || remaining.length <= 1) { i++; continue }
       guard++
       const dest = pageList.current[i + 1]
       if (!dest || dest.kind === 'cover' || dest.breakBefore) {
@@ -185,7 +191,8 @@ export function A4DocumentEditor({ model, onChange, onReady }: {
       // empty placeholder gets it cleared first, so the incoming content
       // becomes the page's real first line instead of appearing after a
       // blank one.
-      if (destNode.children.length === 1 && isBlankPlaceholder(destNode.firstElementChild!)) destNode.innerHTML = ''
+      const destBlocks = contentChildren(destNode)
+      if (destBlocks.length === 1 && isBlankPlaceholder(destBlocks[0])) destBlocks[0].remove()
       destNode.insertBefore(lastChild, destNode.firstChild)
       resyncFocusAfterMove()
     }
@@ -211,8 +218,9 @@ export function A4DocumentEditor({ model, onChange, onReady }: {
         // that placeholder pulled up as if it were real content (which
         // left a stray blank line ahead of whatever real content reflowed
         // onto that page afterwards).
-        const onlyChild = nextNode.children.length === 1 ? nextNode.firstElementChild : null
-        const firstChild = onlyChild && isBlankPlaceholder(onlyChild) ? null : nextNode.firstElementChild
+        const nextBlocks = contentChildren(nextNode)
+        const onlyChild = nextBlocks.length === 1 ? nextBlocks[0] : null
+        const firstChild = onlyChild && isBlankPlaceholder(onlyChild) ? null : (nextBlocks[0] ?? null)
         if (!firstChild) {
           if (pageList.current.length > 1 && !nextNode.textContent?.trim()) {
             guard++
@@ -225,7 +233,8 @@ export function A4DocumentEditor({ model, onChange, onReady }: {
           break
         }
         guard++
-        node.appendChild(firstChild)
+        const tail = contentChildren(node).pop()
+        if (tail) tail.after(firstChild); else node.prepend(firstChild)
         if (pageOverflows(node)) { nextNode.insertBefore(firstChild, nextNode.firstChild); break }
         resyncFocusAfterMove()
       }
@@ -441,7 +450,8 @@ export function A4DocumentEditor({ model, onChange, onReady }: {
     if (target.kind === 'cover') { setError('Move body content to a body page, not the cover.'); return }
     const destination = nodes.current.get(target.id)
     if (destination) {
-      if (destination.children.length === 1 && isBlankPlaceholder(destination.firstElementChild!)) destination.innerHTML = ''
+      const destBlocks = contentChildren(destination)
+      if (destBlocks.length === 1 && isBlankPlaceholder(destBlocks[0])) destBlocks[0].remove()
       destination.insertAdjacentHTML(direction === 1 ? 'afterbegin' : 'beforeend', sanitizePageHtml(html))
       target.html = sanitizePageHtml(destination.innerHTML)
     } else target.html = sanitizePageHtml(html) || '<p><br></p>'
@@ -460,7 +470,7 @@ export function A4DocumentEditor({ model, onChange, onReady }: {
   }
 
   return <div className="a4-editor">
-    <div className="a4-editor__document">
+    <div className="a4-editor__document" style={pageHeaderVars(initialModel.hotelName, initialModel.dateIssued) as React.CSSProperties}>
       {error && <p role="alert">{error}</p>}
       {!pages.length && !error && (
         <p>{estimatedPages ? `Estimated ~${estimatedPages} A4 page${estimatedPages === 1 ? '' : 's'} — laying out your editable pages…` : 'Estimating pages…'}</p>

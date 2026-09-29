@@ -183,7 +183,7 @@ export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
       children: [new Paragraph({ children: [new TextRun({ text, bold: true, color: 'FFFFFF' })] })],
     })
     const rows: TableRow[] = [
-      new TableRow({ tableHeader: true, children: ['Component', 'Fee Type', 'Amount', 'Months', 'Note'].map(headerCell) }),
+      new TableRow({ tableHeader: true, children: ['Component', 'Fee Type', 'Setup Fee', 'Fee', 'Terms'].map(headerCell) }),
     ]
     model.services.forEach(s => {
       if (multiSvc) {
@@ -198,20 +198,14 @@ export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
         rows.push(new TableRow({ children: [
           new TableCell({ children: [new Paragraph(row.component || '—')] }),
           new TableCell({ children: [new Paragraph(feeTypeLabel)] }),
+          new TableCell({ children: [new Paragraph(row.setupFee === '' || row.setupFee === undefined ? '—' : `${model.currencySymbol}${Number(row.setupFee).toLocaleString()}`)] }),
           new TableCell({ children: [new Paragraph(row.fee === '' ? '—' : `${model.currencySymbol}${Number(row.fee).toLocaleString()}`)] }),
-          new TableCell({ children: [new Paragraph(row.term === '' ? '—' : String(row.term))] }),
-          new TableCell({ children: [new Paragraph(row.note || '')] }),
+          new TableCell({ children: [new Paragraph(row.term === '' ? '—' : `${row.term} month${Number(row.term) === 1 ? '' : 's'}`)] }),
         ] }))
       })
     })
     startBlock('block:fees-table')
     children.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows }))
-    if (model.grandTotalMonthly > 0) {
-      children.push(new Paragraph({
-        alignment: AlignmentType.RIGHT, spacing: { before: 150, after: 100 },
-        children: [new TextRun({ text: `Combined monthly total: ${model.currencySymbol}${model.grandTotalMonthly.toLocaleString()}`, bold: true })],
-      }))
-    }
     model.footnotes.forEach(f => { startBlock(`block:footnote:${f.id}`); children.push(bullet(f.text)) })
   } else {
     children.push(italic('No pricing configured yet.'))

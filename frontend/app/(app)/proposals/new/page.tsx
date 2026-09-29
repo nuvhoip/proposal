@@ -2293,22 +2293,112 @@ function Step3Scope({ draft, setDraft, serviceCategories = [] }: StepProps) {
       <p className="step-desc">
         Drag rows to reorder, click text to edit, uncheck to exclude an item from this proposal.
       </p>
-      {services.map(s => (
-        <ScopeServiceGroup
-          key={s.code}
-          label={getServiceLabel(s.code, categoryLabel(s.code))}
-          color={getServiceColor(s.code)}
-          showLabel={showGroupLabels}
-          scopeItems={s.scopeItems}
-          onChange={items => updateScopeItems(s.code, items)}
-        />
+      {services.map((s, i) => (
+        <ServiceDragGroup key={s.code} index={i} count={services.length} setDraft={setDraft}>
+          {handle => (
+            <ScopeServiceGroup
+              label={getServiceLabel(s.code, categoryLabel(s.code))}
+              color={getServiceColor(s.code)}
+              showLabel={showGroupLabels}
+              dragHandle={handle}
+              scopeItems={s.scopeItems}
+              onChange={items => updateScopeItems(s.code, items)}
+            />
+          )}
+        </ServiceDragGroup>
       ))}
     </div>
   )
 }
 
-function ScopeServiceGroup({ label, color, showLabel, scopeItems, onChange }: {
+/* NUVCL-152: whole-service reordering. draft.services' order is the single
+   source of truth for both Scope of Work and the Fee Structure (and so the
+   generated document / PDF / DOCX), so dragging a service's coloured header
+   in either step moves that service — with all of its scope sections,
+   bullets and fee rows — everywhere at once. The worker already re-inserts
+   proposal_services in draft order on save and now reads them back
+   ORDER BY rowid, so the order persists.
+
+   Group drags use their own dataTransfer type so they never collide with
+   the row-level drag-reorder inside each group (those rows use plain
+   HTML5 drag with index refs): a row drag bubbling up here is ignored, and
+   this handle stops its own dragstart from reaching the row handlers.
+   Up/down buttons give the same move for keyboard users. */
+const SERVICE_DRAG_TYPE = 'application/x-nuvho-service'
+function moveListItem<T>(list: T[], from: number, target: number, after: boolean): T[] {
+  let to = after ? target + 1 : target
+  if (from < to) to -= 1
+  if (from === to || from < 0 || from >= list.length || to < 0 || to >= list.length) return list
+  const next = list.slice()
+  const [moved] = next.splice(from, 1)
+  next.splice(to, 0, moved)
+  return next
+}
+function ServiceDragGroup({ index, count, setDraft, children }: {
+  index: number; count: number
+  setDraft: React.Dispatch<React.SetStateAction<ProposalDraft>>
+  children: (handle: React.ReactNode) => React.ReactNode
+}) {
+  const [over, setOver] = useState<'before' | 'after' | null>(null)
+  const move = (from: number, target: number, after: boolean) =>
+    setDraft(d => ({ ...d, services: moveListItem(d.services, from, target, after) }))
+  const isServiceDrag = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes(SERVICE_DRAG_TYPE)
+  const handle = count > 1 ? (
+    <span className="service-drag">
+      <span className="service-drag__grip" draggable title="Drag to move this service and everything under it"
+        onDragStart={e => {
+          e.stopPropagation()
+          e.dataTransfer.effectAllowed = 'move'
+          e.dataTransfer.setData(SERVICE_DRAG_TYPE, String(index))
+          e.dataTransfer.setData('text/plain', '')
+        }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/icons/grip-dots-vertical.svg" width={14} height={14} alt="" />
+      </span>
+      <button type="button" className="service-drag__btn" aria-label="Move service up" disabled={index === 0}
+        onClick={() => move(index, index - 1, false)}>▲</button>
+      <button type="button" className="service-drag__btn" aria-label="Move service down" disabled={index === count - 1}
+        onClick={() => move(index, index + 1, true)}>▼</button>
+    </span>
+  ) : null
+  return (
+    <div className={`service-drag-group${over ? ` service-drag-group--${over}` : ''}`}
+      onDragOver={e => {
+        if (!isServiceDrag(e)) return
+        e.preventDefault()
+        const rect = e.currentTarget.getBoundingClientRect()
+        setOver(e.clientY < rect.top + rect.height / 2 ? 'before' : 'after')
+      }}
+      onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(null) }}
+      onDrop={e => {
+        if (!isServiceDrag(e)) return
+        e.preventDefault()
+        const from = Number(e.dataTransfer.getData(SERVICE_DRAG_TYPE))
+        const after = over === 'after'
+        setOver(null)
+        if (!Number.isNaN(from)) move(from, index, after)
+      }}>
+      {children(handle)}
+      <style jsx>{`
+        .service-drag-group { position: relative; }
+        .service-drag-group--before { box-shadow: inset 0 3px 0 var(--nv-blue-slate); }
+        .service-drag-group--after  { box-shadow: inset 0 -3px 0 var(--nv-blue-slate); }
+        .service-drag { display: inline-flex; align-items: center; gap: 2px; margin-right: 4px; }
+        .service-drag__grip { cursor: grab; display: grid; place-content: center; width: 18px; height: 18px; }
+        .service-drag__grip img { filter: brightness(0) invert(1); }
+        .service-drag__btn {
+          background: rgba(255,255,255,0.18); border: none; color: white; border-radius: 3px;
+          width: 18px; height: 18px; font-size: 9px; line-height: 1; cursor: pointer; padding: 0;
+        }
+        .service-drag__btn:disabled { opacity: 0.35; cursor: default; }
+      `}</style>
+    </div>
+  )
+}
+
+function ScopeServiceGroup({ label, color, showLabel, dragHandle, scopeItems, onChange }: {
   label: string; color: string; showLabel: boolean
+  dragHandle?: React.ReactNode
   scopeItems: ScopeItem[]; onChange: (items: ScopeItem[]) => void
 }) {
   const dragIdx  = useRef<number | null>(null)
@@ -2360,7 +2450,7 @@ function ScopeServiceGroup({ label, color, showLabel, scopeItems, onChange }: {
 
   return (
     <div className="scope-group">
-      {showLabel && <div className="scope-group-label" style={{ background: color }}>{label}</div>}
+      {showLabel && <div className="scope-group-label" style={{ background: color }}>{dragHandle}{label}</div>}
       {scopeItems.map((item, i) => {
         const showHeading = item.sectionHeading !== lastSection
         lastSection = item.sectionHeading
@@ -2380,7 +2470,7 @@ function ScopeServiceGroup({ label, color, showLabel, scopeItems, onChange }: {
             <div
               className={`scope-row ${item.enabled ? 'scope-row--on' : 'scope-row--off'}`}
               draggable
-              onDragStart={() => { dragIdx.current = i }}
+              onDragStart={() => { dragIdx.current = i; dragOver.current = i }}
               onDragEnter={() => { dragOver.current = i }}
               onDragEnd={onDragEnd}
               onDragOver={e => e.preventDefault()}
@@ -2424,10 +2514,10 @@ function ScopeServiceGroup({ label, color, showLabel, scopeItems, onChange }: {
 
       <style jsx>{`
         .scope-group { display: flex; flex-direction: column; margin-bottom: 28px; }
-        .scope-group:last-child { margin-bottom: 0; }
         .scope-group-label {
           padding: 6px 12px; margin-bottom: 12px; border-radius: 6px; color: white;
           font-size: 13px; font-weight: 600; font-family: var(--nv-font-body);
+          display: flex; align-items: center; gap: 8px;
         }
         .scope-heading {
           font-size: 13px; font-weight: 600; font-family: var(--nv-font-body);
@@ -2493,41 +2583,38 @@ function Step4Pricing({ draft, setDraft, serviceCategories = [] }: StepProps) {
     )
   }
 
-  const grandTotal = services.reduce((sum, s) => sum + deriveFeeSummary(s.feeRows).monthlyFee, 0)
   const showGroupLabels = services.length > 1
   const totalFootnotes = services.reduce((n, s) => n + s.footnotes.length, 0)
 
   return (
     <div className="step-content">
       <h2 className="step-title">Pricing</h2>
-      <p className="step-desc">Drag to reorder · add or remove rows · all fields fully editable.</p>
+      <p className="step-desc">Drag rows to reorder within a service{showGroupLabels ? ' · drag a service’s coloured header to move the whole service (its rows come with it — the same order is used for Scope of Work and the document)' : ''} · all fields fully editable.</p>
 
       <div className="pricing-table">
         <div className="pricing-row pricing-row--header">
           <span />
           <span>Component</span>
           <span>Fee type</span>
-          <span>Amount</span>
-          <span>Months</span>
-          <span>Note</span>
+          <span>Setup fee</span>
+          <span>Fee</span>
+          <span>Terms (months)</span>
           <span />
         </div>
-        {services.map(s => (
-          <PricingServiceGroup
-            key={s.code}
-            label={getServiceLabel(s.code, categoryLabel(s.code))}
-            color={getServiceColor(s.code)}
-            showLabel={showGroupLabels}
-            feeRows={s.feeRows}
-            onChange={feeRows => updateService(s.code, feeRows, s.footnotes)}
-          />
+        {services.map((s, i) => (
+          <ServiceDragGroup key={s.code} index={i} count={services.length} setDraft={setDraft}>
+            {handle => (
+              <PricingServiceGroup
+                label={getServiceLabel(s.code, categoryLabel(s.code))}
+                color={getServiceColor(s.code)}
+                showLabel={showGroupLabels}
+                dragHandle={handle}
+                feeRows={s.feeRows}
+                onChange={feeRows => updateService(s.code, feeRows, s.footnotes)}
+              />
+            )}
+          </ServiceDragGroup>
         ))}
-      </div>
-
-      <div className="pricing-footer">
-        {grandTotal > 0 && (
-          <div className="pricing-total">Combined monthly total: ${grandTotal.toLocaleString()}</div>
-        )}
       </div>
 
       <div className="footnotes-box">
@@ -2562,14 +2649,12 @@ function Step4Pricing({ draft, setDraft, serviceCategories = [] }: StepProps) {
       <style jsx>{`
         .pricing-table { border-radius: 6px; overflow: hidden; border: 1px solid var(--nv-border-hair); }
         .pricing-row--header {
-          display: grid; grid-template-columns: 20px 1.4fr 1fr 0.8fr 0.6fr 1.2fr 20px;
+          display: grid; grid-template-columns: 20px 1.6fr 1fr 0.8fr 0.8fr 0.7fr 32px;
           gap: 6px; padding: 0 10px; min-height: 40px; align-items: center;
           /* Figma table header: #28687F @8% fill + @28% rule, Raleway SemiBold 12 #28687F, sentence case */
           background: rgba(40,104,127,0.08); border-bottom: 1px solid rgba(40,104,127,0.28);
           color: #28687F; font-size: 12px; font-weight: 600; cursor: default;
         }
-        .pricing-footer { display: flex; align-items: center; justify-content: flex-end; margin-top: 10px; }
-        .pricing-total { font-size: 13px; font-weight: 600; color: var(--nv-blue-slate); }
         .footnotes-box { margin-top: 18px; }
         .footnotes-box__header { margin-bottom: 10px; font-size: 13px; font-weight: 500; color: var(--nv-text-body); }
         .footnotes-box__empty { font-size: 11px; color: var(--nv-text-muted); font-style: italic; margin-bottom: 6px; }
@@ -2581,8 +2666,9 @@ function Step4Pricing({ draft, setDraft, serviceCategories = [] }: StepProps) {
 /* One service's slice of the shared pricing table: an optional coloured group
    label (hidden when only one service is selected, since there's nothing to
    distinguish it from) followed by its editable, drag-reorderable fee rows. */
-function PricingServiceGroup({ label, color, showLabel, feeRows, onChange }: {
+function PricingServiceGroup({ label, color, showLabel, dragHandle, feeRows, onChange }: {
   label: string; color: string; showLabel: boolean
+  dragHandle?: React.ReactNode
   feeRows: FeeRow[]; onChange: (feeRows: FeeRow[]) => void
 }) {
   const dragIdx  = useRef<number | null>(null)
@@ -2592,7 +2678,7 @@ function PricingServiceGroup({ label, color, showLabel, feeRows, onChange }: {
     onChange(feeRows.map(r => r.id === id ? { ...r, [field]: val } : r))
   }
   function addRow() {
-    onChange([...feeRows, { id: generateRowId('fee'), component: '', feeType: 'monthly' as FeeType, fee: '', term: '', note: '' }])
+    onChange([...feeRows, { id: generateRowId('fee'), component: '', feeType: 'monthly' as FeeType, setupFee: '', fee: '', term: '' }])
   }
   function removeRow(id: string) {
     onChange(feeRows.filter(r => r.id !== id))
@@ -2610,11 +2696,11 @@ function PricingServiceGroup({ label, color, showLabel, feeRows, onChange }: {
 
   return (
     <>
-      {showLabel && <div className="pricing-group-label" style={{ background: color }}>{label}</div>}
+      {showLabel && <div className="pricing-group-label" style={{ background: color }}>{dragHandle}{label}</div>}
       {feeRows.map((row, i) => (
         <div key={row.id} className="pricing-row"
           draggable
-          onDragStart={() => { dragIdx.current = i }}
+          onDragStart={() => { dragIdx.current = i; dragOver.current = i }}
           onDragEnter={() => { dragOver.current = i }}
           onDragEnd={onDragEnd}
           onDragOver={e => e.preventDefault()}
@@ -2626,12 +2712,12 @@ function PricingServiceGroup({ label, color, showLabel, feeRows, onChange }: {
             onChange={e => update(row.id, 'feeType', e.target.value as FeeType)}>
             {FEE_TYPES.map(ft => <option key={ft.value} value={ft.value}>{ft.label}</option>)}
           </select>
-          <input className="nv-input nv-input--sm" type="number" placeholder="0.00"
+          <input className="nv-input nv-input--sm" type="number" placeholder="—" aria-label="Setup fee"
+            value={row.setupFee ?? ''} onChange={e => update(row.id, 'setupFee', e.target.value === '' ? '' : +e.target.value)} />
+          <input className="nv-input nv-input--sm" type="number" placeholder="0.00" aria-label="Fee"
             value={row.fee} onChange={e => update(row.id, 'fee', e.target.value === '' ? '' : +e.target.value)} />
-          <input className="nv-input nv-input--sm" type="number" placeholder="—"
+          <input className="nv-input nv-input--sm" type="number" placeholder="—" aria-label="Terms (months)"
             value={row.term} onChange={e => update(row.id, 'term', e.target.value === '' ? '' : +e.target.value)} />
-          <input className="nv-input nv-input--sm" placeholder="Optional note…"
-            value={row.note} onChange={e => update(row.id, 'note', e.target.value)} />
           <button type="button" className="pricing-row__remove" onClick={() => removeRow(row.id)} aria-label="Remove row">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/xmark.svg" width={14} height={14} alt="" /></button>
         </div>
       ))}
@@ -2641,7 +2727,7 @@ function PricingServiceGroup({ label, color, showLabel, feeRows, onChange }: {
 
       <style jsx>{`
         .pricing-row {
-          display: grid; grid-template-columns: 20px 1.4fr 1fr 0.8fr 0.6fr 1.2fr 20px;
+          display: grid; grid-template-columns: 20px 1.6fr 1fr 0.8fr 0.8fr 0.7fr 32px;
           gap: 6px; padding: 7px 10px; align-items: center; background: white;
           border-bottom: 1px solid var(--nv-border-hair); cursor: grab;
         }
@@ -2651,7 +2737,7 @@ function PricingServiceGroup({ label, color, showLabel, feeRows, onChange }: {
         .pricing-row__remove:hover { background: rgba(152,38,73,0.07); }
         .pricing-group-label {
           padding: 6px 12px; color: white; font-size: 11px; font-weight: 600;
-          font-family: var(--nv-font-body);
+          font-family: var(--nv-font-body); display: flex; align-items: center; gap: 8px;
         }
         .nv-input--sm { padding: 6px 8px; font-size: 12px; }
       `}</style>
@@ -2698,7 +2784,7 @@ function FootnotesGroup({ footnotes, onChange, showAddButton = true }: {
         return (
           <div key={fn.id} className="footnote-row"
             draggable
-            onDragStart={() => { dragIdx.current = i }}
+            onDragStart={() => { dragIdx.current = i; dragOver.current = i }}
             onDragEnter={() => { dragOver.current = i }}
             onDragEnd={onDragEnd}
             onDragOver={e => e.preventDefault()}
@@ -3035,7 +3121,7 @@ function TermsEditor({ clauses, onChange }: { clauses: TermsClause[]; onChange: 
           <div key={clause.id}
             className={`clause-row ${clause.enabled ? 'clause-row--on' : 'clause-row--off'}`}
             draggable
-            onDragStart={() => { dragIdx.current = i }}
+            onDragStart={() => { dragIdx.current = i; dragOver.current = i }}
             onDragEnter={() => { dragOver.current = i }}
             onDragEnd={onDragEnd}
             onDragOver={e => e.preventDefault()}
@@ -3117,13 +3203,46 @@ function TermsEditor({ clauses, onChange }: { clauses: TermsClause[]; onChange: 
 /* ─── Step 7: Preview & Save ─── */
 function Step7Preview({ draft, setDraft, staff = [], onDocumentReady }: StepProps) {
   const model = buildDocModelFromDraft(draft, staff)
+  // Bumped to remount A4DocumentEditor from scratch (it snapshots its model
+  // once at mount — see its initialModel ref).
+  const [editorKey, setEditorKey] = useState(0)
+  // Only for pages laid out BEFORE this visit (the editor itself saves a
+  // _document the moment it opens, so checking live would always be true).
+  const [hasSavedPages, setHasSavedPages] = useState(() => !!draft.terms.pageBreaks?._document)
   function savePages(document: A4Document) {
     setDraft(d => ({ ...d, terms: { ...d.terms, pageBreaks: { ...d.terms.pageBreaks, _document: document } } }))
+  }
+  // NUVCL-151/152: once a proposal has saved A4 pages, those pages are frozen
+  // HTML — later wizard changes (fee table, service order, scope edits) never
+  // reach them. This regenerates the pages from the current wizard data,
+  // discarding manual edits made on the sheets (hence the confirm).
+  function rebuildPages() {
+    if (!window.confirm('Rebuild all pages from the current wizard data? Any edits you made directly on the A4 pages will be lost.')) return
+    setDraft(d => {
+      const { _document: _discarded, ...rest } = d.terms.pageBreaks || {}
+      return { ...d, terms: { ...d.terms, pageBreaks: rest } }
+    })
+    setEditorKey(k => k + 1)
+    setHasSavedPages(false)
   }
   return <div className="step-content">
     <h2 className="step-title">Preview & save</h2>
     <p className="step-desc">Edit directly on each A4 sheet — content flows onto the next page automatically as you type or delete, just like Word. Use each page’s own toolbar for a manual page break or a precise move. Save Document below saves the pages exactly as arranged.</p>
-    <A4DocumentEditor model={model} onChange={savePages} onReady={onDocumentReady!} />
+    {hasSavedPages && (
+      <div className="rebuild-pages">
+        <span>These pages were laid out earlier. Changes made since in Scope, Pricing or service order won’t appear until you rebuild them.</span>
+        <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm" onClick={rebuildPages}>Rebuild pages from wizard</button>
+      </div>
+    )}
+    <A4DocumentEditor key={editorKey} model={model} onChange={savePages} onReady={onDocumentReady!} />
+    <style jsx>{`
+      .rebuild-pages {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+        padding: 10px 14px; margin-bottom: 14px; border-radius: 8px;
+        background: rgba(40,104,127,0.06); border: 1px solid rgba(40,104,127,0.2);
+        font-size: 12px; color: var(--nv-text-body);
+      }
+    `}</style>
   </div>
 }
 

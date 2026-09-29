@@ -57,3 +57,32 @@ test('the editor no longer depends on Paged.js or iframe pagination', () => {
   assert(!/pagedjs|srcdoc|<iframe/i.test(source))
   assert(!require('../package.json').dependencies.pagedjs)
 })
+
+// NUVCL-151/153/154 — pure helpers (DOM-dependent sanitizer checks run in a real browser; see the ticket notes).
+const { pageHeaderVars } = require('../lib/a4Document.ts')
+const { deriveFeeSummary } = require('../lib/serviceCatalog.ts')
+
+test('running header shows the client name and issue month as CSS strings', () => {
+  const vars = pageHeaderVars('The "Grand" Hotel', '29 September 2026')
+  assert.equal(vars['--a4-header-client'], '"The \\"Grand\\" Hotel"')
+  assert.equal(vars['--a4-header-month'], '"September 2026"')
+})
+
+test('setup fees count both legacy Setup-type rows and the new Setup fee column', () => {
+  const summary = deriveFeeSummary([
+    { id: 'a', component: 'Setup', feeType: 'setup', fee: 1500, term: '' },
+    { id: 'b', component: 'Monthly', feeType: 'monthly', setupFee: 500, fee: 7499, term: 12 },
+  ])
+  assert.equal(summary.setupFee, 2000)
+  assert.equal(summary.monthlyFee, 7499)
+  assert.equal(summary.term, 12)
+})
+
+test('signed proposals expose which services the client accepted', () => {
+  const model = buildDocModelFromProposal({ services: [
+    { code: 'RM', acceptance: 'accepted' }, { code: 'MK', acceptance: 'declined' }, { code: 'SM', acceptance: 'accepted' },
+  ] })
+  assert.equal(model.clientAcceptedServices.length, 2)
+  assert.equal(model.clientDeclinedServices.length, 1)
+  assert.deepEqual(buildDocModelFromProposal({ services: [{ code: 'RM' }] }).clientDeclinedServices, [])
+})

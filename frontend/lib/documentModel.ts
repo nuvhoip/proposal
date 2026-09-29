@@ -7,7 +7,7 @@ import type { PageLayoutSettings } from './a4Document'
 // serve both places instead of duplicating the document layout twice.
 
 import type { ProposalDraft, ScopeItem, FeeRow, PricingFootnote, TermsClause } from './types'
-import { getServiceLabel, deriveFeeSummary, currencySymbol } from './serviceCatalog'
+import { getServiceLabel, currencySymbol } from './serviceCatalog'
 
 export const ROLE_LABELS: Record<string, string> = {
   exec: 'Executive', bd: 'Business Development', account_manager: 'Account Manager',
@@ -84,7 +84,6 @@ export interface ProposalDocModel {
   senderRoleLabel:   string
   senderEmail:       string
   services:          DocServiceGroup[]
-  grandTotalMonthly: number
   footnotes:         PricingFootnote[]
   validityDays:      number
   signatureRequired: boolean
@@ -118,6 +117,11 @@ export interface ProposalDocModel {
   clientSignatureMethod:  'type' | 'draw'
   clientSignatureDataUrl: string
   clientSignedAt:         string
+  // NUVCL-154: labels of the services the client accepted / did not accept
+  // when signing. Both empty = not signed yet, or signed before per-service
+  // acceptance existed (everything accepted).
+  clientAcceptedServices: string[]
+  clientDeclinedServices: string[]
 }
 
 // Which of ProposalDocument's category sections currently have content to
@@ -196,7 +200,6 @@ export function buildDocModelFromDraft(draft: ProposalDraft, staff: StaffLike[])
     senderRoleLabel:   sender?.role || '',
     senderEmail:       sender?.email || '',
     services,
-    grandTotalMonthly: services.reduce((sum, s) => sum + deriveFeeSummary(s.feeRows).monthlyFee, 0),
     footnotes:         services.flatMap(s => s.footnotes).filter(f => f.text.trim()),
     validityDays:      draft.terms.validityDays,
     signatureRequired: draft.terms.signatureRequired,
@@ -213,6 +216,8 @@ export function buildDocModelFromDraft(draft: ProposalDraft, staff: StaffLike[])
     clientSignatureMethod:  'type',
     clientSignatureDataUrl: '',
     clientSignedAt:         '',
+    clientAcceptedServices: [],
+    clientDeclinedServices: [],
   }
 }
 
@@ -252,7 +257,6 @@ export function buildDocModelFromProposal(p: any): ProposalDocModel {
     senderRoleLabel:   sender?.role || '',
     senderEmail:       sender?.email || '',
     services,
-    grandTotalMonthly: services.reduce((sum, s) => sum + deriveFeeSummary(s.feeRows).monthlyFee, 0),
     footnotes:         services.flatMap(s => s.footnotes).filter((f: PricingFootnote) => f.text.trim()),
     validityDays:      terms.validityDays ?? 30,
     signatureRequired: terms.signatureRequired ?? false,
@@ -271,6 +275,8 @@ export function buildDocModelFromProposal(p: any): ProposalDocModel {
     clientSignatureMethod:  terms.clientSignatureMethod === 'draw' ? 'draw' : 'type',
     clientSignatureDataUrl: terms.clientSignatureDataUrl || '',
     clientSignedAt:         terms.clientSignedAt || '',
+    clientAcceptedServices: rawServices.filter(s => s.acceptance === 'accepted').map(s => getServiceLabel(s.code)),
+    clientDeclinedServices: rawServices.filter(s => s.acceptance === 'declined').map(s => getServiceLabel(s.code)),
   }
 }
 

@@ -118,6 +118,7 @@ CREATE TABLE IF NOT EXISTS proposal_services (
   monthly_fee  REAL NOT NULL DEFAULT 0,
   setup_fee    REAL NOT NULL DEFAULT 0,
   term_months  INTEGER NOT NULL DEFAULT 12,
+  acceptance   TEXT,                 -- NUVCL-154 (migration 0018): 'accepted' | 'declined' at signing; NULL = not yet signed
   created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -147,6 +148,7 @@ CREATE TABLE IF NOT EXISTS proposal_fee_rows (
   proposal_service_id  TEXT NOT NULL REFERENCES proposal_services(id) ON DELETE CASCADE,
   component            TEXT NOT NULL DEFAULT '',
   fee_type             TEXT NOT NULL DEFAULT 'monthly', -- monthly | setup | fixed | daily | hourly | commission | custom
+  setup_fee            REAL,                            -- NUVCL-151 (migration 0017): one-off setup fee column
   fee                  REAL,
   term                 INTEGER,
   note                 TEXT,

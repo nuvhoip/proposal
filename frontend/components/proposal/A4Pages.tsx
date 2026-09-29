@@ -1,5 +1,5 @@
 'use client'
-import { Fragment, useEffect, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { sanitizePageHtml, splitPagesAtTerms, type A4Document, type A4Page } from '@/lib/a4Document'
 
 /** Saved document pages used by the detail, client view and print/PDF paths.
@@ -18,10 +18,12 @@ import { sanitizePageHtml, splitPagesAtTerms, type A4Document, type A4Page } fro
  * first created, so it goes stale the moment a different cover is picked (and
  * a custom upload's blob: preview URL is stripped from it entirely) —
  * ProposalDocument passes its live cover instead. */
-export function A4Pages({ document: value, insertBeforeTerms, coverNode }: {
+export function A4Pages({ document: value, insertBeforeTerms, coverNode, headerVars }: {
   document: A4Document
   insertBeforeTerms?: ReactNode
   coverNode?: ReactNode
+  /** NUVCL-153 running-header custom properties (see pageHeaderVars). */
+  headerVars?: Record<string, string>
 }) {
   const [layout, setLayout] = useState<{ pages: A4Page[]; termsIndex: number }>({ pages: [], termsIndex: -1 })
   // Only the presence of an insert changes the layout — not the node's
@@ -33,7 +35,7 @@ export function A4Pages({ document: value, insertBeforeTerms, coverNode }: {
   }, [value, wantsInsert])
 
   const { pages, termsIndex } = layout
-  return <div className="a4-saved-pages">
+  return <div className="a4-saved-pages" style={headerVars as CSSProperties | undefined}>
     {pages.map((page, index) => <Fragment key={page.id}>
       {insertBeforeTerms && termsIndex === index && insertBeforeTerms}
       {page.kind === 'cover' && coverNode

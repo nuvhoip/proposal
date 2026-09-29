@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { readA4Document } from '@/lib/a4Document'
+import { LETTERHEAD_LOGO_PX, pageHeaderVars, readA4Document } from '@/lib/a4Document'
 import { A4Pages } from './A4Pages'
 import { NuvhoLogo, NuvhoIconMark } from '@/components/ui/NuvhoLogo'
 import { FEE_TYPES } from '@/lib/serviceCatalog'
@@ -346,6 +346,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
         <A4Pages
           document={savedPages}
           coverNode={coverNode}
+          headerVars={pageHeaderVars(model.hotelName, model.dateIssued)}
           insertBeforeTerms={(beforeAppendix || model.clientSignedAt) ? (
             <div className="doc-flow">
               {beforeAppendix}
@@ -354,6 +355,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
                 {model.clientSignatureMethod === 'draw' && model.clientSignatureDataUrl && <img src={model.clientSignatureDataUrl} alt="Client signature" className="doc-signature__img" />}
                 <strong>{model.clientSignatoryName}</strong> {model.clientSignatoryTitle}<br />
                 Signed {model.clientSignedAt}
+                <AcceptedServicesNote model={model} />
               </div>}
             </div>
           ) : undefined}
@@ -371,7 +373,9 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
             {/* NUVCL-100: was height=96, oversized relative to the address
                 block next to it (11.5px text) — brought down to a
                 proportionate letterhead size. */}
-            <NuvhoLogo height={56} />
+            {/* NUVCL-153: 56 → 90 (+60%); already-saved pages are bumped in
+                sanitizePageHtml (lib/a4Document.ts). */}
+            <NuvhoLogo height={LETTERHEAD_LOGO_PX} />
           </div>
           <div className="doc-nuvho-address">
             {model.nuvhoAddress && model.nuvhoAddress.split('\n').map((line, i) => <React.Fragment key={i}>{line}<br /></React.Fragment>)}
@@ -553,7 +557,8 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
               </p>
               <table {...block("block:fees-table", "Pricing table")} className="doc-fee-table">
                 <thead>
-                  <tr><th>Component</th><th>Fee Type</th><th>Amount</th><th>Months</th><th>Note</th></tr>
+                  {/* NUVCL-151: Setup fee / Fee / Terms replace Amount / Months / Note. */}
+                  <tr><th>Component</th><th>Fee Type</th><th>Setup Fee</th><th>Fee</th><th>Terms</th></tr>
                 </thead>
                 <tbody>
                   {model.services.map(s => (
@@ -565,18 +570,15 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
                         <tr key={row.id}>
                           <td {...field("fee", s.code, row.id, "component")}>{row.component || '—'}</td>
                           <td>{FEE_TYPES.find(f => f.value === row.feeType)?.label || row.feeType}</td>
+                          <td {...field("fee", s.code, row.id, "setupFee")} data-edit-number="true">{row.setupFee === '' || row.setupFee === undefined ? '—' : `${model.currencySymbol}${Number(row.setupFee).toLocaleString()}`}</td>
                           <td {...field("fee", s.code, row.id, "fee")} data-edit-number="true">{row.fee === '' ? '—' : `${model.currencySymbol}${Number(row.fee).toLocaleString()}`}</td>
-                          <td {...field("fee", s.code, row.id, "term")} data-edit-number="true">{row.term === '' ? '—' : row.term}</td>
-                          <td {...field("fee", s.code, row.id, "note")}>{row.note || ''}</td>
+                          <td {...field("fee", s.code, row.id, "term")} data-edit-number="true">{row.term === '' ? '—' : `${row.term} month${Number(row.term) === 1 ? '' : 's'}`}</td>
                         </tr>
                       ))}
                     </React.Fragment>
                   ))}
                 </tbody>
               </table>
-              {model.grandTotalMonthly > 0 && (
-                <div className="doc-fee-total">Combined monthly total: {model.currencySymbol}{model.grandTotalMonthly.toLocaleString()}</div>
-              )}
               {model.footnotes.length > 0 && (
                 <div className="doc-footnotes">
                   {model.footnotes.map(f => <div key={f.id} {...block(`block:footnote:${f.id}`, "Pricing footnote")} {...field("footnote", f.id)} className="doc-bullet">{f.text}</div>)}
@@ -613,6 +615,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
                     <strong>{model.clientSignatoryName || '[Client Name]'}</strong>
                     {model.clientSignatoryTitle && <>, {model.clientSignatoryTitle}</>}<br />
                     Signed {model.clientSignedAt}
+                    <AcceptedServicesNote model={model} />
                   </div>
                 </div>
               )}
@@ -897,7 +900,8 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
         .doc-cover-sidebar__main { flex: 1; padding: 48px; display: flex; flex-direction: column; justify-content: center; gap: 6px; }
 
         .doc-letterhead { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 16px; }
-        .doc-letterhead__logo { flex-shrink: 0; }
+        /* NUVCL-153: +30% on the page's 15mm top / 14mm left margin. */
+        .doc-letterhead__logo { flex-shrink: 0; margin: 4.5mm 0 0 4.2mm; }
         .doc-date    { font-size: 12px; color: var(--nv-text-muted); margin-top: 6px; }
         .doc-nuvho-address { font-size: 11.5px; color: var(--nv-text-muted); text-align: right; line-height: 1.5; }
         /* NUVCL-132: centered — this is now the ONLY place this text
@@ -981,7 +985,19 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
           margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--nv-border-hair);
         }
         :global(.doc-client-acceptance__meta) { font-size: 11.5px; color: var(--nv-text-muted); line-height: 1.5; }
+        :global(.doc-client-acceptance__services) { margin-top: 6px; font-size: 11.5px; color: var(--nv-text-body); line-height: 1.5; }
       `}</style>
     </div>
   )
+}
+
+/* NUVCL-154: which services the client accepted when signing. Only shown
+   when they declined at least one — a full acceptance reads exactly as it
+   always did. */
+function AcceptedServicesNote({ model }: { model: ProposalDocModel }) {
+  if (!model.clientDeclinedServices?.length) return null
+  return <div className="doc-client-acceptance__services">
+    Services accepted: {model.clientAcceptedServices.join(', ') || '—'}<br />
+    Not accepted: {model.clientDeclinedServices.join(', ')}
+  </div>
 }

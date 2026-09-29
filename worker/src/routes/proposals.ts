@@ -25,7 +25,7 @@ export async function listProposals(request: Request, env: Env, session: Session
   const limit  = parseInt(url.searchParams.get('limit') || '50')
   const offset = parseInt(url.searchParams.get('offset') || '0')
 
-  let query = 'SELECT p.*, GROUP_CONCAT(DISTINCT ps.code) as service_codes, MIN(prl.prop_id) as prop_id FROM proposals p LEFT JOIN proposal_services ps ON ps.proposal_id = p.id LEFT JOIN proposal_registry_links prl ON prl.proposal_id = p.id'
+  let query = 'SELECT p.*, GROUP_CONCAT(DISTINCT ps.code) as service_codes, MIN(prl.prop_id) as prop_id FROM proposals p LEFT JOIN proposal_services ps ON ps.proposal_id = p.id AND ps.acceptance IS NOT \'declined\' LEFT JOIN proposal_registry_links prl ON prl.proposal_id = p.id'
   const binds: any[] = []
 
   if (status) {
@@ -66,7 +66,7 @@ async function attachServiceChildren(env: Env, services: ServiceRow[]) {
       })),
       fee_rows: feeRows.map(r => ({
         id: r.id, component: r.component, feeType: r.fee_type,
-        fee: r.fee ?? '', term: r.term ?? '', note: r.note || '',
+        setupFee: r.setup_fee ?? '', fee: r.fee ?? '', term: r.term ?? '', note: r.note || '',
       })),
       footnotes: footnotes.map(f => ({ id: f.id, text: f.text })),
     }
@@ -106,7 +106,7 @@ export async function getProposal(proposalId: string, env: Env, session: Session
   if (!proposal) return err('Proposal not found', 404)
 
   const { results: services } = await env.DB.prepare(
-    'SELECT * FROM proposal_services WHERE proposal_id = ?'
+    'SELECT * FROM proposal_services WHERE proposal_id = ? ORDER BY rowid'
   ).bind(proposalId).all<ServiceRow>()
 
   const servicesWithChildren = await attachServiceChildren(env, services)
@@ -372,13 +372,16 @@ async function syncRegistryStatus(
   env: Env,
   proposalId: string,
   status: RegistryProposalStatus,
-  extra: { sent_at?: string; signed_at?: string } = {}
+  extra: { sent_at?: string; signed_at?: string } = {},
+  // NUVCL-154: limit to these app service codes (proposal_registry_links.service_line); omit for all.
+  serviceCodes?: string[]
 ): Promise<void> {
   const { results: links } = await env.DB.prepare(
-    `SELECT id, prop_id FROM proposal_registry_links WHERE proposal_id = ? AND prop_id IS NOT NULL`
-  ).bind(proposalId).all<{ id: string; prop_id: string }>()
+    `SELECT id, prop_id, service_line FROM proposal_registry_links WHERE proposal_id = ? AND prop_id IS NOT NULL`
+  ).bind(proposalId).all<{ id: string; prop_id: string; service_line: string }>()
 
   for (const link of links) {
+    if (serviceCodes && !serviceCodes.includes(link.service_line)) continue
     try {
       await updateRegistryProposal(env, link.prop_id, { status, ...extra })
       await env.DB.prepare(
@@ -409,13 +412,16 @@ async function syncEngagementStatus(
   env: Env,
   proposalId: string,
   status: RegistryEngagementStatus,
-  extra: { signed_date?: string; start_date?: string } = {}
+  extra: { signed_date?: string; start_date?: string } = {},
+  // NUVCL-154: limit to these app service codes (proposal_registry_links.service_line); omit for all.
+  serviceCodes?: string[]
 ): Promise<void> {
   const { results: links } = await env.DB.prepare(
-    `SELECT id, eid FROM proposal_registry_links WHERE proposal_id = ? AND eid IS NOT NULL`
-  ).bind(proposalId).all<{ id: string; eid: string }>()
+    `SELECT id, eid, service_line FROM proposal_registry_links WHERE proposal_id = ? AND eid IS NOT NULL`
+  ).bind(proposalId).all<{ id: string; eid: string; service_line: string }>()
 
   for (const link of links) {
+    if (serviceCodes && !serviceCodes.includes(link.service_line)) continue
     try {
       await updateEngagement(env, link.eid, { status, ...extra })
       await env.DB.prepare(
@@ -993,7 +999,7 @@ export async function getPublicProposal(token: string, request: Request, env: En
   }, { ctx, proposal })
 
   const { results: services } = await env.DB.prepare(
-    'SELECT * FROM proposal_services WHERE proposal_id = ?'
+    'SELECT * FROM proposal_services WHERE proposal_id = ? ORDER BY rowid'
   ).bind(proposal.id).all<ServiceRow>()
   const servicesWithChildren = await attachServiceChildren(env, services)
 
@@ -1021,6 +1027,9 @@ export async function signProposal(token: string, request: Request, env: Env, ct
     signatoryName?:    string
     signatoryTitle?:   string
     signatureDataUrl?: string
+    // NUVCL-154: service codes the client ticked on the signing page. Omitted
+    // (older clients) = every service accepted, i.e. the previous behaviour.
+    acceptedServices?: string[]
   }
 
   // Accept the same signature shapes the internal wizard's Terms &
@@ -1048,6 +1057,22 @@ export async function signProposal(token: string, request: Request, env: Env, ct
   if (proposal.expires_at && new Date(proposal.expires_at) < new Date()) {
     return err('Proposal has expired', 410)
   }
+
+  // NUVCL-154: per-service acceptance. The client may sign for a subset of
+  // the proposed services; the rest are recorded as declined and drop out of
+  // fees/totals, automations (HubSpot amount, Asana, ...) and the registry
+  // (engagement → inactive, registry proposal → declined) below. The signed
+  // document itself stays the record of what was offered, and its Client
+  // Acceptance block states which services were accepted.
+  const { results: proposalServices } = await env.DB.prepare(
+    'SELECT id, code FROM proposal_services WHERE proposal_id = ? ORDER BY rowid'
+  ).bind(proposal.id).all<{ id: string; code: string }>()
+  const offeredCodes = proposalServices.map(s => s.code)
+  const acceptedCodes = Array.isArray(body.acceptedServices)
+    ? offeredCodes.filter(code => body.acceptedServices!.includes(code))
+    : offeredCodes
+  if (offeredCodes.length && !acceptedCodes.length) return err('Please accept at least one service to sign this proposal')
+  const declinedCodes = offeredCodes.filter(code => !acceptedCodes.includes(code))
 
   await env.DB.prepare(`
     UPDATE proposals
@@ -1089,7 +1114,15 @@ export async function signProposal(token: string, request: Request, env: Env, ct
     clientSignedAt:         new Date().toISOString(),
   })
 
-  await auditLog(env, proposal.id, 'signed', proposal.contact_email, { signatoryName, signatureMethod }, { ctx, proposal })
+  if (proposalServices.length) {
+    await env.DB.batch(proposalServices.map(s => env.DB.prepare(
+      'UPDATE proposal_services SET acceptance = ? WHERE id = ?'
+    ).bind(acceptedCodes.includes(s.code) ? 'accepted' : 'declined', s.id)))
+  }
+
+  await auditLog(env, proposal.id, 'signed', proposal.contact_email, {
+    signatoryName, signatureMethod, acceptedServices: acceptedCodes, declinedServices: declinedCodes,
+  }, { ctx, proposal })
 
   // Sync status to every linked registry proposal record (best-effort).
   //
@@ -1116,13 +1149,21 @@ export async function signProposal(token: string, request: Request, env: Env, ct
   if (proposal.status === 'draft') {
     await syncRegistryStatus(env, proposal.id, 'sent', { sent_at: new Date().toISOString() })
   }
-  await syncRegistryStatus(env, proposal.id, 'signed', { signed_at: new Date().toISOString() })
+  await syncRegistryStatus(env, proposal.id, 'signed', { signed_at: new Date().toISOString() }, acceptedCodes)
   // ...and move every linked Engagement from 'proposal' to 'active' too —
   // this is the "update the one in the master registry" half of signing.
   // signed_date is date-only (registry column is DATE, not TIMESTAMP).
   await syncEngagementStatus(env, proposal.id, 'active', {
     signed_date: new Date().toISOString().slice(0, 10),
-  })
+  }, acceptedCodes)
+  // NUVCL-154: services the client didn't accept. The registry has no delete
+  // for these records, so they're closed out instead: the registry Proposal
+  // record → 'declined' (valid from 'sent', which the bridge above
+  // guarantees) and the Engagement → 'inactive' (never went live).
+  if (declinedCodes.length) {
+    await syncRegistryStatus(env, proposal.id, 'declined', {}, declinedCodes)
+    await syncEngagementStatus(env, proposal.id, 'inactive', {}, declinedCodes)
+  }
 
   // Trigger A3–A9 automations
   if (ctx?.waitUntil) {
@@ -1220,10 +1261,11 @@ async function insertServiceChildren(env: Env, serviceRowId: string, svc: any): 
     let order = 0
     for (const row of svc.feeRows) {
       await env.DB.prepare(`
-        INSERT INTO proposal_fee_rows (id, proposal_service_id, component, fee_type, fee, term, note, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO proposal_fee_rows (id, proposal_service_id, component, fee_type, setup_fee, fee, term, note, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         ulid(), serviceRowId, row.component || '', row.feeType || 'monthly',
+        (row.setupFee === '' || row.setupFee === undefined || row.setupFee === null) ? null : row.setupFee,
         (row.fee === '' || row.fee === undefined || row.fee === null) ? null : row.fee,
         (row.term === '' || row.term === undefined || row.term === null) ? null : row.term,
         row.note || null, order++
@@ -1534,8 +1576,10 @@ async function triggerAutomations(proposalId: string, event: string, env: Env) {
     .bind(proposalId).first<ProposalRow>()
   if (!proposal) return
 
+  // NUVCL-154: services the client declined at signing are out of the deal —
+  // excluded from the HubSpot amount, Asana project, etc.
   const { results: services } = await env.DB.prepare(
-    'SELECT * FROM proposal_services WHERE proposal_id = ?'
+    "SELECT * FROM proposal_services WHERE proposal_id = ? AND acceptance IS NOT 'declined' ORDER BY rowid"
   ).bind(proposalId).all<ServiceRow>()
 
   if (event === 'created' || event === 'sent') {

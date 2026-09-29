@@ -215,13 +215,15 @@ export default function ProposalDetailPage() {
     </div>
   )
 
-  const totalMRR = (proposal.services || []).reduce(
+  // NUVCL-154: services the client declined at signing are out of the deal.
+  const activeServices = (proposal.services || []).filter((s: any) => s.acceptance !== 'declined')
+  const totalMRR = activeServices.reduce(
     (a: number, s: any) => a + (s.monthly_fee || 0), 0
   )
-  const totalSetup = (proposal.services || []).reduce(
+  const totalSetup = activeServices.reduce(
     (a: number, s: any) => a + (s.setup_fee || 0), 0
   )
-  const totalContract = (proposal.services || []).reduce(
+  const totalContract = activeServices.reduce(
     (a: number, s: any) => a + (s.monthly_fee || 0) * (s.term_months || 12) + (s.setup_fee || 0), 0
   )
 
@@ -474,10 +476,11 @@ export default function ProposalDetailPage() {
               </thead>
               <tbody>
                 {(proposal.services || []).map((s: any) => (
-                  <tr key={s.id}>
+                  <tr key={s.id} style={s.acceptance === 'declined' ? { opacity: 0.55, textDecoration: 'line-through' } : undefined}>
                     <td>
                       <span className="detail-service-tag">{s.code}</span>
                       {SERVICE_LABELS[s.code] || s.code}
+                      {s.acceptance === 'declined' && <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--nv-error)', textDecoration: 'none', display: 'inline-block' }}>Not accepted by client</span>}
                     </td>
                     <td className="nv-num">${s.monthly_fee.toLocaleString()}</td>
                     <td className="nv-num">${s.setup_fee.toLocaleString()}</td>

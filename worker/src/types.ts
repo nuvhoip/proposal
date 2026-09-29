@@ -95,6 +95,10 @@ export interface ServiceRow {
   monthly_fee: number
   setup_fee:   number
   term_months: number
+  // NUVCL-154: set per service when the client signs. 'declined' services
+  // are excluded from fees/totals/automations; NULL = not signed yet (or
+  // signed before per-service acceptance existed = everything accepted).
+  acceptance?: 'accepted' | 'declined' | null
 }
 
 export interface ScopeItemRow {
@@ -112,6 +116,7 @@ export interface FeeRowRow {
   proposal_service_id:  string
   component:             string
   fee_type:              string
+  setup_fee?:            number | null
   fee:                   number | null
   term:                  number | null
   note:                  string | null

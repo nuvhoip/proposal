@@ -24,6 +24,7 @@ export interface ScopeSectionDef {
 export interface DefaultPricingRowDef {
   component: string
   feeType:   FeeType
+  setupFee?: string
   fee:       string
   term:      string
   note:      string
@@ -259,9 +260,9 @@ export function initFeeRows(code: ServiceCode): FeeRow[] {
     id:        generateId('fee'),
     component: row.component,
     feeType:   row.feeType,
+    setupFee:  !row.setupFee ? '' : Number(row.setupFee),
     fee:       row.fee === '' ? '' : Number(row.fee),
     term:      row.term === '' ? '' : Number(row.term),
-    note:      row.note,
   }))
 }
 
@@ -328,9 +329,13 @@ export function deriveFeeSummary(feeRows: FeeRow[]): { monthlyFee: number; setup
   const monthlyFee = feeRows
     .filter(r => r.feeType === 'monthly')
     .reduce((sum, r) => sum + (typeof r.fee === 'number' ? r.fee : 0), 0)
+  // Setup fees now come from two places: legacy rows whose Fee type is
+  // "Setup" (their amount lives in `fee`), plus NUVCL-151's dedicated
+  // Setup fee column on any row.
   const setupFee = feeRows
     .filter(r => r.feeType === 'setup')
     .reduce((sum, r) => sum + (typeof r.fee === 'number' ? r.fee : 0), 0)
+    + feeRows.reduce((sum, r) => sum + (typeof r.setupFee === 'number' ? r.setupFee : 0), 0)
   const term = feeRows.reduce((max, r) => {
     const t = typeof r.term === 'number' ? r.term : 0
     return t > max ? t : max

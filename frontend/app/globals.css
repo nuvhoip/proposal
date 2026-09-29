@@ -698,3 +698,34 @@ input[type="checkbox"]:disabled:checked { background: rgba(195,202,206,0.5); }
 .a4-sheet--cover { padding: 0; }
 .a4-sheet .doc-cover { margin: 0; width: 210mm; max-width: none; height: 297mm; min-height: 0; box-shadow: none; border-radius: 0; }
 .a4-saved-pages { display: flex; flex-direction: column; align-items: center; gap: 40px; padding: 24px 16px; background: var(--nv-platinum); }
+
+/* NUVCL-153: running header + corner logo on every non-cover A4 page.
+   Pure CSS — never part of the page's editable/saved HTML (so it applies to
+   already-saved proposals, can't be typed over, and isn't reflowed). Both
+   sit inside the sheet's existing 15mm top/bottom padding, so no page's
+   content capacity changes. Text comes from --a4-header-client /
+   --a4-header-month, set on the page-list wrapper (lib/a4Document.ts's
+   pageHeaderVars). The logo is a background so it prints with
+   print-color-adjust: exact (print-rules.css) and never becomes an <img>
+   inside the content. */
+.a4-sheet--body {
+  position: relative;
+  background: white url(/logo-primary.svg) no-repeat right 14mm bottom 5mm / auto 6mm;
+}
+.a4-sheet--body::before,
+.a4-sheet--body::after {
+  position: absolute; top: 6mm; pointer-events: none; user-select: none;
+  font-family: var(--font-raleway), Arial, sans-serif; font-size: 9px; line-height: 1.2;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--nv-text-muted, #5E6B6C);
+}
+.a4-sheet--body::before {
+  content: var(--a4-header-client, "");
+  left: 14mm; right: 14mm; padding: 0 45mm 1.6mm 0; box-sizing: border-box;
+  border-bottom: 1px solid var(--nv-blue-slate, #28687F);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.a4-sheet--body::after {
+  content: var(--a4-header-month, "");
+  right: 14mm; white-space: nowrap;
+}
+

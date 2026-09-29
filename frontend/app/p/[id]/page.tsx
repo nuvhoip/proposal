@@ -40,6 +40,11 @@ export default function PublicProposalPage() {
   // the approval statement added to the Quote Approval section of the
   // generated document itself.
   const [approved, setApproved] = useState(false)
+  // NUVCL-154: one acceptance checkbox per proposed service (never per
+  // component/scope item). The client can sign with any non-empty subset;
+  // the worker records the rest as declined and drops them from the fees,
+  // automations and Master Registry engagements.
+  const [acceptedServices, setAcceptedServices] = useState<string[]>([])
 
   useEffect(() => {
     fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/p/${params.id}`)
@@ -66,9 +71,14 @@ export default function PublicProposalPage() {
       .finally(() => setLoading(false))
   }, [params.id])
 
+  // Services in this proposal, in document order (docModel.services mirrors
+  // the saved proposal_services order).
+  const offeredServices = docModel?.services.map(s => ({ code: s.code, label: s.label })) ?? []
+
   async function handleSign() {
     if (!docModel) return
     if (!approved) return
+    if (offeredServices.length && !acceptedServices.length) return
     if (!sigName.trim()) return
     if (sigMethod === 'draw' && !sigDataUrl) return
     setSigning(true)
@@ -82,6 +92,7 @@ export default function PublicProposalPage() {
           signatoryName:     sigName.trim(),
           signatoryTitle:    sigTitle.trim(),
           signatureDataUrl:  sigMethod === 'draw' ? sigDataUrl : '',
+          acceptedServices,
         }),
       })
       const data = await res.json()
@@ -103,6 +114,8 @@ export default function PublicProposalPage() {
         clientSignatureMethod:  sigMethod,
         clientSignatureDataUrl: sigMethod === 'draw' ? sigDataUrl : '',
         clientSignedAt:         new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' }),
+        clientAcceptedServices: offeredServices.filter(s => acceptedServices.includes(s.code)).map(s => s.label),
+        clientDeclinedServices: offeredServices.filter(s => !acceptedServices.includes(s.code)).map(s => s.label),
       } : prev)
       setSigned(true)
     } catch (e: any) {
@@ -216,6 +229,24 @@ export default function PublicProposalPage() {
                     </div>
                   )}
 
+                  {offeredServices.length > 0 && (
+                    <fieldset className="service-accept">
+                      <legend className="sign-label">Services you accept</legend>
+                      {offeredServices.map(s => (
+                        <label key={s.code} className="approval-check service-accept__item">
+                          <input type="checkbox" checked={acceptedServices.includes(s.code)}
+                            onChange={e => setAcceptedServices(prev => e.target.checked
+                              ? [...prev, s.code]
+                              : prev.filter(code => code !== s.code))} />
+                          <span>I accept the <strong>{s.label}</strong> services as outlined in this proposal.</span>
+                        </label>
+                      ))}
+                      {acceptedServices.length > 0 && acceptedServices.length < offeredServices.length && (
+                        <p className="service-accept__hint">Services you leave unticked won’t be included in the agreement or its fees.</p>
+                      )}
+                    </fieldset>
+                  )}
+
                   <label className="approval-check">
                     <input type="checkbox" checked={approved} onChange={e => setApproved(e.target.checked)} />
                     <span>
@@ -230,7 +261,7 @@ export default function PublicProposalPage() {
                   <button
                     className="nv-btn nv-btn--primary"
                     onClick={handleSign}
-                    disabled={signing || !approved || !sigName.trim() || (sigMethod === 'draw' && !sigDataUrl)}
+                    disabled={signing || !approved || (offeredServices.length > 0 && !acceptedServices.length) || !sigName.trim() || (sigMethod === 'draw' && !sigDataUrl)}
                     aria-busy={signing}
                   >
                     {signing ? 'Signing…' : 'Accept and sign'}
@@ -420,6 +451,11 @@ export default function PublicProposalPage() {
         }
         .approval-check { color: var(--nv-text-body); font-size: 14px; align-items: center; }
         .approval-check a { color: var(--nv-blue-slate); text-decoration: underline; }
+        /* NUVCL-154 per-service acceptance */
+        .service-accept { border: 1px solid var(--nv-border-hair); border-radius: 8px; padding: 12px 16px 4px; margin: 20px 0 0; }
+        .service-accept legend { padding: 0 6px; margin-left: -6px; }
+        .service-accept__item { margin: 10px 0; }
+        .service-accept__hint { font-size: 12px; color: var(--nv-text-muted); margin: 0 0 10px; }
 
         .public-signed, .public-expired {
           text-align: center;
