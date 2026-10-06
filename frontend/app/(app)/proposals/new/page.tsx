@@ -50,7 +50,7 @@ const SKIPPABLE_STEPS = [2, 3, 4, 6]
 const EMPTY_DRAFT: ProposalDraft = {
   step: 1,
   hotel: {
-    name: '', region: 'au', hgid: '', pid: '', pids: [], entityCode: '', contactName: '', contactEmail: '',
+    name: '', region: 'au', hgid: '', hotelGroupName: '', pid: '', pids: [], entityCode: '', contactName: '', contactEmail: '',
     contactPhone: '', contactTitle: '', propertyAddress: '', address: { ...EMPTY_ADDRESS },
     hubspotDealId: '', hubspotCompanyId: '', hubspotContactId: '',
   },
@@ -340,7 +340,7 @@ export default function NewProposalPage() {
           step: 1,
           hotel: {
             name: p.hotel_name || '', region: (p.region || 'au') as Region,
-            hgid: p.hgid || '', pid: loadedPids[0] || '', pids: loadedPids, entityCode: p.entity_code || '',
+            hgid: p.hgid || '', hotelGroupName: p.hotel_group_name || '', pid: loadedPids[0] || '', pids: loadedPids, entityCode: p.entity_code || '',
             contactName: p.contact_name || '', contactEmail: p.contact_email || '',
             contactPhone: p.contact_phone || '', contactTitle: p.contact_title || '',
             propertyAddress: p.property_address_json ? formatAddress(loadedAddress) : (p.property_address || ''),
@@ -566,6 +566,7 @@ export default function NewProposalPage() {
           // worker formats property_address from the fields and keeps the
           // registry proposal's property coverage in step with pids.
           property_address_fields: draft.hotel.address,
+          hotel_group_name: draft.hotel.hotelGroupName || null,
           pids:             draft.hotel.pids,
           region:           draft.hotel.region,
           nuvho_address:    draft.regionSettings.address,
@@ -934,7 +935,7 @@ function Step1HotelDetails({
     setDraft(d => ({ ...d, hotel: { ...d.hotel, [key]: val } }))
   }
 
-  const [acctQuery, setAcctQuery]   = useState(h.hgid ? h.name : '')
+  const [acctQuery, setAcctQuery]   = useState(h.hgid ? (h.hotelGroupName || h.name) : '')
   const [acctOpen, setAcctOpen]     = useState(false)
   const [acctLoading, setAcctLoading] = useState(false)
   const [regResults, setRegResults] = useState<RegistryHotelGroupSummary[]>([])
@@ -969,7 +970,9 @@ function Step1HotelDetails({
         if (props.length === 1 && !h.pids.length) {
           setDraft(d => ({ ...d, hotel: { ...d.hotel, pid: props[0].pid, pids: [props[0].pid], name: props[0].property_name } }))
         }
-        setNoPropertyModalOpen(props.length === 0)
+        // Properties are optional now — don't interrupt with the
+        // "not in the Master Registry" modal; its Details button stays.
+        setNoPropertyModalOpen(false)
       })
       .catch(() => { if (!cancelled) setHgPropertiesError('Could not load properties for this hotel group.') })
       .finally(() => { if (!cancelled) setHgPropertiesLoading(false) })
@@ -980,6 +983,15 @@ function Step1HotelDetails({
     if (!h.hgid) { setHgProperties([]); setHgPropertiesError(''); setNoPropertyModalOpen(false); return }
     return fetchHgProperties(h.hgid)
   }, [h.hgid])
+
+  // Properties are optional: a hotel group with nothing ticked (or with no
+  // registry properties at all) addresses the document to the group itself,
+  // so "Property name is required" never blocks.
+  React.useEffect(() => {
+    if (h.hgid && !h.pids.length && !h.name && h.hotelGroupName) {
+      setDraft(d => ({ ...d, hotel: { ...d.hotel, name: d.hotel.hotelGroupName } }))
+    }
+  }, [h.hgid, h.pids.length, h.name, h.hotelGroupName])
 
   // Registry migration 011: one engagement ID per service line, tied to the
   // hotel group's proposal and covering every ticked property. The document
@@ -993,7 +1005,9 @@ function Step1HotelDetails({
       const ordered = hgProperties.map(p => p.pid).filter(x => wanted.includes(x))
         .concat(wanted.filter(x => !hgProperties.some(p => p.pid === x)))
       const names = ordered.map(x => hgProperties.find(p => p.pid === x)?.property_name || '')
-      return { ...d, hotel: { ...d.hotel, pids: ordered, pid: ordered[0] || '', name: joinPropertyNames(names) } }
+      // Properties are optional: with none ticked the document is addressed
+      // to the hotel group itself.
+      return { ...d, hotel: { ...d.hotel, pids: ordered, pid: ordered[0] || '', name: joinPropertyNames(names) || d.hotel.hotelGroupName } }
     })
   }
 
@@ -1230,6 +1244,7 @@ function Step1HotelDetails({
           hotel: {
             ...d.hotel, hgid: hg.hgid, pid, pids: pid ? [pid] : [], entityCode: syncEntityCode,
             hubspotCompanyId: syncCompanyId, name: d.hotel.name || hg.group_name,
+            hotelGroupName: hg.group_name,
           },
         }))
         setAcctQuery(hg.group_name)
@@ -1260,6 +1275,7 @@ function Step1HotelDetails({
         ...d,
         hotel: {
           ...d.hotel, hgid: hg.hgid, entityCode: record.entity_code,
+          hotelGroupName: hg.trading_name || hg.group_name,
           // Do NOT default this to the Hotel Group's own name — this field is
           // the PROPOSAL'S PROPERTY NAME (proposal.hotel_name), which the Teams
           // automation uses verbatim as the per-property sub-channel's display
@@ -1288,7 +1304,7 @@ function Step1HotelDetails({
     setAcctQuery(r.name)
     // name: d.hotel.name (not r.name) — see the 2026-09-18 fix note above; this
     // field is the property name, not the HubSpot Company (Hotel Group) name.
-    setDraft(d => ({ ...d, hotel: { ...d.hotel, name: d.hotel.name, hubspotCompanyId: r.id, pid: r.pid || d.hotel.pid, pids: r.pid ? [r.pid] : d.hotel.pids } }))
+    setDraft(d => ({ ...d, hotel: { ...d.hotel, name: d.hotel.name, hotelGroupName: r.name, hubspotCompanyId: r.id, pid: r.pid || d.hotel.pid, pids: r.pid ? [r.pid] : d.hotel.pids } }))
     if (r.hgid) {
       // Already linked — resolve entity_code from the registry side too.
       fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/registry/hotel-groups/${r.hgid}`, { credentials: 'include' })
@@ -1306,7 +1322,7 @@ function Step1HotelDetails({
   }
 
   function clearHotelGroup() {
-    setDraft(d => ({ ...d, hotel: { ...d.hotel, hgid: '', pid: '', pids: [], entityCode: '', hubspotCompanyId: '' } }))
+    setDraft(d => ({ ...d, hotel: { ...d.hotel, hgid: '', hotelGroupName: '', pid: '', pids: [], entityCode: '', hubspotCompanyId: '' } }))
     setAcctQuery('')
     setHgResolveError('')
   }
@@ -1491,6 +1507,7 @@ function Step1HotelDetails({
         hotel: {
           ...d.hotel,
           hgid: hg.hgid,
+          hotelGroupName: hg.trading_name || hg.group_name,
           pid: pid || '',
           pids: pid ? [pid] : [],
           entityCode: hg.entity_code,
@@ -1685,7 +1702,7 @@ function Step1HotelDetails({
             is linked yet, or when the linked group has no registry
             properties (property creation from here is paused — see
             ENABLE_HOTEL_GROUP_CREATION above). */}
-        <FormField label={h.hgid ? 'Properties covered by this engagement *' : 'Property name *'}
+        <FormField label={h.hgid ? 'Properties covered by this engagement (optional)' : 'Property name *'}
           error={errors.pids || errors.hotelName || hgPropertiesError} span={2}>
           {!h.hgid ? (
             <input className="nv-input" placeholder="e.g. The Langham Sydney"
@@ -1695,7 +1712,7 @@ function Step1HotelDetails({
           ) : hgProperties.length > 0 ? (
             <div className="prop-checklist">
               <p className="prop-checklist__hint">
-                The engagement ID is issued to the hotel group. Tick every property it applies to.
+                The engagement ID is issued to the hotel group. Optionally tick the properties it applies to — with none ticked, the document is addressed to the hotel group.
               </p>
               {hgProperties.map(p => (
                 <label key={p.pid} className="prop-checklist__item">
@@ -3467,11 +3484,6 @@ function validateStep(draft: ProposalDraft): Record<string, string> {
     if (!draft.hotel.hgid || !draft.hotel.entityCode)
                                     errs.hgid         = 'Select a hotel group from the registry lookup'
     if (!draft.hotel.name)          errs.hotelName    = 'Property name is required'
-    // A linked hotel group must have at least one property ticked so its
-    // engagement IDs have something to cover. (Groups with no registry
-    // properties still fall back to the name/"not in registry" path.)
-    if (draft.hotel.hgid && !draft.hotel.pids.length)
-                                    errs.pids         = 'Tick at least one property for this engagement'
     if (!draft.hotel.contactName)   errs.contactName  = 'Contact name is required'
     if (!draft.hotel.contactEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.hotel.contactEmail))
       errs.contactEmail = 'Valid email required'

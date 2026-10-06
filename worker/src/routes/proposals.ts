@@ -139,6 +139,28 @@ export function formatAddress(a: PostalAddress | null): string {
   return [a.line1, a.line2, a.suburb, cityLine, a.country].filter(Boolean).join('\n')
 }
 
+/** Hotel group name for the document's running header: the saved value
+ *  (migration 0019), else looked up once from the Master Registry and saved
+ *  back (best-effort — older proposals, or the column not migrated yet). */
+async function resolveHotelGroupName(env: Env, proposal: ProposalRow, hgid: string | null): Promise<string | null> {
+  if (proposal.hotel_group_name) return proposal.hotel_group_name
+  if (!hgid) return null
+  try {
+    const hg = await getHotelGroup(env, hgid)
+    const name = (hg.trading_name || hg.group_name || '').trim() || null
+    if (name) {
+      try {
+        await env.DB.prepare('UPDATE proposals SET hotel_group_name = ? WHERE id = ? AND hotel_group_name IS NULL')
+          .bind(name, proposal.id).run()
+      } catch { /* migration 0019 not applied yet — still return the name */ }
+    }
+    return name
+  } catch (e) {
+    console.error('[Registry] hotel group name lookup failed:', hgid, e)
+    return null
+  }
+}
+
 /** Bring the registry proposal's property coverage in line with `wanted`:
  *  add new properties first, then end-date removed ones (never deleted, and
  *  the registry refuses to end the last one — adding first avoids that).
@@ -215,6 +237,7 @@ export async function getProposal(proposalId: string, env: Env, session: Session
 
   return ok({
     ...proposal, services: servicesWithChildren, sender, terms, attachments,
+    hotel_group_name: await resolveHotelGroupName(env, proposal, registryLink?.hgid ?? null),
     hgid: registryLink?.hgid ?? null,
     entity_code: registryLink?.entity_code ?? null,
     // Registry runbook (2026-08-31): the canonical "Proposal ID" shown to
@@ -279,8 +302,8 @@ export async function createProposal(request: Request, env: Env, session: Sessio
       property_address, region, nuvho_address, company_name, about_nuvho, footer_text, currency,
       status, sender_staff_id, account_manager_stf_id, sender_message, sender_cc, sender_bcc,
       sender_subject, cover_url, hubspot_deal_id, signing_token, expires_at, valid_until,
-      property_address_json, pids_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      property_address_json, pids_json, hotel_group_name
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     proposalId, npId,
     hotel.name, hotel.contactName, hotel.contactEmail,
@@ -295,6 +318,7 @@ export async function createProposal(request: Request, env: Env, session: Sessio
     cover?.coverUrl || null, hotel.hubspotDealId || null,
     signingToken, expiresAt, expiresAt,
     address ? JSON.stringify(address) : null, pids.length ? JSON.stringify(pids) : null,
+    (typeof hotel.hotelGroupName === 'string' && hotel.hotelGroupName.trim()) || null,
   ).run()
 
   // Insert services (+ per-service scope items, fee rows, and footnotes from
@@ -368,19 +392,17 @@ export async function createProposal(request: Request, env: Env, session: Sessio
     // registry.ts for the mapping and why it exists.
     const registrySvcLine = toRegistryServiceLine(svc.code)
 
-    // Engagement (EID) creation needs at least one registered property ticked
-    // on Step 1. Since registry 011 the engagement no longer carries its own
-    // pid: it is tied to the hotel group's proposal (signed_proposal_id) and
-    // covers every property on it, so ONE engagement per service line covers
-    // all the ticked properties.
+    // Since registry 011 the engagement no longer carries its own pid: it is
+    // tied to the hotel group's proposal (signed_proposal_id) and covers every
+    // property on it — ONE engagement per service line. Ticking properties on
+    // Step 1 is optional; with none, the engagement belongs to the hotel group
+    // alone and properties can be added to the proposal's coverage later.
     let eid: string | null = null
     let eidDisplay: string | null = null
     let eidSyncedAt: string | null = null
     let eidSyncError: string | null = null
     if (!registrySvcLine) {
       eidSyncError = `No registry service_line mapping for '${svc.code}'`
-    } else if (!pids.length) {
-      eidSyncError = 'No property selected — tick at least one registered property on Hotel Details to enable an Engagement ID'
     } else if (!propId) {
       eidSyncError = 'The shared registry Proposal record failed to create — see the Proposal ID sync error'
     } else {
@@ -920,7 +942,7 @@ const FULL_EDIT_FIELDS = [
   'property_address', 'region', 'nuvho_address', 'company_name', 'about_nuvho', 'footer_text', 'currency',
   'sender_staff_id', 'account_manager_stf_id', 'sender_message', 'sender_cc', 'sender_bcc', 'sender_subject', 'cover_url',
   'hubspot_deal_id',
-  'property_address_json', 'pids_json',  // migration 0019
+  'property_address_json', 'pids_json', 'hotel_group_name',  // migration 0019
 ]
 const ALWAYS_ALLOWED_FIELDS = ['sender_message', 'sender_cc', 'sender_bcc', 'sender_subject', 'cover_url', 'hubspot_deal_id']
 
@@ -1126,9 +1148,14 @@ export async function getPublicProposal(token: string, request: Request, env: En
     .bind(proposal.id).first<TermsRow>()
   const terms = mapTermsRow(termsRow ?? null)
 
+  const publicLink = await env.DB.prepare(
+    'SELECT hgid FROM proposal_registry_links WHERE proposal_id = ? AND hgid IS NOT NULL LIMIT 1'
+  ).bind(proposal.id).first<{ hgid: string }>()
+  const hotelGroupName = await resolveHotelGroupName(env, proposal, publicLink?.hgid ?? null)
+
   // Strip internal fields from public response
   const { signing_token: _, ...safe } = proposal
-  return ok({ ...safe, services: servicesWithChildren, sender, terms })
+  return ok({ ...safe, services: servicesWithChildren, sender, terms, hotel_group_name: hotelGroupName })
 }
 
 /* ─── Public: sign proposal ────────────────────────────────── */

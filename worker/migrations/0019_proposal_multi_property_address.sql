@@ -14,6 +14,7 @@
 --
 -- Run once against the live database BEFORE deploying the matching worker:
 --   wrangler d1 execute nuvho-proposals --remote --file=migrations/0019_proposal_multi_property_address.sql
+-- (Applied to production 2026-10-06. hotel_group_name moved to 0020.)
 
 ALTER TABLE proposals ADD COLUMN pids_json             TEXT;
 ALTER TABLE proposals ADD COLUMN property_address_json TEXT;

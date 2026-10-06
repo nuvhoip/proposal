@@ -62,6 +62,8 @@ export interface DocServiceGroup {
 export interface ProposalDocModel {
   title:             string
   hotelName:         string
+  /** Hotel group name — shown in the running header at the top of each page. */
+  hotelGroupName:    string
   contactName:       string
   // NUVCL-103: contact title/email/phone were captured on Step 1 and shown
   // to staff on the Proposal Details sidebar, but were never surfaced here —
@@ -181,6 +183,7 @@ export function buildDocModelFromDraft(
   return {
     title,
     hotelName:         draft.hotel.name,
+    hotelGroupName:    draft.hotel.hotelGroupName || '',
     contactName:       draft.hotel.contactName,
     contactTitle:      draft.hotel.contactTitle,
     contactEmail:      draft.hotel.contactEmail,
@@ -243,6 +246,7 @@ export function buildDocModelFromProposal(p: any): ProposalDocModel {
   return {
     title,
     hotelName:         p.hotel_name || '',
+    hotelGroupName:    p.hotel_group_name || '',
     contactName:       p.contact_name || '',
     contactTitle:      p.contact_title || '',
     contactEmail:      p.contact_email || '',

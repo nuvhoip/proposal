@@ -348,7 +348,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
         <A4Pages
           document={savedPages}
           coverNode={coverNode}
-          headerVars={pageHeaderVars(model.hotelName, model.dateIssued)}
+          headerVars={pageHeaderVars(model.hotelGroupName || model.hotelName, model.dateIssued)}
           frozen={!!model.clientSignedAt}
           insertBeforeTerms={(beforeAppendix || model.clientSignedAt) ? (
             <div className="doc-flow">

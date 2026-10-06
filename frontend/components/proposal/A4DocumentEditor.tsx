@@ -470,7 +470,7 @@ export function A4DocumentEditor({ model, onChange, onReady }: {
   }
 
   return <div className="a4-editor">
-    <div className="a4-editor__document" style={pageHeaderVars(initialModel.hotelName, initialModel.dateIssued) as React.CSSProperties}>
+    <div className="a4-editor__document" style={pageHeaderVars(initialModel.hotelGroupName || initialModel.hotelName, initialModel.dateIssued) as React.CSSProperties}>
       {error && <p role="alert">{error}</p>}
       {!pages.length && !error && (
         <p>{estimatedPages ? `Estimated ~${estimatedPages} A4 page${estimatedPages === 1 ? '' : 's'} — laying out your editable pages…` : 'Estimating pages…'}</p>

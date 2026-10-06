@@ -101,8 +101,8 @@ export function refreshCoverPages(pages: A4Page[], liveCoverHtml: string | null 
 
 export function pageId(): string { return `page-${crypto.randomUUID()}` }
 
-/** NUVCL-153: running header on every non-cover A4 page — client name on the
- * left, issue month on the right, over a brand divider — plus a small logo
+/** NUVCL-153: running header on every non-cover A4 page — hotel group name
+ * (falling back to the client/property name) on the left, issue month on the right, over a brand divider — plus a small logo
  * bottom-right. Drawn entirely in CSS (globals.css, `.a4-sheet--body`
  * ::before/::after + background) from these two custom properties, so it is
  * never part of the editable/saved page HTML: it shows on already-saved

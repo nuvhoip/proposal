@@ -252,6 +252,7 @@ export interface ProposalDraft {
     name:            string
     region:          Region
     hgid:            string   // Nuvho Master Registry Hotel Group id (HG-{GEO}-{SEQ4}) — set via typeahead
+    hotelGroupName:  string   // that hotel group's name — the document's running header (migration 0019)
     pid:             string   // Nuvho Master Registry Property id (PRP-{GEO}-{SEQ4}) — first of `pids`, kept for older code paths
     // Registry migration 011: the engagement ID belongs to the hotel group's
     // proposal and can cover several of its properties — ticked on Step 1.

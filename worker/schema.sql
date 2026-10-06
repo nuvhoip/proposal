@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS proposals (
   property_address_json TEXT,
   -- Migration 0019: Master Registry properties (PRP ids) this proposal's engagements cover, JSON array
   pids_json            TEXT,
+  -- Migration 0020: hotel group name (document running header)
+  hotel_group_name     TEXT,
   region               TEXT NOT NULL DEFAULT 'au',
   -- Snapshot of region_settings at create time (see that table below) — kept
   -- on the proposal itself so historical proposals keep the address/company

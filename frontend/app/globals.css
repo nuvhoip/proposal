@@ -714,7 +714,8 @@ input[type="checkbox"]:disabled:checked { background: rgba(195,202,206,0.5); }
 }
 .a4-sheet--body::before,
 .a4-sheet--body::after {
-  position: absolute; top: 6mm; pointer-events: none; user-select: none;
+  /* Hotel group name + divider line: top margin +30% (6mm → 7.8mm). */
+  position: absolute; top: 7.8mm; pointer-events: none; user-select: none;
   font-family: var(--font-raleway), Arial, sans-serif; font-size: 9px; line-height: 1.2;
   letter-spacing: 0.06em; text-transform: uppercase; color: var(--nv-text-muted, #5E6B6C);
 }
