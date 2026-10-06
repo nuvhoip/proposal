@@ -197,7 +197,8 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
         <div className="doc-page doc-cover doc-cover--circles">
           <span className="doc-cover-circles__arc" />
           <div className="doc-cover-circles__top">
-            <NuvhoLogo variant="white" height={36} />
+            {/* Cover logo +60% (36 → 58). */}
+            <NuvhoLogo variant="white" height={58} />
           </div>
           <div className="doc-cover-circles__body">
             <div className="doc-cover-circles__category">{model.title || 'Proposal'}</div>
@@ -228,7 +229,8 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
             style={{ backgroundImage: `url(/covers/${brandedTemplate}.jpg)` }}
           />
           <div className="doc-cover-brand__top">
-            <NuvhoLogo variant="white" height={38} />
+            {/* Cover logo +60% (38 → 61). */}
+            <NuvhoLogo variant="white" height={61} />
           </div>
           <div className="doc-cover-brand__body">
             <div className="doc-cover-brand__category">{model.title || 'Proposal'}</div>
@@ -390,7 +392,14 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
           <span {...field('hotel', 'contactName')}>{model.contactName || '[Client Name]'}</span>
           {model.contactTitle && <>, <span {...field('hotel', 'contactTitle')}>{model.contactTitle}</span></>}<br />
           <span {...field('hotel', 'name')}>{model.hotelName || '[Property Name]'}</span><br />
-          <span {...field('hotel', 'propertyAddress')}>{model.propertyAddress || '[Property Address]'}</span>
+          {/* Regular postal address (migration 0019) — one part per line. */}
+          <span {...field('hotel', 'propertyAddress')}>
+            {model.propertyAddress
+              ? model.propertyAddress.split('\n').map((line, i, all) => (
+                  <React.Fragment key={i}>{line}{i < all.length - 1 && <br />}</React.Fragment>
+                ))
+              : '[Property Address]'}
+          </span>
           {(model.contactEmail || model.contactPhone) && <>
             <br />
             <span {...field('hotel', 'contactEmail')}>{model.contactEmail}</span>{model.contactEmail && model.contactPhone && ' · '}<span {...field('hotel', 'contactPhone')}>{model.contactPhone}</span>
@@ -791,11 +800,12 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
           position: absolute; left: -220px; bottom: -220px; width: 520px; height: 520px;
           border: 1px solid rgba(255,255,255,0.22); border-radius: 50%; pointer-events: none;
         }
-        .doc-cover-circles__top { display: flex; align-items: center; z-index: 1; padding: 40px 44px 0; }
+        /* Logo margin top/left +30% (40/44 → 52/57). */
+        .doc-cover-circles__top { display: flex; align-items: center; z-index: 1; padding: 52px 57px 0; }
         /* flex: 1 + its own justify-content: center vertically centres the
            category/heading/issued group in the space between the logo row
            and the footer, rather than pinning it to the bottom. */
-        .doc-cover-circles__body { flex: 1; display: flex; flex-direction: column; justify-content: center; z-index: 1; padding: 0 44px; }
+        .doc-cover-circles__body { flex: 1; display: flex; flex-direction: column; justify-content: center; z-index: 1; padding: 0 57px; }
         .doc-cover-circles__category {
           font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--nv-steel-blue); margin-bottom: 10px;
         }
@@ -805,7 +815,8 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
           text-transform: uppercase; letter-spacing: 0.08em;
         }
         .doc-cover-circles__meta strong { color: rgba(255,255,255,0.95); text-transform: none; letter-spacing: 0; font-size: 12px; }
-        .doc-cover-circles__footer { z-index: 1; font-size: 11px; color: rgba(255,255,255,0.5); padding: 0 44px 40px; }
+        /* Bottom block left/bottom +30% (44/40 → 57/52). */
+        .doc-cover-circles__footer { z-index: 1; font-size: 11px; color: rgba(255,255,255,0.5); padding: 0 57px 52px; }
 
         /* Hero/content used to split 58%/30% of .doc-cover's total height,
            tuned for the old on-screen preview's arbitrary 460px cover box.
@@ -829,8 +840,10 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
           position: absolute; inset: 0; z-index: 0;
           background-size: cover; background-position: center; background-repeat: no-repeat;
         }
-        .doc-cover-brand__top  { position: relative; z-index: 1; padding: 30px 34px 0; }
-        .doc-cover-brand__body { position: relative; z-index: 1; padding: 0 34px 34px; }
+        /* Logo margin top/left +30% (30/34 → 39/44); the bottom block with
+           the property name moves in +30% from the left and bottom (34 → 44). */
+        .doc-cover-brand__top  { position: relative; z-index: 1; padding: 39px 44px 0; }
+        .doc-cover-brand__body { position: relative; z-index: 1; padding: 0 44px 44px; }
         .doc-cover-brand__category {
           font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase;
           color: rgba(255,255,255,0.85); font-weight: 700; margin-bottom: 8px;
@@ -845,7 +858,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
         }
         .doc-cover-brand__meta strong { color: #fff; text-transform: none; letter-spacing: 0; font-size: 12px; }
         .doc-cover-brand__footer {
-          position: absolute; right: 34px; bottom: 34px; z-index: 1;
+          position: absolute; right: 44px; bottom: 44px; z-index: 1;
           font-size: 11px; letter-spacing: 0.06em; color: rgba(255,255,255,0.75);
         }
         .doc-cover--split { background-image: none; background-color: transparent; flex-direction: column; align-items: stretch; padding: 0; }

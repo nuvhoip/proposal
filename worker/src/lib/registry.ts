@@ -273,9 +273,18 @@ export type RegistryProposalStatus = 'draft' | 'sent' | 'signed' | 'declined' | 
 export interface RegistryProposalPayload {
   hgid: string
   entity_code: string
-  service_line: RegistryEngagementServiceLine
-  geo: string
+  // Optional since registry migration 011 (multi-property proposals): a
+  // proposal's service lines are the service lines of its engagements.
+  // Still sent for old registry deployments that require it.
+  service_line?: RegistryEngagementServiceLine
+  // Ignored by the registry since 011 (IDs always use the hotel group's geo);
+  // kept so pre-011 deployments still accept the request.
+  geo?: string
+  /** Legacy single property — send `pids` instead (never both). */
   pid?: string | null
+  /** Registry 011: every property (PRP id) of the hotel group this proposal
+   *  covers. All of the proposal's engagements cover the same set. */
+  pids?: string[]
   status?: RegistryProposalStatus
   signed_at?: string | null
   sent_at?: string | null
@@ -392,7 +401,10 @@ export function toRegistryServiceLine(code: string): RegistryEngagementServiceLi
 export type RegistryEngagementStatus = 'prospect' | 'active' | 'inactive' | 'churned' | 'suspended'
 
 export interface RegistryEngagementPayload {
-  pid: string
+  // Registry 011: optional when signed_proposal_id is set — the engagement
+  // then covers that proposal's properties (proposal_properties). Required
+  // only for standalone engagements with no proposal.
+  pid?: string | null
   hgid: string
   entity_code: string
   service_line: RegistryEngagementServiceLine
@@ -407,7 +419,9 @@ export interface RegistryEngagementPayload {
 export interface RegistryEngagementRecord {
   eid: string
   display_id: string | null
-  pid: string
+  pid: string | null
+  /** Registry 011: every property this engagement currently covers. */
+  pids?: string[]
   hgid: string
   entity_code: string
   service_line: string
@@ -444,4 +458,56 @@ export async function updateEngagement(
     method: 'PATCH',
     body: JSON.stringify(patch),
   })
+}
+
+/* ─── Proposal property coverage (registry migration 011) ──────────────────
+   An engagement ID now belongs to the hotel group's proposal and covers every
+   property on it. Coverage is stored once against the registry proposal
+   (registry.proposal_properties) and is never deleted — removing a property
+   end-dates it (ended_at), so coverage history is kept. */
+
+export interface RegistryCoverageRecord {
+  prop_id: string
+  pid: string
+  added_at: string
+  added_by: string
+  ended_at: string | null
+  ended_by: string | null
+  end_reason: string | null
+  engagements_affected?: string[]
+  [key: string]: unknown
+}
+
+/** GET /v1/proposals/:propId/properties — current coverage (open rows only). */
+export async function listProposalProperties(
+  env: Env, propId: string
+): Promise<RegistryCoverageRecord[]> {
+  const data = await registryFetch<any>(env, `/v1/proposals/${encodeURIComponent(propId)}/properties`)
+  const rows: any[] = Array.isArray(data) ? data : (data?.properties ?? data?.coverage ?? [])
+  return rows as RegistryCoverageRecord[]
+}
+
+/** POST /v1/proposals/:propId/properties — Admin tier. Adds the property to
+ *  the proposal and so to every engagement under it. 422 PROPERTY_NOT_IN_GROUP
+ *  if it belongs to another hotel group; 409 DUPLICATE_ACTIVE_COVERAGE if an
+ *  active engagement for the same service line already covers it. */
+export async function addProposalProperty(
+  env: Env, propId: string, pid: string
+): Promise<RegistryCoverageRecord> {
+  return registryFetch<RegistryCoverageRecord>(env, `/v1/proposals/${encodeURIComponent(propId)}/properties`, {
+    method: 'POST',
+    body: JSON.stringify({ pid }),
+  })
+}
+
+/** POST /v1/proposals/:propId/properties/:pid/end — Admin tier. End-dates the
+ *  coverage row (never deletes it). 422 LAST_PROPERTY if it is the only one. */
+export async function endProposalProperty(
+  env: Env, propId: string, pid: string, reason: string
+): Promise<RegistryCoverageRecord> {
+  return registryFetch<RegistryCoverageRecord>(
+    env,
+    `/v1/proposals/${encodeURIComponent(propId)}/properties/${encodeURIComponent(pid)}/end`,
+    { method: 'POST', body: JSON.stringify({ reason }) },
+  )
 }

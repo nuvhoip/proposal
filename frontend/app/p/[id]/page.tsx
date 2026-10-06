@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation'
 import { NuvhoLogo } from '@/components/ui/NuvhoLogo'
 import { ProposalDocument } from '@/components/proposal/ProposalDocument'
 import { SignaturePad } from '@/components/proposal/SignaturePad'
-import { buildDocModelFromProposal } from '@/lib/documentModel'
+import { buildDocModelFromProposal, getVisibleSections } from '@/lib/documentModel'
 import type { ProposalDocModel } from '@/lib/documentModel'
 
 /* Public, unauthenticated proposal view (proposals.nuvho.com/p/{signing_token}).
@@ -74,10 +74,14 @@ export default function PublicProposalPage() {
   // Services in this proposal, in document order (docModel.services mirrors
   // the saved proposal_services order).
   const offeredServices = docModel?.services.map(s => ({ code: s.code, label: s.label })) ?? []
+  // Whether the document has a Terms & Conditions section (enabled clauses,
+  // shown only when the T&C appendix itself renders). No T&C → no
+  // "I have read and agree to the terms and conditions" checkbox at all.
+  const hasTerms = !!docModel && getVisibleSections(docModel).some(s => s.key === 'appendix')
 
   async function handleSign() {
     if (!docModel) return
-    if (!approved) return
+    if (hasTerms && !approved) return
     if (offeredServices.length && !acceptedServices.length) return
     if (!sigName.trim()) return
     if (sigMethod === 'draw' && !sigDataUrl) return
@@ -175,9 +179,9 @@ export default function PublicProposalPage() {
           beforeAppendix={!signed && !isExpired ? (
             <div className="public-sign-form-wrap no-print">
                 <div className="public-sign-form">
-                  <h2 className="public-section-title">Accept this proposal</h2>
+                  <h2 className="public-section-title">Accept this Document</h2>
                   <p style={{ fontSize: 14, color: 'var(--nv-text-muted)', marginBottom: 20 }}>
-                    By signing below, you acknowledge and accept the terms and services outlined in this proposal.
+                    By signing below, you acknowledge and accept the terms and services outlined in this document.
                   </p>
 
                   <div className="sign-fields">
@@ -231,14 +235,17 @@ export default function PublicProposalPage() {
 
                   {offeredServices.length > 0 && (
                     <fieldset className="service-accept">
-                      <legend className="sign-label">Services you accept</legend>
+                      <legend className="sign-label">Scope you accept:</legend>
+                      {/* Only the service lines selected for this document
+                          when it was created, named as in Service Lines. */}
                       {offeredServices.map(s => (
                         <label key={s.code} className="approval-check service-accept__item">
                           <input type="checkbox" checked={acceptedServices.includes(s.code)}
                             onChange={e => setAcceptedServices(prev => e.target.checked
                               ? [...prev, s.code]
                               : prev.filter(code => code !== s.code))} />
-                          <span>I accept the <strong>{s.label}</strong> services as outlined in this proposal.</span>
+                          {/* "MK - Marketing", "CA - Confidentiality Agreement" */}
+                          <span>{s.label && s.label !== s.code ? `${s.code} - ${s.label}` : s.code}</span>
                         </label>
                       ))}
                       {acceptedServices.length > 0 && acceptedServices.length < offeredServices.length && (
@@ -247,21 +254,24 @@ export default function PublicProposalPage() {
                     </fieldset>
                   )}
 
-                  <label className="approval-check">
-                    <input type="checkbox" checked={approved} onChange={e => setApproved(e.target.checked)} />
-                    <span>
-                      I have read and agree to the{' '}
-                      <a href="#doc-section-appendix" onClick={e => {
-                        e.preventDefault()
-                        document.getElementById('doc-section-appendix')?.scrollIntoView({ behavior: 'smooth' })
-                      }}>terms and conditions</a>.
-                    </span>
-                  </label>
+                  {/* Only when the document has Terms & Conditions. */}
+                  {hasTerms && (
+                    <label className="approval-check">
+                      <input type="checkbox" checked={approved} onChange={e => setApproved(e.target.checked)} />
+                      <span>
+                        I have read and agree to the{' '}
+                        <a href="#doc-section-appendix" onClick={e => {
+                          e.preventDefault()
+                          document.getElementById('doc-section-appendix')?.scrollIntoView({ behavior: 'smooth' })
+                        }}>terms and conditions</a>.
+                      </span>
+                    </label>
+                  )}
 
                   <button
                     className="nv-btn nv-btn--primary"
                     onClick={handleSign}
-                    disabled={signing || !approved || (offeredServices.length > 0 && !acceptedServices.length) || !sigName.trim() || (sigMethod === 'draw' && !sigDataUrl)}
+                    disabled={signing || (hasTerms && !approved) || (offeredServices.length > 0 && !acceptedServices.length) || !sigName.trim() || (sigMethod === 'draw' && !sigDataUrl)}
                     aria-busy={signing}
                   >
                     {signing ? 'Signing…' : 'Accept and sign'}

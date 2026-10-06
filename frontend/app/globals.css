@@ -728,4 +728,9 @@ input[type="checkbox"]:disabled:checked { background: rgba(195,202,206,0.5); }
   content: var(--a4-header-month, "");
   right: 14mm; white-space: nowrap;
 }
+/* The cover letter (the page carrying the letterhead) has no running header
+   at all — no divider line, no company name, no date. Every other body page
+   keeps all three. */
+.a4-sheet--body:has(.doc-letterhead)::before,
+.a4-sheet--body:has(.doc-letterhead)::after { content: none; }
 

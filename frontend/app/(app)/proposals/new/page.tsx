@@ -21,6 +21,7 @@ const A4DocumentEditor = dynamic(
 import type { A4Document } from '@/lib/a4Document'
 import { RichTextEditor } from '@/components/proposal/RichTextEditor'
 import { setNavigationGuard } from '@/lib/navigationGuard'
+import { EMPTY_ADDRESS, formatAddress, joinPropertyNames, parseSavedAddress, parseSavedPids, type PostalAddress } from '@/lib/address'
 import { useSession } from '@/components/auth/AuthGuard'
 
 // NUVCL-118: the Sender step (staff picker + AI email-message composer +
@@ -49,8 +50,8 @@ const SKIPPABLE_STEPS = [2, 3, 4, 6]
 const EMPTY_DRAFT: ProposalDraft = {
   step: 1,
   hotel: {
-    name: '', region: 'au', hgid: '', pid: '', entityCode: '', contactName: '', contactEmail: '',
-    contactPhone: '', contactTitle: '', propertyAddress: '',
+    name: '', region: 'au', hgid: '', pid: '', pids: [], entityCode: '', contactName: '', contactEmail: '',
+    contactPhone: '', contactTitle: '', propertyAddress: '', address: { ...EMPTY_ADDRESS },
     hubspotDealId: '', hubspotCompanyId: '', hubspotContactId: '',
   },
   regionSettings: { address: '', companyName: '', aboutNuvho: '', footerText: '', currency: REGION_META.au.currency },
@@ -327,15 +328,24 @@ export default function NewProposalPage() {
         if (!res.ok) throw new Error(data.error || 'Failed to load proposal')
         if (cancelled) return
         const p = data.data
+        // Ticked properties (migration 0019 pids_json), else the legacy single
+        // pid recorded on the registry link rows.
+        const loadedPids = parseSavedPids(
+          p.pids_json,
+          p.pid || (Array.isArray(p.registryLinks) ? p.registryLinks.find((l: any) => l.pid)?.pid : null),
+        )
+        const loadedAddress = parseSavedAddress(p.property_address_json, p.property_address)
         initialGoverningEntityCodeRef.current = (p.terms && p.terms.governingEntityCode) || p.entity_code || null
         setDraft({
           step: 1,
           hotel: {
             name: p.hotel_name || '', region: (p.region || 'au') as Region,
-            hgid: p.hgid || '', pid: p.pid || '', entityCode: p.entity_code || '',
+            hgid: p.hgid || '', pid: loadedPids[0] || '', pids: loadedPids, entityCode: p.entity_code || '',
             contactName: p.contact_name || '', contactEmail: p.contact_email || '',
             contactPhone: p.contact_phone || '', contactTitle: p.contact_title || '',
-            propertyAddress: p.property_address || '', hubspotDealId: p.hubspot_deal_id || '',
+            propertyAddress: p.property_address_json ? formatAddress(loadedAddress) : (p.property_address || ''),
+            address: loadedAddress,
+            hubspotDealId: p.hubspot_deal_id || '',
             hubspotCompanyId: p.hubspot_company_id || '', hubspotContactId: p.hubspot_contact_id || '',
           },
           // Snapshot captured when this proposal was created/last saved —
@@ -552,6 +562,11 @@ export default function NewProposalPage() {
           contact_phone:    draft.hotel.contactPhone,
           contact_title:    draft.hotel.contactTitle,
           property_address: draft.hotel.propertyAddress,
+          // Migration 0019 — structured address + ticked properties. The
+          // worker formats property_address from the fields and keeps the
+          // registry proposal's property coverage in step with pids.
+          property_address_fields: draft.hotel.address,
+          pids:             draft.hotel.pids,
           region:           draft.hotel.region,
           nuvho_address:    draft.regionSettings.address,
           company_name:     draft.regionSettings.companyName,
@@ -714,7 +729,8 @@ export default function NewProposalPage() {
               entities={entities} entitiesLoading={entitiesLoading} />
           )}
           {step === 7 && (
-            <Step7Preview draft={draft} setDraft={setDraft} errors={errors} staff={staff} onDocumentReady={setDocumentReady} />
+            <Step7Preview draft={draft} setDraft={setDraft} errors={errors} staff={staff} onDocumentReady={setDocumentReady}
+              serviceCategories={serviceCategories} />
           )}
 
           {errors.submit && (
@@ -950,8 +966,8 @@ function Step1HotelDetails({
         if (cancelled) return
         const props: RegistryPropertySummary[] = data?.data?.properties || []
         setHgProperties(props)
-        if (props.length === 1 && !h.pid) {
-          setDraft(d => ({ ...d, hotel: { ...d.hotel, pid: props[0].pid, name: props[0].property_name } }))
+        if (props.length === 1 && !h.pids.length) {
+          setDraft(d => ({ ...d, hotel: { ...d.hotel, pid: props[0].pid, pids: [props[0].pid], name: props[0].property_name } }))
         }
         setNoPropertyModalOpen(props.length === 0)
       })
@@ -965,10 +981,27 @@ function Step1HotelDetails({
     return fetchHgProperties(h.hgid)
   }, [h.hgid])
 
-  function selectHgProperty(pid: string) {
-    const p = hgProperties.find(pr => pr.pid === pid)
-    if (!p) return
-    setDraft(d => ({ ...d, hotel: { ...d.hotel, pid: p.pid, name: p.property_name } }))
+  // Registry migration 011: one engagement ID per service line, tied to the
+  // hotel group's proposal and covering every ticked property. The document
+  // name follows the selection ("A", "A & B", "A, B & C"); pid stays the
+  // first ticked property for older code paths (Teams channel, HubSpot).
+  function toggleHgProperty(pid: string, checked: boolean) {
+    setDraft(d => {
+      const current = d.hotel.pids.filter(x => x !== pid)
+      const wanted = checked ? [...current, pid] : current
+      // Keep the registry's listing order, not click order.
+      const ordered = hgProperties.map(p => p.pid).filter(x => wanted.includes(x))
+        .concat(wanted.filter(x => !hgProperties.some(p => p.pid === x)))
+      const names = ordered.map(x => hgProperties.find(p => p.pid === x)?.property_name || '')
+      return { ...d, hotel: { ...d.hotel, pids: ordered, pid: ordered[0] || '', name: joinPropertyNames(names) } }
+    })
+  }
+
+  function updateAddress(key: keyof PostalAddress, val: string) {
+    setDraft(d => {
+      const address = { ...d.hotel.address, [key]: val }
+      return { ...d, hotel: { ...d.hotel, address, propertyAddress: formatAddress(address) } }
+    })
   }
 
   // "Confidential" toggle at the top of Hotel Details — cosmetic only for
@@ -1142,7 +1175,7 @@ function Step1HotelDetails({
         })
         setDraft(d => ({
           ...d,
-          hotel: { ...d.hotel, pid: pid || d.hotel.pid, hubspotCompanyId: companyId || '', hubspotContactId: contactId || d.hotel.hubspotContactId },
+          hotel: { ...d.hotel, pid: pid || d.hotel.pid, pids: pid ? (d.hotel.pids.includes(pid) ? d.hotel.pids : [pid]) : d.hotel.pids, hubspotCompanyId: companyId || '', hubspotContactId: contactId || d.hotel.hubspotContactId },
         }))
         setSyncOpen(false)
       } catch (e) {
@@ -1195,7 +1228,7 @@ function Step1HotelDetails({
         setDraft(d => ({
           ...d,
           hotel: {
-            ...d.hotel, hgid: hg.hgid, pid, entityCode: syncEntityCode,
+            ...d.hotel, hgid: hg.hgid, pid, pids: pid ? [pid] : [], entityCode: syncEntityCode,
             hubspotCompanyId: syncCompanyId, name: d.hotel.name || hg.group_name,
           },
         }))
@@ -1255,7 +1288,7 @@ function Step1HotelDetails({
     setAcctQuery(r.name)
     // name: d.hotel.name (not r.name) — see the 2026-09-18 fix note above; this
     // field is the property name, not the HubSpot Company (Hotel Group) name.
-    setDraft(d => ({ ...d, hotel: { ...d.hotel, name: d.hotel.name, hubspotCompanyId: r.id, pid: r.pid || d.hotel.pid } }))
+    setDraft(d => ({ ...d, hotel: { ...d.hotel, name: d.hotel.name, hubspotCompanyId: r.id, pid: r.pid || d.hotel.pid, pids: r.pid ? [r.pid] : d.hotel.pids } }))
     if (r.hgid) {
       // Already linked — resolve entity_code from the registry side too.
       fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/registry/hotel-groups/${r.hgid}`, { credentials: 'include' })
@@ -1273,7 +1306,7 @@ function Step1HotelDetails({
   }
 
   function clearHotelGroup() {
-    setDraft(d => ({ ...d, hotel: { ...d.hotel, hgid: '', pid: '', entityCode: '', hubspotCompanyId: '' } }))
+    setDraft(d => ({ ...d, hotel: { ...d.hotel, hgid: '', pid: '', pids: [], entityCode: '', hubspotCompanyId: '' } }))
     setAcctQuery('')
     setHgResolveError('')
   }
@@ -1459,6 +1492,7 @@ function Step1HotelDetails({
           ...d.hotel,
           hgid: hg.hgid,
           pid: pid || '',
+          pids: pid ? [pid] : [],
           entityCode: hg.entity_code,
           region: hgAddGeo,
           // Do NOT default this to the Hotel Group's own name — this field is
@@ -1577,7 +1611,7 @@ function Step1HotelDetails({
                   whatever was typed/selected for the group itself, so it
                   must win over h.name (which selectHgProperty() does NOT
                   touch, but was still able to show through here before). */}
-              {acctQuery || h.name} <code>{h.hgid}</code>{h.pid && <code>{h.pid}</code>}
+              {acctQuery || h.name} <code>{h.hgid}</code>
               {h.hubspotCompanyId && <code>HS {h.hubspotCompanyId}</code>}
             </span>
             <button type="button" className="nv-btn nv-btn--ghost nv-btn--sm" onClick={clearHotelGroup}>
@@ -1651,19 +1685,32 @@ function Step1HotelDetails({
             is linked yet, or when the linked group has no registry
             properties (property creation from here is paused — see
             ENABLE_HOTEL_GROUP_CREATION above). */}
-        <FormField label="Property name *" error={errors.hotelName || hgPropertiesError} span={2}>
+        <FormField label={h.hgid ? 'Properties covered by this engagement *' : 'Property name *'}
+          error={errors.pids || errors.hotelName || hgPropertiesError} span={2}>
           {!h.hgid ? (
             <input className="nv-input" placeholder="e.g. The Langham Sydney"
               value={h.name} onChange={e => update('name', e.target.value)} />
           ) : hgPropertiesLoading ? (
             <input className="nv-input" value="Loading properties…" disabled />
           ) : hgProperties.length > 0 ? (
-            <select className="nv-input" value={h.pid} onChange={e => selectHgProperty(e.target.value)}>
-              {!h.pid && <option value="">Select a property…</option>}
+            <div className="prop-checklist">
+              <p className="prop-checklist__hint">
+                The engagement ID is issued to the hotel group. Tick every property it applies to.
+              </p>
               {hgProperties.map(p => (
-                <option key={p.pid} value={p.pid}>{p.property_name} ({p.pid})</option>
+                <label key={p.pid} className="prop-checklist__item">
+                  <input type="checkbox" checked={h.pids.includes(p.pid)}
+                    onChange={e => toggleHgProperty(p.pid, e.target.checked)} />
+                  <span className="prop-checklist__name">{p.property_name}</span>
+                  <code>{p.pid}</code>
+                </label>
               ))}
-            </select>
+              {h.pids.length > 0 && (
+                <p className="prop-checklist__summary">
+                  {h.pids.length} of {hgProperties.length} selected · shown on the document as <strong>{h.name}</strong>
+                </p>
+              )}
+            </div>
           ) : (
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <input className="nv-input" value="No property found in the Master Registry" disabled />
@@ -1695,9 +1742,35 @@ function Step1HotelDetails({
             value={h.contactPhone} onChange={e => update('contactPhone', e.target.value)} />
         </FormField>
 
-        <FormField label="Property address" error={errors.propertyAddress} span={2}>
-          <input className="nv-input" placeholder="1 Kent St, Sydney NSW 2000"
-            value={h.propertyAddress} onChange={e => update('propertyAddress', e.target.value)} />
+        {/* Regular postal address (migration 0019) — formatted onto separate
+            lines in the letter's address block. */}
+        <FormField label="Address line 1" error={errors.propertyAddress} span={2}>
+          <input className="nv-input" placeholder="e.g. 1 Kent Street" autoComplete="address-line1"
+            value={h.address.line1} onChange={e => updateAddress('line1', e.target.value)} />
+        </FormField>
+        <FormField label="Address line 2" span={2}>
+          <input className="nv-input" placeholder="e.g. Level 4 (optional)" autoComplete="address-line2"
+            value={h.address.line2} onChange={e => updateAddress('line2', e.target.value)} />
+        </FormField>
+        <FormField label="Suburb">
+          <input className="nv-input" placeholder="e.g. Millers Point" autoComplete="address-level3"
+            value={h.address.suburb} onChange={e => updateAddress('suburb', e.target.value)} />
+        </FormField>
+        <FormField label="City">
+          <input className="nv-input" placeholder="e.g. Sydney" autoComplete="address-level2"
+            value={h.address.city} onChange={e => updateAddress('city', e.target.value)} />
+        </FormField>
+        <FormField label="State / province / county">
+          <input className="nv-input" placeholder="e.g. NSW" autoComplete="address-level1"
+            value={h.address.state} onChange={e => updateAddress('state', e.target.value)} />
+        </FormField>
+        <FormField label="Postcode / ZIP">
+          <input className="nv-input" placeholder="e.g. 2000" autoComplete="postal-code"
+            value={h.address.postcode} onChange={e => updateAddress('postcode', e.target.value)} />
+        </FormField>
+        <FormField label="Country" span={2}>
+          <input className="nv-input" placeholder="e.g. Australia" autoComplete="country-name"
+            value={h.address.country} onChange={e => updateAddress('country', e.target.value)} />
         </FormField>
 
         <FormField label="HubSpot deal" error={errors.hubspotDealId || dealError} span={2}>
@@ -3206,8 +3279,10 @@ function TermsEditor({ clauses, onChange }: { clauses: TermsClause[]; onChange: 
    see "Signature not yet captured" on the letter. */
 
 /* ─── Step 7: Preview & Save ─── */
-function Step7Preview({ draft, setDraft, staff = [], onDocumentReady }: StepProps) {
-  const model = buildDocModelFromDraft(draft, staff)
+function Step7Preview({ draft, setDraft, staff = [], onDocumentReady, serviceCategories = [] }: StepProps) {
+  const model = buildDocModelFromDraft(
+    draft, staff, Object.fromEntries(serviceCategories.map(c => [c.code, c.label])),
+  )
   // Bumped to remount A4DocumentEditor from scratch (it snapshots its model
   // once at mount — see its initialModel ref).
   const [editorKey, setEditorKey] = useState(0)
@@ -3358,6 +3433,20 @@ const stepStyles = `
     grid-template-columns: 1fr 1fr;
     gap: 16px;
   }
+  /* Step 1 — properties covered by the hotel group's engagement ID */
+  .prop-checklist {
+    border: 1px solid var(--nv-border); border-radius: 8px; padding: 10px 14px;
+    display: flex; flex-direction: column; gap: 2px; max-height: 280px; overflow-y: auto;
+  }
+  .prop-checklist__hint { font-size: 12.5px; color: var(--nv-text-muted); margin: 0 0 6px; }
+  .prop-checklist__item {
+    display: flex; align-items: center; gap: 10px; padding: 6px 0; cursor: pointer;
+    font-size: 14px; color: var(--nv-text-body);
+  }
+  .prop-checklist__item input { width: 16px; height: 16px; accent-color: var(--nv-blue-slate); flex-shrink: 0; }
+  .prop-checklist__name { flex: 1; min-width: 0; }
+  .prop-checklist__item code { font-size: 11.5px; color: var(--nv-text-muted); }
+  .prop-checklist__summary { font-size: 12.5px; color: var(--nv-text-muted); margin: 6px 0 0; padding-top: 8px; border-top: 1px solid var(--nv-border-hair); }
   @media (max-width: 900px) { .form-grid { grid-template-columns: 1fr; } }
 `
 
@@ -3378,6 +3467,11 @@ function validateStep(draft: ProposalDraft): Record<string, string> {
     if (!draft.hotel.hgid || !draft.hotel.entityCode)
                                     errs.hgid         = 'Select a hotel group from the registry lookup'
     if (!draft.hotel.name)          errs.hotelName    = 'Property name is required'
+    // A linked hotel group must have at least one property ticked so its
+    // engagement IDs have something to cover. (Groups with no registry
+    // properties still fall back to the name/"not in registry" path.)
+    if (draft.hotel.hgid && !draft.hotel.pids.length)
+                                    errs.pids         = 'Tick at least one property for this engagement'
     if (!draft.hotel.contactName)   errs.contactName  = 'Contact name is required'
     if (!draft.hotel.contactEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.hotel.contactEmail))
       errs.contactEmail = 'Valid email required'

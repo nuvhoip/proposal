@@ -53,6 +53,8 @@ export interface ProposalRow {
   contact_phone:       string | null
   contact_title:       string | null
   property_address:    string | null
+  property_address_json?: string | null  // migration 0019
+  pids_json?:          string | null      // migration 0019
   region:              string
   nuvho_address:       string | null
   company_name:        string | null

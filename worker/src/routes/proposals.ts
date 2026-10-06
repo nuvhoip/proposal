@@ -7,7 +7,7 @@ import { ulid, randomToken } from '../lib/ulid'
 import {
   createRegistryProposal, updateRegistryProposal, reserveNpId, RegistryError,
   createEngagement, updateEngagement, toRegistryServiceLine, getHotelGroup,
-  listPropertiesByHgid,
+  listPropertiesByHgid, listProposalProperties, addProposalProperty, endProposalProperty,
   type RegistryProposalStatus, type RegistryEngagementStatus,
 } from '../lib/registry'
 import { formatNpIdLocal } from '../lib/npId'
@@ -99,6 +99,69 @@ function mapTermsRow(termsRow: TermsRow | null) {
   }
 }
 
+/* ─── Multi-property + structured address helpers (migration 0019) ─────── */
+
+/** Normalise the wizard's selected properties: `hotel.pids` (new, Step 1
+ *  checkboxes) or the legacy single `hotel.pid`. Trimmed, de-duplicated,
+ *  order kept. */
+export function normalisePids(pids: unknown, legacyPid?: unknown): string[] {
+  const raw = Array.isArray(pids) ? pids : (legacyPid ? [legacyPid] : [])
+  const out: string[] = []
+  for (const v of raw) {
+    const pid = typeof v === 'string' ? v.trim() : ''
+    if (pid && !out.includes(pid)) out.push(pid)
+  }
+  return out
+}
+
+export interface PostalAddress {
+  line1: string; line2: string; suburb: string; city: string
+  state: string; postcode: string; country: string
+}
+const ADDRESS_KEYS: (keyof PostalAddress)[] = ['line1', 'line2', 'suburb', 'city', 'state', 'postcode', 'country']
+
+export function normaliseAddress(value: unknown): PostalAddress | null {
+  if (!value || typeof value !== 'object') return null
+  const out = {} as PostalAddress
+  let any = false
+  for (const k of ADDRESS_KEYS) {
+    const v = (value as any)[k]
+    out[k] = typeof v === 'string' ? v.trim().slice(0, 200) : ''
+    if (out[k]) any = true
+  }
+  return any ? out : null
+}
+
+/** Multi-line letter format: line 1 / line 2 / suburb / city state postcode / country. */
+export function formatAddress(a: PostalAddress | null): string {
+  if (!a) return ''
+  const cityLine = [a.city, a.state, a.postcode].filter(Boolean).join(' ')
+  return [a.line1, a.line2, a.suburb, cityLine, a.country].filter(Boolean).join('\n')
+}
+
+/** Bring the registry proposal's property coverage in line with `wanted`:
+ *  add new properties first, then end-date removed ones (never deleted, and
+ *  the registry refuses to end the last one — adding first avoids that).
+ *  Best-effort: returns an error string instead of throwing. */
+async function syncRegistryCoverage(env: Env, propId: string, wanted: string[]): Promise<string | null> {
+  const errors: string[] = []
+  let current: string[] = []
+  try {
+    current = (await listProposalProperties(env, propId)).map(r => r.pid)
+  } catch (e) {
+    return e instanceof RegistryError ? `${e.code}: ${e.message}` : (e instanceof Error ? e.message : 'Unknown registry error')
+  }
+  for (const pid of wanted.filter(p => !current.includes(p))) {
+    try { await addProposalProperty(env, propId, pid) }
+    catch (e) { errors.push(`add ${pid}: ${e instanceof RegistryError ? `${e.code}: ${e.message}` : (e as Error)?.message}`) }
+  }
+  for (const pid of current.filter(p => !wanted.includes(p))) {
+    try { await endProposalProperty(env, propId, pid, 'Removed from the proposal in the Proposal System') }
+    catch (e) { errors.push(`end ${pid}: ${e instanceof RegistryError ? `${e.code}: ${e.message}` : (e as Error)?.message}`) }
+  }
+  return errors.length ? errors.join('; ') : null
+}
+
 /* ─── Get single proposal ──────────────────────────────────── */
 export async function getProposal(proposalId: string, env: Env, session: Session): Promise<Response> {
   const proposal = await env.DB.prepare('SELECT * FROM proposals WHERE id = ?')
@@ -106,7 +169,9 @@ export async function getProposal(proposalId: string, env: Env, session: Session
   if (!proposal) return err('Proposal not found', 404)
 
   const { results: services } = await env.DB.prepare(
-    'SELECT * FROM proposal_services WHERE proposal_id = ? ORDER BY rowid'
+    // label: the service line's title from Settings → Service Lines, so
+    // custom lines (e.g. CA) render as "Confidentiality Agreement", not the code.
+    'SELECT ps.*, sc.label AS label FROM proposal_services ps LEFT JOIN service_categories sc ON sc.code = ps.code WHERE ps.proposal_id = ? ORDER BY ps.rowid'
   ).bind(proposalId).all<ServiceRow>()
 
   const servicesWithChildren = await attachServiceChildren(env, services)
@@ -178,6 +243,12 @@ export async function createProposal(request: Request, env: Env, session: Sessio
   if (!hotel?.hgid)         return err('Hotel group (select from registry lookup) required')
   if (!hotel?.entityCode)   return err('Entity code (resolved from the selected hotel group) required')
 
+  // Engagement IDs belong to the hotel group's proposal and can cover several
+  // of its properties (registry migration 011) — Step 1 ticks them.
+  const pids = normalisePids(hotel.pids, hotel.pid)
+  const address = normaliseAddress(hotel.address)
+  const propertyAddressText = address ? formatAddress(address) : (hotel.propertyAddress || null)
+
   // Verify sender staff exists
   const staff = await env.DB.prepare('SELECT * FROM staff WHERE id = ?')
     .bind(sender.staffId).first()
@@ -207,13 +278,14 @@ export async function createProposal(request: Request, env: Env, session: Sessio
       id, np_id, hotel_name, contact_name, contact_email, contact_phone, contact_title,
       property_address, region, nuvho_address, company_name, about_nuvho, footer_text, currency,
       status, sender_staff_id, account_manager_stf_id, sender_message, sender_cc, sender_bcc,
-      sender_subject, cover_url, hubspot_deal_id, signing_token, expires_at, valid_until
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      sender_subject, cover_url, hubspot_deal_id, signing_token, expires_at, valid_until,
+      property_address_json, pids_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     proposalId, npId,
     hotel.name, hotel.contactName, hotel.contactEmail,
     hotel.contactPhone || null, hotel.contactTitle || null,
-    hotel.propertyAddress || null, hotel.region || 'au',
+    propertyAddressText, hotel.region || 'au',
     regionSettings?.address || null, regionSettings?.companyName || null,
     regionSettings?.aboutNuvho || null, regionSettings?.footerText || null,
     regionSettings?.currency || 'AUD',
@@ -222,6 +294,7 @@ export async function createProposal(request: Request, env: Env, session: Sessio
     sender.subject || null,
     cover?.coverUrl || null, hotel.hubspotDealId || null,
     signingToken, expiresAt, expiresAt,
+    address ? JSON.stringify(address) : null, pids.length ? JSON.stringify(pids) : null,
   ).run()
 
   // Insert services (+ per-service scope items, fee rows, and footnotes from
@@ -268,6 +341,9 @@ export async function createProposal(request: Request, env: Env, session: Sessio
         entity_code: hotel.entityCode,
         service_line: representativeSvc.registrySvcLine!,
         geo,
+        // Registry 011: the proposal covers every ticked property; each
+        // engagement created below inherits this coverage.
+        ...(pids.length ? { pids } : {}),
         status: 'draft',
         expires_at: expiresAt,
         hubspot_deal_id: hotel.hubspotDealId || null,
@@ -292,25 +368,24 @@ export async function createProposal(request: Request, env: Env, session: Sessio
     // registry.ts for the mapping and why it exists.
     const registrySvcLine = toRegistryServiceLine(svc.code)
 
-    // Engagement (EID) creation additionally requires an already-registered
-    // Property (pid) — hotel.pid is only set once a hotel-group property has
-    // actually been selected (NUVCL-122's Property selector is still
-    // pending for the free-text case), so this is expected to be skipped
-    // for many proposals today rather than treated as an error.
+    // Engagement (EID) creation needs at least one registered property ticked
+    // on Step 1. Since registry 011 the engagement no longer carries its own
+    // pid: it is tied to the hotel group's proposal (signed_proposal_id) and
+    // covers every property on it, so ONE engagement per service line covers
+    // all the ticked properties.
     let eid: string | null = null
     let eidDisplay: string | null = null
     let eidSyncedAt: string | null = null
     let eidSyncError: string | null = null
     if (!registrySvcLine) {
       eidSyncError = `No registry service_line mapping for '${svc.code}'`
-    } else if (!hotel.pid) {
-      eidSyncError = 'No linked property (pid) — link a registered property to enable an Engagement ID'
+    } else if (!pids.length) {
+      eidSyncError = 'No property selected — tick at least one registered property on Hotel Details to enable an Engagement ID'
     } else if (!propId) {
       eidSyncError = 'The shared registry Proposal record failed to create — see the Proposal ID sync error'
     } else {
       try {
         const record = await createEngagement(env, {
-          pid: hotel.pid,
           hgid: hotel.hgid,
           entity_code: hotel.entityCode,
           service_line: registrySvcLine,
@@ -343,7 +418,7 @@ export async function createProposal(request: Request, env: Env, session: Sessio
         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         ulid(), proposalId, svc.code, hotel.hgid, hotel.entityCode, geo, propId, propSyncError, propSyncedAt,
-        hotel.pid || null, eid, eidDisplay, eidSyncError, eidSyncedAt,
+        pids[0] || null, eid, eidDisplay, eidSyncError, eidSyncedAt,
       ).run()
     } catch (e) {
       console.error('[Registry sync] failed to write proposal_registry_links row:', svc.code, e)
@@ -845,13 +920,33 @@ const FULL_EDIT_FIELDS = [
   'property_address', 'region', 'nuvho_address', 'company_name', 'about_nuvho', 'footer_text', 'currency',
   'sender_staff_id', 'account_manager_stf_id', 'sender_message', 'sender_cc', 'sender_bcc', 'sender_subject', 'cover_url',
   'hubspot_deal_id',
+  'property_address_json', 'pids_json',  // migration 0019
 ]
 const ALWAYS_ALLOWED_FIELDS = ['sender_message', 'sender_cc', 'sender_bcc', 'sender_subject', 'cover_url', 'hubspot_deal_id']
 
 export async function updateProposal(
   proposalId: string, request: Request, env: Env, session: Session
 ): Promise<Response> {
-  const body = await request.json() as Partial<ProposalRow> & { services?: ServiceRow[]; terms?: any }
+  const body = await request.json() as Partial<ProposalRow> & {
+    services?: ServiceRow[]; terms?: any
+    pids?: string[]; property_address_fields?: any
+  }
+
+  // Migration 0019: structured address + ticked properties arrive as their
+  // own keys; mapped onto columns here so the generic field loop below
+  // stays a plain whitelist.
+  let pidsUpdate: string[] | null = null
+  if (Array.isArray(body.pids)) {
+    pidsUpdate = normalisePids(body.pids)
+    ;(body as any).pids_json = pidsUpdate.length ? JSON.stringify(pidsUpdate) : null
+  }
+  if ('property_address_fields' in body) {
+    const address = normaliseAddress(body.property_address_fields)
+    ;(body as any).property_address_json = address ? JSON.stringify(address) : null
+    if (address) (body as any).property_address = formatAddress(address)
+  }
+  delete (body as any).pids
+  delete (body as any).property_address_fields
 
   const current = await env.DB.prepare('SELECT status FROM proposals WHERE id = ?')
     .bind(proposalId).first<{ status: string }>()
@@ -910,6 +1005,22 @@ export async function updateProposal(
 
   if (!updates.length && !Array.isArray(body.services) && !body.terms) {
     return err('No valid fields to update')
+  }
+
+  // Ticked properties changed on a draft: keep the registry proposal's
+  // coverage (and so every engagement under it) in step. Best-effort — a
+  // registry failure is recorded on the link rows, never fails the save.
+  if (pidsUpdate && pidsUpdate.length) {
+    const link = await env.DB.prepare(
+      'SELECT prop_id FROM proposal_registry_links WHERE proposal_id = ? AND prop_id IS NOT NULL LIMIT 1'
+    ).bind(proposalId).first<{ prop_id: string }>()
+    if (link?.prop_id) {
+      const coverageError = await syncRegistryCoverage(env, link.prop_id, pidsUpdate)
+      if (coverageError) console.error('[Registry sync] coverage update failed:', link.prop_id, coverageError)
+      await env.DB.prepare(
+        `UPDATE proposal_registry_links SET pid = ?, sync_error = COALESCE(?, sync_error) WHERE proposal_id = ?`
+      ).bind(pidsUpdate[0], coverageError ? `Coverage: ${coverageError}` : null, proposalId).run()
+    }
   }
 
   await auditLog(env, proposalId, 'edited', session.email, { fields: Object.keys(body) })
@@ -999,7 +1110,8 @@ export async function getPublicProposal(token: string, request: Request, env: En
   }, { ctx, proposal })
 
   const { results: services } = await env.DB.prepare(
-    'SELECT * FROM proposal_services WHERE proposal_id = ? ORDER BY rowid'
+    // label: Settings → Service Lines title (see getProposal above).
+    'SELECT ps.*, sc.label AS label FROM proposal_services ps LEFT JOIN service_categories sc ON sc.code = ps.code WHERE ps.proposal_id = ? ORDER BY ps.rowid'
   ).bind(proposal.id).all<ServiceRow>()
   const servicesWithChildren = await attachServiceChildren(env, services)
 

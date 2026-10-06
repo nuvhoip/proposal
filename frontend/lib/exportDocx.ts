@@ -94,7 +94,11 @@ export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
   }
   children.push(new Paragraph({ text: model.contactName || '[Client Name]' }))
   children.push(new Paragraph({ text: model.hotelName || '[Property Name]' }))
-  children.push(new Paragraph({ text: model.propertyAddress || '[Property Address]', spacing: { after: 500 } }))
+  // Multi-line postal address (migration 0019): one paragraph per line.
+  const addressLines = (model.propertyAddress || '[Property Address]').split('\n')
+  addressLines.forEach((line, i) => children.push(new Paragraph({
+    text: line, spacing: { after: i === addressLines.length - 1 ? 500 : 0 },
+  })))
   children.push(new Paragraph({ children: [new TextRun({ text: `RE: ${model.title}`, bold: true })], spacing: { after: 200 } }))
   children.push(body(`Dear ${getFirstName(model.contactName) || '[Client Name]'},`))
   // introMessage is authored via the rich-text editor on wizard Step 1 (since NUVCL-118) — always HTML.

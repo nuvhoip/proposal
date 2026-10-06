@@ -1,3 +1,4 @@
+import type { PostalAddress } from './address'
 import type { PageLayoutSettings } from './a4Document'
 // ─── Proposal System Types ───────────────────────────────────────────────────
 
@@ -251,13 +252,17 @@ export interface ProposalDraft {
     name:            string
     region:          Region
     hgid:            string   // Nuvho Master Registry Hotel Group id (HG-{GEO}-{SEQ4}) — set via typeahead
-    pid:             string   // Nuvho Master Registry Property id (PRP-{GEO}-{SEQ4}) — resolved/created alongside hgid
+    pid:             string   // Nuvho Master Registry Property id (PRP-{GEO}-{SEQ4}) — first of `pids`, kept for older code paths
+    // Registry migration 011: the engagement ID belongs to the hotel group's
+    // proposal and can cover several of its properties — ticked on Step 1.
+    pids:            string[]
     entityCode:      string   // registry entity_code resolved from the selected hotel group
     contactName:     string
     contactEmail:    string
     contactPhone:    string
     contactTitle:    string
-    propertyAddress: string
+    propertyAddress: string   // formatted multi-line text, derived from `address` (what the document renders)
+    address:         PostalAddress
     hubspotDealId:   string
     hubspotDealName?: string    // NUVCL-123: display label for the linked/created HubSpot Deal, resolved via /hubspot/deals/search or /hubspot/deals
     hubspotCompanyId?: string   // HubSpot Company id — resolved via /hubspot/search or created via /hubspot/clients

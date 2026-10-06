@@ -165,10 +165,15 @@ function formatToday(): string {
 interface StaffLike { id: string; name: string; email: string; role: string; role_type: string }
 
 /** Build the document model from the in-progress wizard draft (Preview & Send step). */
-export function buildDocModelFromDraft(draft: ProposalDraft, staff: StaffLike[]): ProposalDocModel {
+export function buildDocModelFromDraft(
+  draft: ProposalDraft, staff: StaffLike[],
+  // Settings → Service Lines titles by code, so custom lines (e.g. CA) show
+  // "Confidentiality Agreement" rather than the bare code.
+  serviceLabels: Record<string, string> = {},
+): ProposalDocModel {
   const sender = staff.find(s => s.id === draft.sender.staffId)
   const services: DocServiceGroup[] = draft.services.map(s => ({
-    code: s.code, label: getServiceLabel(s.code),
+    code: s.code, label: getServiceLabel(s.code, serviceLabels[s.code]),
     scopeItems: s.scopeItems, feeRows: s.feeRows, footnotes: s.footnotes,
   }))
   const title = proposalTitle(services.map(s => s.label))
@@ -226,7 +231,7 @@ export function buildDocModelFromProposal(p: any): ProposalDocModel {
   const rawServices: any[] = p.services || []
   const services: DocServiceGroup[] = rawServices.map(s => ({
     code:       s.code,
-    label:      getServiceLabel(s.code),
+    label:      getServiceLabel(s.code, s.label || undefined),
     scopeItems: s.scope_items || [],
     feeRows:    s.fee_rows || [],
     footnotes:  s.footnotes || [],
@@ -275,8 +280,8 @@ export function buildDocModelFromProposal(p: any): ProposalDocModel {
     clientSignatureMethod:  terms.clientSignatureMethod === 'draw' ? 'draw' : 'type',
     clientSignatureDataUrl: terms.clientSignatureDataUrl || '',
     clientSignedAt:         terms.clientSignedAt || '',
-    clientAcceptedServices: rawServices.filter(s => s.acceptance === 'accepted').map(s => getServiceLabel(s.code)),
-    clientDeclinedServices: rawServices.filter(s => s.acceptance === 'declined').map(s => getServiceLabel(s.code)),
+    clientAcceptedServices: rawServices.filter(s => s.acceptance === 'accepted').map(s => getServiceLabel(s.code, s.label || undefined)),
+    clientDeclinedServices: rawServices.filter(s => s.acceptance === 'declined').map(s => getServiceLabel(s.code, s.label || undefined)),
   }
 }
 
