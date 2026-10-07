@@ -759,6 +759,10 @@ input[type="checkbox"]:disabled:checked { background: rgba(195,202,206,0.5); }
 #proposal-print-root .doc-flow.a4-running-header {
   position: relative;
   padding-top: 19.9mm;
+  /* Same small corner logo as the A4 body pages (right 14mm, bottom 4mm,
+     6mm tall), with bottom padding that keeps the last line clear of it. */
+  padding-bottom: 14mm;
+  background: white url(/logo-primary.svg) no-repeat right 14mm bottom 4mm / auto 6mm;
 }
 /* The header already draws the divider — drop the sign form's own top rule
    and spacing so there aren't two lines. */
