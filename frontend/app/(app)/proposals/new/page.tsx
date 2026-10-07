@@ -984,6 +984,24 @@ function Step1HotelDetails({
     return fetchHgProperties(h.hgid)
   }, [h.hgid])
 
+  // Older proposals (saved before hotel_group_name existed) only know the
+  // hgid — look the group's name up so the "Hotel group / account" chip and
+  // the document header show the GROUP, not the property name.
+  React.useEffect(() => {
+    if (!h.hgid || h.hotelGroupName) return
+    let cancelled = false
+    fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/registry/hotel-groups/${h.hgid}`, { credentials: 'include' })
+      .then(r => r.json())
+      .then(data => {
+        const groupName = data?.data?.hotelGroup?.group_name
+        if (cancelled || !groupName) return
+        setDraft(d => d.hotel.hgid === h.hgid ? { ...d, hotel: { ...d.hotel, hotelGroupName: groupName } } : d)
+        setAcctQuery(groupName)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [h.hgid, h.hotelGroupName])
+
   // Properties are optional: a hotel group with nothing ticked (or with no
   // registry properties at all) addresses the document to the group itself,
   // so "Property name is required" never blocks.
@@ -1261,7 +1279,10 @@ function Step1HotelDetails({
   // check hubspot_id to decide whether the HubSpot side still needs syncing.
   async function selectRegistryResult(hg: RegistryHotelGroupSummary) {
     setAcctOpen(false)
-    setAcctQuery(hg.trading_name || hg.group_name)
+    // The hotel GROUP's own name (group_name). trading_name is a brand/trading
+    // label and on some registry records reads like a single property, so it
+    // is never used as the group name here.
+    setAcctQuery(hg.group_name)
     setHgResolveError('')
     try {
       const res = await fetch(
@@ -1275,7 +1296,7 @@ function Step1HotelDetails({
         ...d,
         hotel: {
           ...d.hotel, hgid: hg.hgid, entityCode: record.entity_code,
-          hotelGroupName: hg.trading_name || hg.group_name,
+          hotelGroupName: hg.group_name,
           // Do NOT default this to the Hotel Group's own name — this field is
           // the PROPOSAL'S PROPERTY NAME (proposal.hotel_name), which the Teams
           // automation uses verbatim as the per-property sub-channel's display
@@ -1304,15 +1325,19 @@ function Step1HotelDetails({
     setAcctQuery(r.name)
     // name: d.hotel.name (not r.name) — see the 2026-09-18 fix note above; this
     // field is the property name, not the HubSpot Company (Hotel Group) name.
-    setDraft(d => ({ ...d, hotel: { ...d.hotel, name: d.hotel.name, hotelGroupName: r.name, hubspotCompanyId: r.id, pid: r.pid || d.hotel.pid, pids: r.pid ? [r.pid] : d.hotel.pids } }))
+    // A HubSpot company can be property-level (it carries pid), so its name is
+    // NOT the hotel group's — the group name comes from the registry record
+    // below once it resolves (or from the sync modal for unlinked companies).
+    setDraft(d => ({ ...d, hotel: { ...d.hotel, name: d.hotel.name, hotelGroupName: '', hubspotCompanyId: r.id, pid: r.pid || d.hotel.pid, pids: r.pid ? [r.pid] : d.hotel.pids } }))
     if (r.hgid) {
-      // Already linked — resolve entity_code from the registry side too.
+      // Already linked — resolve entity_code (and the real group name) from the registry.
       fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/registry/hotel-groups/${r.hgid}`, { credentials: 'include' })
         .then(res => res.json())
         .then(data => {
           const record = data.data?.hotelGroup
           if (record?.entity_code) {
-            setDraft(d => ({ ...d, hotel: { ...d.hotel, hgid: r.hgid!, entityCode: record.entity_code } }))
+            setDraft(d => ({ ...d, hotel: { ...d.hotel, hgid: r.hgid!, entityCode: record.entity_code, hotelGroupName: record.group_name || '' } }))
+            if (record.group_name) setAcctQuery(record.group_name)
           }
         })
         .catch(() => {})
@@ -1507,7 +1532,7 @@ function Step1HotelDetails({
         hotel: {
           ...d.hotel,
           hgid: hg.hgid,
-          hotelGroupName: hg.trading_name || hg.group_name,
+          hotelGroupName: hg.group_name,
           pid: pid || '',
           pids: pid ? [pid] : [],
           entityCode: hg.entity_code,
@@ -1523,7 +1548,7 @@ function Step1HotelDetails({
           name: d.hotel.name,
         },
       }))
-      setAcctQuery(hg.trading_name || hg.group_name)
+      setAcctQuery(hg.group_name)
       setHgAddOpen(false)
       // New group has no HubSpot link yet — offer to add it now.
       openSyncToHubspot(hg.hgid, hg.trading_name || hg.group_name)
@@ -1658,8 +1683,11 @@ function Step1HotelDetails({
                   <button type="button" key={`hg-${hg.hgid}`} className="hg-dropdown__item"
                     onMouseDown={e => e.preventDefault()}
                     onClick={() => selectRegistryResult(hg)}>
-                    <strong>{hg.trading_name || hg.group_name}</strong>
-                    <span className="hg-dropdown__meta">Registry · {hg.hgid} · {hg.geo} · {hg.status}</span>
+                    <strong>{hg.group_name}</strong>
+                    <span className="hg-dropdown__meta">
+                      Registry · {hg.hgid} · {hg.geo} · {hg.status}
+                      {hg.trading_name && hg.trading_name !== hg.group_name ? ` · trades as ${hg.trading_name}` : ''}
+                    </span>
                   </button>
                 ))}
                 {hsResults.map(r => (

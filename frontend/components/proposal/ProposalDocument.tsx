@@ -351,7 +351,9 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
           headerVars={pageHeaderVars(model.hotelGroupName || model.hotelName, model.dateIssued)}
           frozen={!!model.clientSignedAt}
           insertBeforeTerms={(beforeAppendix || model.clientSignedAt) ? (
-            <div className="doc-flow">
+            // a4-running-header: same hotel-group-name / month / divider
+            // header as the A4 pages around it (globals.css).
+            <div className="doc-flow a4-running-header">
               {beforeAppendix}
               {model.clientSignedAt && <div className="doc-client-acceptance">
                 <h4>Client Acceptance</h4>

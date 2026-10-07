@@ -713,25 +713,64 @@ input[type="checkbox"]:disabled:checked { background: rgba(195,202,206,0.5); }
   background: white url(/logo-primary.svg) no-repeat right 14mm bottom 5mm / auto 6mm;
 }
 .a4-sheet--body::before,
-.a4-sheet--body::after {
-  /* Hotel group name + divider line: top margin +30% (6mm → 7.8mm). */
-  position: absolute; top: 7.8mm; pointer-events: none; user-select: none;
+.a4-sheet--body::after,
+.a4-running-header::before,
+.a4-running-header::after {
+  /* Hotel group name + divider line: top margin +30% twice (6mm → 7.8mm →
+     10.1mm). The block is ~4.7mm tall, so its line now sits just above the
+     15mm body padding where page content starts — don't go any lower
+     without also moving the content down. */
+  position: absolute; top: 10.1mm; pointer-events: none; user-select: none;
   font-family: var(--font-raleway), Arial, sans-serif; font-size: 9px; line-height: 1.2;
   letter-spacing: 0.06em; text-transform: uppercase; color: var(--nv-text-muted, #5E6B6C);
 }
-.a4-sheet--body::before {
+.a4-sheet--body::before,
+.a4-running-header::before {
   content: var(--a4-header-client, "");
   left: 14mm; right: 14mm; padding: 0 45mm 1.6mm 0; box-sizing: border-box;
   border-bottom: 1px solid var(--nv-blue-slate, #28687F);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.a4-sheet--body::after {
+.a4-sheet--body::after,
+.a4-running-header::after {
   content: var(--a4-header-month, "");
   right: 14mm; white-space: nowrap;
+}
+/* Gap between the header line and the page's first line of text: 50% of
+   the header's 10.1mm top margin (~5mm). The line ends at ~14.8mm, so
+   content now starts at 19.9mm instead of 15mm. The bottom padding shrinks
+   by the same 4.9mm (15mm → 10.1mm), so every page holds exactly as much
+   content as before and the A4 editor's pagination (measured against a
+   plain 15mm/15mm .a4-sheet) and already-saved documents are unaffected.
+   The corner logo moves down 1mm (bottom 5mm → 4mm, top edge at 10mm) to
+   stay clear of the last line. The cover letter has no header, so it keeps
+   its original padding. */
+.a4-sheet--body:not(:has(.doc-letterhead)) {
+  padding-top: 19.9mm;
+  padding-bottom: 10.1mm;
+  background-position: right 14mm bottom 4mm;
+}
+/* "Accept this Document" (and, once signed, Client Acceptance) — rendered
+   between the A4 pages on the public signing page as a .doc-flow card. It
+   carries the same running header and the same top spacing as the pages
+   around it. The #proposal-print-root selector outranks print-rules.css's
+   `#proposal-print-root .doc-flow { padding: 15mm 14mm }` in the PDF. */
+.doc-flow.a4-running-header,
+#proposal-print-root .doc-flow.a4-running-header {
+  position: relative;
+  padding-top: 19.9mm;
+}
+/* The header already draws the divider — drop the sign form's own top rule
+   and spacing so there aren't two lines. */
+.doc-flow.a4-running-header .public-sign-form-wrap {
+  margin-top: 0; padding-top: 0; border-top: 0;
 }
 /* The cover letter (the page carrying the letterhead) has no running header
    at all — no divider line, no company name, no date. Every other body page
    keeps all three. */
 .a4-sheet--body:has(.doc-letterhead)::before,
 .a4-sheet--body:has(.doc-letterhead)::after { content: none; }
+/* …and no small Nuvho logo in the footer corner either (the letterhead
+   already carries the logo at the top). */
+.a4-sheet--body:has(.doc-letterhead) { background-image: none; }
 

@@ -147,7 +147,8 @@ async function resolveHotelGroupName(env: Env, proposal: ProposalRow, hgid: stri
   if (!hgid) return null
   try {
     const hg = await getHotelGroup(env, hgid)
-    const name = (hg.trading_name || hg.group_name || '').trim() || null
+    // group_name, not trading_name — the header shows the hotel GROUP.
+    const name = (hg.group_name || hg.trading_name || '').trim() || null
     if (name) {
       try {
         await env.DB.prepare('UPDATE proposals SET hotel_group_name = ? WHERE id = ? AND hotel_group_name IS NULL')
