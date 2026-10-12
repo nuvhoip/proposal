@@ -11,7 +11,7 @@ import {
   Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell,
   WidthType, AlignmentType, ShadingType, ImageRun,
 } from 'docx'
-import { FEE_TYPES } from './serviceCatalog'
+import { feeTypeLabel } from './serviceCatalog'
 import type { ProposalDocModel } from './documentModel'
 import { coverTitle, resolveSavedPagePlaceholders } from './documentModel'
 
@@ -202,10 +202,10 @@ export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
         })] }))
       }
       s.feeRows.forEach(row => {
-        const feeTypeLabel = FEE_TYPES.find(f => f.value === row.feeType)?.label || row.feeType
+        const feeTypeText = feeTypeLabel(row.feeType) || '—'
         rows.push(new TableRow({ children: [
           new TableCell({ children: [new Paragraph(row.component || '—')] }),
-          new TableCell({ children: [new Paragraph(feeTypeLabel)] }),
+          new TableCell({ children: [new Paragraph(feeTypeText)] }),
           new TableCell({ children: [new Paragraph(row.setupFee === '' || row.setupFee === undefined ? '—' : `${model.currencySymbol}${Number(row.setupFee).toLocaleString()}`)] }),
           new TableCell({ children: [new Paragraph(row.fee === '' ? '—' : `${model.currencySymbol}${Number(row.fee).toLocaleString()}`)] }),
           new TableCell({ children: [new Paragraph(row.term === '' ? '—' : `${row.term} month${Number(row.term) === 1 ? '' : 's'}`)] }),

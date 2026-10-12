@@ -1410,7 +1410,8 @@ async function insertServiceChildren(env: Env, serviceRowId: string, svc: any): 
         INSERT INTO proposal_fee_rows (id, proposal_service_id, component, fee_type, setup_fee, fee, term, note, sort_order)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
-        ulid(), serviceRowId, row.component || '', row.feeType || 'monthly',
+        // Fee type is free text now; keep a blank one blank (was forced to 'monthly').
+        ulid(), serviceRowId, row.component || '', row.feeType ?? 'monthly',
         (row.setupFee === '' || row.setupFee === undefined || row.setupFee === null) ? null : row.setupFee,
         (row.fee === '' || row.fee === undefined || row.fee === null) ? null : row.fee,
         (row.term === '' || row.term === undefined || row.term === null) ? null : row.term,

@@ -7,7 +7,7 @@ import type {
   PricingFootnote, TermsClause, FeeType, RegionSettings, ServiceCategory,
 } from '@/lib/types'
 import {
-  getServiceLabel, getServiceColor, FEE_TYPES, REGION_META, initScopeItems, initFeeRows,
+  getServiceLabel, getServiceColor, feeTypeLabel, normaliseFeeType, REGION_META, initScopeItems, initFeeRows,
   initFootnotes, initTerms, generateRowId, deriveFeeSummary,
 } from '@/lib/serviceCatalog'
 import { buildDocModelFromDraft, parseCoverUrl, buildCoverUrl, buildDefaultIntroMessage } from '@/lib/documentModel'
@@ -2836,10 +2836,12 @@ function PricingServiceGroup({ label, color, showLabel, dragHandle, feeRows, onC
           <span className="pricing-row__handle" aria-hidden="true">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/grip-dots-vertical.svg" width={14} height={14} alt="" /></span>
           <input className="nv-input nv-input--sm" placeholder="e.g. Monthly Retainer"
             value={row.component} onChange={e => update(row.id, 'component', e.target.value)} />
-          <select className="nv-input nv-input--sm" value={row.feeType}
-            onChange={e => update(row.id, 'feeType', e.target.value as FeeType)}>
-            {FEE_TYPES.map(ft => <option key={ft.value} value={ft.value}>{ft.label}</option>)}
-          </select>
+          {/* Free text (was a fixed dropdown). Shows a known code by its
+              label; on blur, a typed label is stored back as its code. */}
+          <input className="nv-input nv-input--sm" placeholder="e.g. Monthly Retainer" aria-label="Fee type"
+            value={feeTypeLabel(row.feeType)}
+            onChange={e => update(row.id, 'feeType', e.target.value)}
+            onBlur={e => update(row.id, 'feeType', normaliseFeeType(e.target.value))} />
           <input className="nv-input nv-input--sm" type="number" placeholder="—" aria-label="Setup fee"
             value={row.setupFee ?? ''} onChange={e => update(row.id, 'setupFee', e.target.value === '' ? '' : +e.target.value)} />
           <input className="nv-input nv-input--sm" type="number" placeholder="0.00" aria-label="Fee"

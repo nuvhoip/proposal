@@ -49,6 +49,20 @@ export const FEE_TYPES: { value: FeeType; label: string }[] = [
   { value: 'custom',     label: 'Custom' },
 ]
 
+// Fee type is free text in the Pricing editor (2026-10-12). Known codes are
+// shown by their label; anything else is shown exactly as typed.
+export function feeTypeLabel(value: string): string {
+  return FEE_TYPES.find(f => f.value === value)?.label ?? value
+}
+// Run when the field loses focus (not on every keystroke, which would eat a
+// trailing space mid-typing): text matching a known label or code is stored
+// as that code, so the monthly/setup totals in deriveFeeSummary still work.
+export function normaliseFeeType(text: string): FeeType {
+  const t = text.trim()
+  const known = FEE_TYPES.find(f => f.label.toLowerCase() === t.toLowerCase() || f.value === t.toLowerCase())
+  return known ? known.value : t
+}
+
 // Fallback defaults — used until Settings → Region Settings has been fetched
 // (or if that fetch fails), and as the seed values for the region_settings
 // D1 table's govLaw-derived Governing Law clause. The editable source of

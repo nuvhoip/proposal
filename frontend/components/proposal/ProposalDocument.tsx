@@ -4,7 +4,7 @@ import React from 'react'
 import { LETTERHEAD_LOGO_PX, pageHeaderVars, readA4Document } from '@/lib/a4Document'
 import { A4Pages } from './A4Pages'
 import { NuvhoLogo, NuvhoIconMark } from '@/components/ui/NuvhoLogo'
-import { FEE_TYPES } from '@/lib/serviceCatalog'
+import { feeTypeLabel } from '@/lib/serviceCatalog'
 import { parseCoverUrl, getVisibleSections, coverTitle, resolveSavedPagePlaceholders } from '@/lib/documentModel'
 import type { ProposalDocModel } from '@/lib/documentModel'
 
@@ -595,7 +595,7 @@ export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBre
                       {s.feeRows.map(row => (
                         <tr key={row.id}>
                           <td {...field("fee", s.code, row.id, "component")}>{row.component || '—'}</td>
-                          <td>{FEE_TYPES.find(f => f.value === row.feeType)?.label || row.feeType}</td>
+                          <td>{feeTypeLabel(row.feeType) || '—'}</td>
                           <td {...field("fee", s.code, row.id, "setupFee")} data-edit-number="true">{row.setupFee === '' || row.setupFee === undefined ? '—' : `${model.currencySymbol}${Number(row.setupFee).toLocaleString()}`}</td>
                           <td {...field("fee", s.code, row.id, "fee")} data-edit-number="true">{row.fee === '' ? '—' : `${model.currencySymbol}${Number(row.fee).toLocaleString()}`}</td>
                           <td {...field("fee", s.code, row.id, "term")} data-edit-number="true">{row.term === '' ? '—' : `${row.term} month${Number(row.term) === 1 ? '' : 's'}`}</td>

@@ -88,7 +88,10 @@ export interface Staff {
 }
 
 // Fee-row type used by the per-service Pricing editor
-export type FeeType = 'monthly' | 'setup' | 'fixed' | 'daily' | 'hourly' | 'commission' | 'custom'
+// The known codes below still drive the monthly/setup totals, but staff can
+// now type any fee type (free text since 2026-10-12), so any string is valid.
+// `(string & {})` keeps editor autocomplete for the known codes.
+export type FeeType = 'monthly' | 'setup' | 'fixed' | 'daily' | 'hourly' | 'commission' | 'custom' | (string & {})
 
 // One ordered/toggleable scope-of-work line item, grouped under a section heading
 export interface ScopeItem {
