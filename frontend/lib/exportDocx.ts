@@ -13,6 +13,7 @@ import {
 } from 'docx'
 import { FEE_TYPES } from './serviceCatalog'
 import type { ProposalDocModel } from './documentModel'
+import { coverTitle, resolveSavedPagePlaceholders } from './documentModel'
 
 const BRAND_BLUE = '28687F'
 const MUTED_GREY = 'E9EAEC'
@@ -67,7 +68,8 @@ function getFirstName(fullName: string): string {
 export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
   const authored = readA4Document(model.pageBreaks)
   // Signed proposals export exactly as signed (no retroactive page rewrites).
-  if (authored) return exportA4Docx(authored, { frozen: !!model.clientSignedAt })
+  // NUVCL-156: fill [service]/[Property Name] left in an older snapshot.
+  if (authored) return exportA4Docx(resolveSavedPagePlaceholders(authored, model), { frozen: !!model.clientSignedAt })
   const multiSvc = model.services.length > 1
   const children: (Paragraph | Table)[] = []
 
@@ -78,7 +80,8 @@ export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
   }
 
   // Cover / title block
-  children.push(new Paragraph({ text: model.title, heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER, spacing: { after: 100 } }))
+  // NUVCL-157: cover title without the trailing "Services".
+  children.push(new Paragraph({ text: coverTitle(model.title), heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER, spacing: { after: 100 } }))
   children.push(new Paragraph({ text: model.hotelName || '[Property Name]', alignment: AlignmentType.CENTER, spacing: { after: 40 } }))
   children.push(new Paragraph({ text: model.dateIssued, alignment: AlignmentType.CENTER, spacing: { after: 400 } }))
 

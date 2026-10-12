@@ -5,7 +5,7 @@ import { LETTERHEAD_LOGO_PX, pageHeaderVars, readA4Document } from '@/lib/a4Docu
 import { A4Pages } from './A4Pages'
 import { NuvhoLogo, NuvhoIconMark } from '@/components/ui/NuvhoLogo'
 import { FEE_TYPES } from '@/lib/serviceCatalog'
-import { parseCoverUrl, getVisibleSections } from '@/lib/documentModel'
+import { parseCoverUrl, getVisibleSections, coverTitle, resolveSavedPagePlaceholders } from '@/lib/documentModel'
 import type { ProposalDocModel } from '@/lib/documentModel'
 
 /* Read-only rendering of a normalized ProposalDocModel in the same letter +
@@ -58,7 +58,7 @@ function getBusinessNumberLine(footerText: string): string {
   return (footerText || '').split('\n')[0]?.trim() || ''
 }
 
-export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onTogglePageBreak, sectionPages, ignorePageLayout = false }: {
+export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBreakEditable, onTogglePageBreak, sectionPages, ignorePageLayout = false }: {
   model: ProposalDocModel
   ignorePageLayout?: boolean
   // Rendered inside .doc-flow immediately before the Terms & Conditions /
@@ -69,6 +69,11 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
   // "no-print" class (see globals.css) so it doesn't appear in the PDF —
   // ProposalDocument itself doesn't assume one way or the other.
   beforeAppendix?: React.ReactNode
+  // NUVCL-158: rendered as the very last block of the document, after Terms
+  // & Conditions, in its own A4-styled .doc-flow box. The public sign page
+  // uses it for the Accept & Sign form, back at the bottom where it was
+  // before 2026-09-25. Same no-print expectation as beforeAppendix.
+  afterDocument?: React.ReactNode
   // NUVCL-132: when true, each category heading (Background, Scope of
   // Works, the company-name section, Fee Structure, Terms & Conditions)
   // shows an inline "Page Break" checkbox at its right — only the wizard's
@@ -97,7 +102,13 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
   // gated behind an opt-in prop rather than a default-behavior change.
   sectionPages?: boolean
 }) {
-  const savedPages = ignorePageLayout ? null : readA4Document(model.pageBreaks)
+  const rawSavedPages = ignorePageLayout ? null : readA4Document(model.pageBreaks)
+  // NUVCL-156: fill [service]/[Property Name] left in an older snapshot.
+  // Memoised: <A4Pages> re-lays out whenever `document` changes identity.
+  const savedPages = React.useMemo(
+    () => rawSavedPages ? resolveSavedPagePlaceholders(rawSavedPages, { title: model.title, hotelName: model.hotelName, clientSignedAt: model.clientSignedAt }) : null,
+    [rawSavedPages, model.title, model.hotelName, model.clientSignedAt],
+  )
   const field = (...path: string[]) => ({ 'data-edit-field': JSON.stringify(path) })
   const block = (key: string, label: string, move?: string[]) => ({
     'data-doc-block': key,
@@ -201,7 +212,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
             <NuvhoLogo variant="white" height={58} />
           </div>
           <div className="doc-cover-circles__body">
-            <div className="doc-cover-circles__category">{model.title || 'Proposal'}</div>
+            <div className="doc-cover-circles__category">{coverTitle(model.title)}</div>
             <div {...field("hotel", "name")} className="doc-cover-circles__heading">{model.hotelName || '[Property Name]'}</div>
             <div className="doc-cover-circles__meta">
               <span>Issued</span>
@@ -233,7 +244,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
             <NuvhoLogo variant="white" height={61} />
           </div>
           <div className="doc-cover-brand__body">
-            <div className="doc-cover-brand__category">{model.title || 'Proposal'}</div>
+            <div className="doc-cover-brand__category">{coverTitle(model.title)}</div>
             <div {...field("hotel", "name")} className="doc-cover-brand__heading">{model.hotelName || '[Property Name]'}</div>
             <div className="doc-cover-brand__meta">
               <span>Issued</span>
@@ -256,7 +267,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
             {!brandedPhotoUrl && <span className="doc-cover-split__hero-placeholder" />}
           </div>
           <div className="doc-cover-split__content">
-            <div className="doc-cover-split__category">{model.title || 'Proposal'}</div>
+            <div className="doc-cover-split__category">{coverTitle(model.title)}</div>
             <div {...field("hotel", "name")} className="doc-cover-split__heading">{model.hotelName || '[Property Name]'}</div>
             <div className="doc-cover-split__divider" />
             <div className="doc-cover-split__meta">
@@ -279,7 +290,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
           <div className="doc-cover-editorial__spine" />
           <div className="doc-cover-editorial__body">
             <NuvhoLogo variant="primary" height={70} />
-            <div className="doc-cover-editorial__title">{model.title}</div>
+            <div className="doc-cover-editorial__title">{coverTitle(model.title)}</div>
             <div {...field("hotel", "name")} className="doc-cover-editorial__hotel">{model.hotelName || '[Property Name]'}</div>
             {tocItems.length > 0 && (
               <ul className="doc-cover-editorial__toc">
@@ -297,7 +308,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
             <span className="doc-cover-sidebar__badge">Confidential</span>
           </div>
           <div className="doc-cover-sidebar__main">
-            <div className="doc-cover-editorial__title">{model.title}</div>
+            <div className="doc-cover-editorial__title">{coverTitle(model.title)}</div>
             <div {...field("hotel", "name")} className="doc-cover-editorial__hotel">{model.hotelName || '[Property Name]'}</div>
           </div>
         </div>
@@ -308,7 +319,7 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
           style={model.coverUrl ? ({ '--doc-cover-url': `url(${model.coverUrl})` } as React.CSSProperties) : undefined}>
           <div className="doc-cover__scrim">
             <NuvhoLogo variant="white" height={120} />
-            <div className="doc-cover__title">{model.title}</div>
+            <div className="doc-cover__title">{coverTitle(model.title)}</div>
             <div {...field("hotel", "name")} className="doc-cover__hotel">{model.hotelName || '[Property Name]'}</div>
           </div>
         </div>
@@ -350,6 +361,9 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
           coverNode={coverNode}
           headerVars={pageHeaderVars(model.hotelGroupName || model.hotelName, model.dateIssued)}
           frozen={!!model.clientSignedAt}
+          appendAtEnd={afterDocument ? (
+            <div className="doc-flow a4-running-header">{afterDocument}</div>
+          ) : undefined}
           insertBeforeTerms={(beforeAppendix || model.clientSignedAt) ? (
             // a4-running-header: same hotel-group-name / month / divider
             // header as the A4 pages around it (globals.css).
@@ -641,6 +655,10 @@ export function ProposalDocument({ model, beforeAppendix, pageBreakEditable, onT
             </div>
           ),
         })
+      }
+
+      if (afterDocument) {
+        items.push({ key: 'afterDocument', breakBefore: false, node: afterDocument })
       }
 
       // 2026-09 revision: this used to bin these items into several

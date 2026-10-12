@@ -168,15 +168,14 @@ export default function PublicProposalPage() {
       {/* NUVCL-131: the actual proposal — same component + model builder as
           the internal Proposal Details page, so nothing here is a summary
           or placeholder. The Accept & Sign form (while unsigned, not yet
-          expired) is now passed in as beforeAppendix so it renders directly
-          above Terms & Conditions instead of below the entire document —
-          it's wrapped in .no-print (globals.css) so it never shows up in
+          expired) is passed in as afterDocument (NUVCL-158) so it renders
+          as the last page, after Terms & Conditions — it's wrapped in .no-print (globals.css) so it never shows up in
           the printed/PDF output, only the live page. */}
       <div className="public-doc-wrap">
         <ProposalDocument
           model={docModel}
           sectionPages
-          beforeAppendix={!signed && !isExpired ? (
+          afterDocument={!signed && !isExpired ? (
             <div className="public-sign-form-wrap no-print">
                 <div className="public-sign-form">
                   <h2 className="public-section-title">Accept this Document</h2>
@@ -259,11 +258,9 @@ export default function PublicProposalPage() {
                     <label className="approval-check">
                       <input type="checkbox" checked={approved} onChange={e => setApproved(e.target.checked)} />
                       <span>
-                        I have read and agree to the{' '}
-                        <a href="#doc-section-appendix" onClick={e => {
-                          e.preventDefault()
-                          document.getElementById('doc-section-appendix')?.scrollIntoView({ behavior: 'smooth' })
-                        }}>terms and conditions</a>.
+                        {/* NUVCL-158: plain text, no link — the form now sits
+                            directly after the Terms & Conditions. */}
+                        I have read and agree to the terms and conditions.
                       </span>
                     </label>
                   )}
@@ -379,11 +376,12 @@ export default function PublicProposalPage() {
            wrapper only needs a separating rule above it, matching the
            spacing between .doc-section blocks, rather than repeating the
            .public-sign-section "card" styling and nesting a card in a card. */
+        /* NUVCL-158: the form is now its own last page box (afterDocument),
+           so it no longer needs the divider/spacing that separated it from
+           the Fee Structure content above it in a shared box. */
         .public-sign-form-wrap {
-          margin-top: 32px;
-          margin-bottom: 32px;
-          padding-top: 32px;
-          border-top: 1px solid var(--nv-border-hair);
+          margin: 0;
+          padding-top: 0;
         }
 
         .public-section { margin-bottom: 0; }

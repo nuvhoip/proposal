@@ -18,9 +18,11 @@ import { sanitizePageHtml, splitPagesAtTerms, type A4Document, type A4Page } fro
  * first created, so it goes stale the moment a different cover is picked (and
  * a custom upload's blob: preview URL is stripped from it entirely) —
  * ProposalDocument passes its live cover instead. */
-export function A4Pages({ document: value, insertBeforeTerms, coverNode, headerVars, frozen = false }: {
+export function A4Pages({ document: value, insertBeforeTerms, appendAtEnd, coverNode, headerVars, frozen = false }: {
   document: A4Document
   insertBeforeTerms?: ReactNode
+  /** NUVCL-158: rendered after the last saved page (public Accept & Sign form). */
+  appendAtEnd?: ReactNode
   coverNode?: ReactNode
   /** NUVCL-153 running-header custom properties (see pageHeaderVars). */
   headerVars?: Record<string, string>
@@ -45,5 +47,6 @@ export function A4Pages({ document: value, insertBeforeTerms, coverNode, headerV
         : <div className={`a4-sheet a4-sheet--${page.kind}`} dangerouslySetInnerHTML={{ __html: page.html }} />}
     </Fragment>)}
     {insertBeforeTerms && termsIndex === -1 && pages.length > 0 && insertBeforeTerms}
+    {appendAtEnd && pages.length > 0 && appendAtEnd}
   </div>
 }

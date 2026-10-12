@@ -1,4 +1,4 @@
-import type { PageLayoutSettings } from './a4Document'
+import type { A4Document, PageLayoutSettings } from './a4Document'
 // ─── Proposal Document Model ─────────────────────────────────────────────────
 // A normalized, presentation-ready shape that both the wizard's Preview & Send
 // step (working from an in-progress ProposalDraft) and the Proposal Details
@@ -48,7 +48,33 @@ export function buildDefaultIntroMessage(serviceLabel: string, hotelName: string
 // nobody has to manually replace the brackets before sending.
 export function resolveIntroMessage(rawMessage: string, serviceLabel: string, hotelName: string): string {
   const html = rawMessage || buildDefaultIntroMessage(serviceLabel, hotelName)
-  return html.replace(/\[service\]/gi, serviceLabel).replace(/\[hotel name\]/gi, hotelName)
+  return resolvePlaceholders(html, serviceLabel, hotelName)
+}
+
+// NUVCL-156: the Step 1 default text carries `[Property Name]`, but this used
+// to replace only `[hotel name]`, so the property token was never filled in.
+// Matches both spellings, any case, and a non-breaking space between the
+// words (rich-text editors sometimes store one), plus `[service]`.
+const SERVICE_TOKEN  = /\[\s*service\s*\]/gi
+const PROPERTY_TOKEN = /\[\s*(?:property|hotel)(?:\s|&nbsp;|\u00a0)+name\s*\]/gi
+export function resolvePlaceholders(html: string, serviceLabel: string, hotelName: string): string {
+  if (!html) return html
+  // Escaped because the result is HTML ("A & B" is a valid document name),
+  // and passed as functions so a "$" in a name isn't read as a replace pattern.
+  const esc = (v: string) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  let out = html
+  if (serviceLabel) out = out.replace(SERVICE_TOKEN, () => esc(serviceLabel))
+  if (hotelName) out = out.replace(PROPERTY_TOKEN, () => esc(hotelName))
+  return out
+}
+
+// Saved A4 pages hold a frozen HTML snapshot of the letter, so a snapshot
+// taken while the bug above was live still shows the literal tokens. Resolve
+// them at render/export time too. Signed documents are left exactly as signed.
+export function resolveSavedPagePlaceholders(value: A4Document, model: Pick<ProposalDocModel, 'title' | 'hotelName' | 'clientSignedAt'>): A4Document {
+  if (model.clientSignedAt) return value
+  const serviceLabel = model.title.toLowerCase()
+  return { ...value, pages: value.pages.map(p => p.kind === 'body' ? { ...p, html: resolvePlaceholders(p.html, serviceLabel, model.hotelName) } : p) }
 }
 
 export interface DocServiceGroup {
@@ -158,6 +184,14 @@ export function proposalTitle(labels: string[]): string {
   if (labels.length === 0) return 'Services Proposal'
   const joined = labels.join(' & ')
   return /services$/i.test(joined) ? joined : `${joined} Services`
+}
+
+// NUVCL-157: the cover shows the service title without the trailing
+// "Services" — "Sales & Revenue Management Services" → "Sales & Revenue
+// Management". The letter's "RE:" line and body copy keep the full title.
+export function coverTitle(title: string): string {
+  const trimmed = (title || '').replace(/\s+services$/i, '').trim()
+  return trimmed || 'Proposal'
 }
 
 function formatToday(): string {

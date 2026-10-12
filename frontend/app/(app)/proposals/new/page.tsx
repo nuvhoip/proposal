@@ -1890,6 +1890,11 @@ function Step1HotelDetails({
             onChange={html => setDraft(d => ({ ...d, sender: { ...d.sender, message: html } }))}
             placeholder="Edit the default opening paragraph, or clear it and write a custom one — e.g. Hi Sarah, it was great speaking with you today…"
           />
+          {/* NUVCL-156: services are picked on the next step, so the tokens
+              stay as-is here and are filled in on the document itself. */}
+          <span style={{ fontSize: 12, color: 'var(--nv-text-muted)', marginTop: 4, display: 'block' }}>
+            [service] and [Property Name] are filled in automatically on the document from the selected services and property.
+          </span>
         </FormField>
       </div>
 
@@ -2984,8 +2989,9 @@ function FootnotesGroup({ footnotes, onChange, showAddButton = true }: {
 // upload and can never end up as a browser-local blob: URL that renders for
 // the authoring staff member but not for the client.
 const BRANDED_COVER_TEMPLATES = [
-  { id: 'branded:circles',              label: 'Teal — brand circles' },
-  { id: 'branded:split',                label: 'Split panel'          },
+  // NUVCL-155: "Teal — brand circles" and "Split panel" removed from the
+  // picker. ProposalDocument still renders both, so proposals saved with
+  // them look unchanged.
   { id: 'branded:brand-blue-slate',     label: 'Brand — Blue Slate',     img: '/covers/brand-blue-slate.jpg'     },
   { id: 'branded:brand-deep-teal',      label: 'Brand — Deep Teal',      img: '/covers/brand-deep-teal.jpg'      },
   { id: 'branded:brand-steel-blue',     label: 'Brand — Steel Blue',     img: '/covers/brand-steel-blue.jpg'     },
@@ -2994,25 +3000,15 @@ const BRANDED_COVER_TEMPLATES = [
 ]
 
 function Step5Cover({ draft, setDraft, errors }: StepProps) {
-  const COVER_OPTIONS = [
-    { url: '/covers/sunset-pier.jpg',   label: 'Sunset Pier'  },
-    { url: '/covers/winter-pier.jpg',   label: 'Winter Pier'  },
-    { url: '/covers/resort-pool.jpg',   label: 'Resort Pool'  },
-    { url: '/covers/city-skyline.jpg',  label: 'City Skyline' },
-  ]
-  const { template: selectedTemplate, photoUrl: selectedPhotoUrl } = parseCoverUrl(draft.cover.coverUrl)
-  // "Teal — brand circles" is a photo-less layout by design (just the logo +
-  // title over the brand-colour arc), so picking a photo alongside it would
-  // never actually show — grey the Photos grid out rather than let staff
-  // pick one and wonder why it's not appearing on the cover. "Split panel"
-  // does render a photo (in its image drop-zone), so photos stay enabled there.
-  const photosDisabled = selectedTemplate === 'circles' || !!selectedTemplate?.startsWith('brand-')
+  // NUVCL-155: the photo gallery (Sunset Pier, Winter Pier, Resort Pool, City
+  // Skyline) was removed along with the Circles/Split templates. Staff pick a
+  // brand template or upload a custom image.
+  const { template: selectedTemplate } = parseCoverUrl(draft.cover.coverUrl)
   return (
     <div className="step-content">
       <h2 className="step-title">Cover image</h2>
       <p className="step-desc">
-        Choose a branded cover layout, a cover photo, or leave as default.
-        You can also upload a custom image specific to this property.
+        Choose a branded cover, or upload a custom image specific to this property.
         Recommended size: 1414×2000px (portrait, A4 ratio) — other ratios will be cropped to fit.
       </p>
 
@@ -3024,59 +3020,9 @@ function Step5Cover({ draft, setDraft, errors }: StepProps) {
             <button
               key={opt.id}
               className={`cover-option ${selectedTemplate === optTemplate ? 'cover-option--selected' : ''}`}
-              onClick={() => setDraft(d => {
-                // Switching templates keeps an already-picked photo only when
-                // moving between templates that both support one (currently
-                // just "split" itself); "circles" never carries a photo.
-                const { photoUrl } = parseCoverUrl(d.cover.coverUrl)
-                const nextPhoto = optTemplate === 'split' ? photoUrl : ''
-                return { ...d, cover: { ...d.cover, coverUrl: buildCoverUrl(optTemplate, nextPhoto) } }
-              })}
+              onClick={() => setDraft(d => ({ ...d, cover: { ...d.cover, coverUrl: buildCoverUrl(optTemplate) } }))}
             >
-              {'img' in opt && opt.img ? (
-                <div className="cover-option__img" style={{ backgroundImage: `url(${opt.img})` }} />
-              ) : (
-                <div className={`cover-swatch cover-swatch--${optTemplate}`}>
-                  {optTemplate === 'circles' && <span className="cover-swatch__arc" />}
-                  {optTemplate === 'split' && (
-                    <>
-                      <span className="cover-swatch__hero" />
-                      <span className="cover-swatch__panel" />
-                      <span className="cover-swatch__footer-bar" />
-                    </>
-                  )}
-                </div>
-              )}
-              <span className="cover-option__label">{opt.label}</span>
-            </button>
-          )
-        })}
-      </div>
-
-      <h3 className="step-subtitle">Photos</h3>
-      {photosDisabled && (
-        <p className="cover-photos-hint">
-          Not used with this template — it already includes its own artwork. Switch to a photo cover or Split panel to pick a photo.
-        </p>
-      )}
-      {selectedTemplate === 'split' && !photosDisabled && (
-        <p className="cover-photos-hint">Shown in the Split panel&rsquo;s image area.</p>
-      )}
-      <div className={`cover-grid ${photosDisabled ? 'cover-grid--disabled' : ''}`}>
-        {COVER_OPTIONS.map(opt => {
-          const isSelected = selectedTemplate === 'split' ? selectedPhotoUrl === opt.url : draft.cover.coverUrl === opt.url
-          return (
-            <button
-              key={opt.url}
-              className={`cover-option ${isSelected ? 'cover-option--selected' : ''}`}
-              disabled={photosDisabled}
-              onClick={() => setDraft(d => {
-                const { template } = parseCoverUrl(d.cover.coverUrl)
-                const nextCoverUrl = template === 'split' ? buildCoverUrl('split', opt.url) : opt.url
-                return { ...d, cover: { ...d.cover, coverUrl: nextCoverUrl } }
-              })}
-            >
-              <div className="cover-option__img" style={{ backgroundImage: `url(${opt.url})` }} />
+              <div className="cover-option__img" style={{ backgroundImage: `url(${opt.img})` }} />
               <span className="cover-option__label">{opt.label}</span>
             </button>
           )
@@ -3089,11 +3035,7 @@ function Step5Cover({ draft, setDraft, errors }: StepProps) {
             const file = e.target.files?.[0]
             if (file) {
               const url = URL.createObjectURL(file)
-              setDraft(d => {
-                const { template } = parseCoverUrl(d.cover.coverUrl)
-                const nextCoverUrl = template === 'split' ? buildCoverUrl('split', url) : url
-                return { ...d, cover: { ...d.cover, coverUrl: nextCoverUrl, uploadFile: file } }
-              })
+              setDraft(d => ({ ...d, cover: { ...d.cover, coverUrl: url, uploadFile: file } }))
             }
           }} />
         <span className="nv-btn nv-btn--outlined nv-btn--sm">↑ Upload custom image</span>
@@ -3141,21 +3083,6 @@ function Step5Cover({ draft, setDraft, errors }: StepProps) {
           font-family: var(--nv-font-body); font-size: 12px; font-weight: 600; color: var(--nv-text-muted);
           margin: 18px 0 4px;
         }
-        .cover-photos-hint { font-size: 12px; color: var(--nv-text-muted); margin: 0 0 8px; }
-        .cover-grid--disabled { opacity: 0.4; }
-        .cover-grid--disabled .cover-option { cursor: not-allowed; }
-        .cover-swatch {
-          height: 80px; position: relative; overflow: hidden;
-          background: var(--nv-blue-slate);
-        }
-        .cover-swatch__arc {
-          position: absolute; left: -34px; bottom: -34px; width: 80px; height: 80px;
-          border-radius: 50%; border: 1px solid rgba(255,255,255,0.35);
-        }
-        .cover-swatch--split { background: #fff; display: flex; flex-direction: column; }
-        .cover-swatch__hero { flex: 1 1 58%; background: var(--nv-platinum); }
-        .cover-swatch__panel { flex: 1 1 27%; background: #EEF3F5; }
-        .cover-swatch__footer-bar { flex: 0 0 15%; background: #1A3D4A; }
       `}</style>
     </div>
   )
