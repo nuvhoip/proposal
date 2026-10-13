@@ -13,7 +13,7 @@ import {
 } from 'docx'
 import { feeTypeLabel } from './serviceCatalog'
 import type { ProposalDocModel } from './documentModel'
-import { coverTitle, resolveSavedPagePlaceholders } from './documentModel'
+import { coverTitle, resolveSavedPagePlaceholders, documentFeeTotals, feeSumRows, FEE_SUM_RATE_NOTE } from './documentModel'
 
 const BRAND_BLUE = '28687F'
 const MUTED_GREY = 'E9EAEC'
@@ -102,7 +102,7 @@ export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
   addressLines.forEach((line, i) => children.push(new Paragraph({
     text: line, spacing: { after: i === addressLines.length - 1 ? 500 : 0 },
   })))
-  children.push(new Paragraph({ children: [new TextRun({ text: `RE: ${model.title}`, bold: true })], spacing: { after: 200 } }))
+  children.push(new Paragraph({ children: [new TextRun({ text: `RE: ${coverTitle(model.title)}`, bold: true })], spacing: { after: 200 } }))
   children.push(body(`Dear ${getFirstName(model.contactName) || '[Client Name]'},`))
   // introMessage is authored via the rich-text editor on wizard Step 1 (since NUVCL-118) — always HTML.
   startBlock("block:intro")
@@ -212,6 +212,17 @@ export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
         ] }))
       })
     })
+    // Fee totals — same figures as the on-screen table (documentFeeTotals).
+    const totals = documentFeeTotals(model)
+    feeSumRows(totals, model.currencySymbol).forEach(r => {
+      rows.push(new TableRow({ children: [
+        new TableCell({ columnSpan: 3, children: [new Paragraph({ children: [new TextRun({ text: r.label, bold: true })] })] }),
+        new TableCell({ columnSpan: 2, children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: r.value, bold: true })] })] }),
+      ] }))
+    })
+    if (totals.rateRows > 0) {
+      rows.push(new TableRow({ children: [new TableCell({ columnSpan: 5, children: [new Paragraph({ children: [new TextRun({ text: FEE_SUM_RATE_NOTE, italics: true, size: 18 })] })] })] }))
+    }
     startBlock('block:fees-table')
     children.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows }))
     model.footnotes.forEach(f => { startBlock(`block:footnote:${f.id}`); children.push(bullet(f.text)) })

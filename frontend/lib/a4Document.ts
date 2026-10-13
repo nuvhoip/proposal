@@ -1,7 +1,15 @@
 /** Page content is stored in the existing page_breaks_json layout envelope.
  * The deployed worker round-trips this JSON, so no server migration is needed. */
 export interface A4Page { id: string; kind: 'cover' | 'body'; html: string; breakBefore?: boolean }
-export interface A4Document { version: 1; pages: A4Page[] }
+export interface A4Document {
+  version: 1
+  pages: A4Page[]
+  /** documentSourceKey() of the wizard data these pages were laid out from
+   *  (lib/documentModel.ts). Lets Preview & Save tell when Scope/Pricing/
+   *  Terms changed since, and prompt for a rebuild. Absent on documents
+   *  saved before 2026-10-13 — staleness is then unknown. */
+  sourceKey?: string
+}
 export interface PageLayoutSettings {
   [key: string]: boolean | A4Document | undefined
   _document?: A4Document
@@ -15,6 +23,7 @@ export function readA4Document(settings: PageLayoutSettings): A4Document | null 
     if (page.breakBefore !== undefined && typeof page.breakBefore !== 'boolean') return null
     ids.add(page.id)
   }
+  if (value.sourceKey !== undefined && typeof value.sourceKey !== 'string') return null
   return value
 }
 /** True when a heading's text reads as the Terms & Conditions section title.
@@ -139,6 +148,47 @@ export function contentChildren(node: Element): Element[] {
 }
 
 /** Allow document formatting, images and the app's SVG logos; never executable markup. */
+const FEE_EDIT_FIELD = /^\["fee","[^"\\<>&]{1,64}","[^"\\<>&]{1,64}","(component|setupFee|fee|term)"\]$/
+export type FeeEditColumn = 'component' | 'setupFee' | 'fee' | 'term'
+export interface FeeCellEdit { code: string; rowId: string; column: FeeEditColumn; value: string | number }
+/** Parse a Fee Structure cell's data-edit-field + text into a wizard edit.
+ *  Returns null for anything that isn't a recognisable fee cell, or for an
+ *  amount that has text but no number in it (e.g. "TBC") — that is left on
+ *  the page as typed rather than wiping the wizard value. */
+export function readFeeEditField(cell: Element): FeeCellEdit | null {
+  const raw = cell.getAttribute('data-edit-field') || ''
+  if (!FEE_EDIT_FIELD.test(raw)) return null
+  const [, code, rowId, column] = JSON.parse(raw) as [string, string, string, FeeEditColumn]
+  const text = (cell.textContent || '').replace(/\u00a0/g, ' ').trim()
+  const blank = !text || /^[—–-]+$/.test(text)
+  if (column === 'component') return { code, rowId, column, value: blank ? '' : text }
+  if (blank) return { code, rowId, column, value: '' }
+  if (column === 'term') {
+    const m = text.match(/\d+(\.\d+)?/)
+    return m ? { code, rowId, column, value: Number(m[0]) } : null
+  }
+  const digits = text.replace(/[^\d.\-]/g, '')
+  if (!/\d/.test(digits) || !isFinite(Number(digits))) return null
+  return { code, rowId, column, value: Number(digits) }
+}
+/** blob: image URLs only live as long as the browser tab (and the TinyMCE
+ *  editor) that created them. One saved into a page and reloaded later is
+ *  dead — and TinyMCE's image scanner crashes on it ("e.blobInfo is
+ *  undefined") the moment that page is edited. Returns the blob: srcs used
+ *  by <img> tags in the given pages' HTML. */
+export function blobImageSrcs(htmls: string[]): string[] {
+  const found = new Set<string>()
+  for (const html of htmls) for (const m of html.matchAll(/<img\b[^>]*?\ssrc="(blob:[^"]+)"/gi)) found.add(m[1])
+  return Array.from(found)
+}
+/** Remove <img> elements whose src is in `dead` (see blobImageSrcs). */
+export function removeImagesBySrc(html: string, dead: Set<string>): string {
+  if (!dead.size || !html.includes('blob:')) return html
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  let removed = false
+  doc.body.querySelectorAll('img').forEach(img => { if (dead.has(img.getAttribute('src') || '')) { img.remove(); removed = true } })
+  return removed ? doc.body.innerHTML : html
+}
 export function sanitizePageHtml(html: string, options: { legacyUpgrades?: boolean } = {}): string {
   const doc = new DOMParser().parseFromString(html, 'text/html')
   const tags = new Set('p div span br strong b em i u s strike ul ol li h1 h2 h3 h4 h5 h6 table thead tbody tfoot tr th td hr img a blockquote svg g path circle rect line polyline polygon ellipse defs clippath'.split(' '))
@@ -148,7 +198,7 @@ export function sanitizePageHtml(html: string, options: { legacyUpgrades?: boole
   // construction (a page can't mint one for another origin's data), so they
   // can't smuggle in third-party content — and without this the cover
   // snapshot lost its photo entirely.
-  const safeUrl = (value: string, image: boolean) => /^(https?:|\/|#)/i.test(value) || (image ? /^(data:image\/(png|jpeg|jpg|gif|webp);base64,|blob:)/i.test(value) : /^(mailto:|tel:)/i.test(value))
+  const safeUrl = (value: string, image: boolean) => /^(https?:|\/|#)/i.test(value) || (image ? /^(data:image\/(png|jpeg|jpg|gif|webp);base64,[a-z0-9+/]|blob:)/i.test(value) : /^(mailto:|tel:)/i.test(value))
   const styles = new Set('color background-color background-image background-size background-position font-size font-family font-weight font-style text-align text-decoration line-height margin margin-top margin-bottom margin-left margin-right padding padding-top padding-bottom padding-left padding-right width height max-width max-height border border-bottom border-top border-radius --doc-cover-url'.split(' '))
   function clean(parent: Element) {
     for (const el of Array.from(parent.children)) {
@@ -194,6 +244,11 @@ export function sanitizePageHtml(html: string, options: { legacyUpgrades?: boole
           // Preserve ordinary document images.
         } else if (name === 'href' && el.tagName === 'A' && safeUrl(attr.value, false)) {
           el.setAttribute('rel', 'noopener noreferrer')
+        } else if (name === 'data-edit-field' && (el.tagName === 'TD' || el.tagName === 'TH') && FEE_EDIT_FIELD.test(attr.value)) {
+          // Fee Structure cell → wizard fee row link, so an amount edited on
+          // the A4 page flows back into Pricing and the totals (see
+          // readFeeEditField / A4DocumentEditor). Strict shape: a JSON
+          // ["fee", service, row, column] path with no quotes or markup in its parts.
         } else if (!attrs.has(name)) el.removeAttribute(attr.name)
       }
       clean(el)
@@ -207,6 +262,7 @@ export function sanitizePageHtml(html: string, options: { legacyUpgrades?: boole
   if (options.legacyUpgrades !== false) {
     upgradeLegacyFeeTables(doc.body)
     upgradeLegacyLetterheadLogo(doc.body)
+    upgradeLetterSubject(doc.body)
   }
   return doc.body.innerHTML
 }
@@ -236,6 +292,19 @@ function upgradeLegacyLetterheadLogo(root: HTMLElement) {
   })
 }
 
+/** 2026-10-13: the letter's "RE:" line no longer ends in "Services"
+ * ("RE: Digital Marketing & Revenue Management Services" → "RE: Digital
+ * Marketing & Revenue Management"). Applied here so pages saved before the
+ * change follow without a rebuild; skipped for signed proposals like every
+ * legacy upgrade. Only the plain-text case is touched. */
+function upgradeLetterSubject(root: HTMLElement) {
+  root.querySelectorAll('.doc-re').forEach(el => {
+    if (el.children.length) return
+    const text = el.textContent || ''
+    const trimmed = text.replace(/\s+services\s*$/i, '')
+    if (trimmed !== text && /^\s*RE:\s*\S/i.test(trimmed)) el.textContent = trimmed
+  })
+}
 function upgradeLegacyFeeTables(root: HTMLElement) {
   root.querySelectorAll('.doc-fee-total').forEach(el => el.remove())
   root.querySelectorAll('table.doc-fee-table').forEach(table => {

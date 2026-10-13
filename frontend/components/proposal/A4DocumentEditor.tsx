@@ -3,8 +3,8 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { ProposalDocument } from './ProposalDocument'
 import { TinyMcePageEditor } from './TinyMcePageEditor'
-import type { ProposalDocModel } from '@/lib/documentModel'
-import { contentChildren, pageHeaderVars, pageId, readA4Document, refreshCoverPages, sanitizePageHtml, type A4Document, type A4Page } from '@/lib/a4Document'
+import { documentFeeTotals, feeSumRows, type ProposalDocModel } from '@/lib/documentModel'
+import { blobImageSrcs, contentChildren, pageHeaderVars, pageId, readA4Document, readFeeEditField, refreshCoverPages, removeImagesBySrc, sanitizePageHtml, type A4Document, type A4Page, type FeeCellEdit } from '@/lib/a4Document'
 
 /** Fast, approximate page-count estimate shown the instant the source
  *  content is ready — before the accurate chunker below (which runs a
@@ -17,6 +17,37 @@ import { contentChildren, pageHeaderVars, pageId, readA4Document, refreshCoverPa
  *  not a guaranteed-exact one — which is the point: it exists to answer
  *  "roughly how long will this proposal be" right away, and gets replaced
  *  by the real, exact page list moments later. */
+/** Images pasted/dropped into a page live in TinyMCE as blob: URLs (the
+ *  bytes sit in that editor's blobCache). Saving the page's raw innerHTML
+ *  kept the blob: URL, which dies with the tab — so the image vanished
+ *  after a reload and TinyMCE crashed scanning it ("e.blobInfo is
+ *  undefined"). Swap each one for a data: URI from whichever editor's
+ *  cache holds it (the same thing TinyMCE's own save does) before any page
+ *  HTML is stored or moved. Unknown blob: URLs (e.g. the wizard's live
+ *  cover preview) are left as they are. */
+function inlineBlobImages(html: string): string {
+  if (!html.includes('blob:')) return html
+  type Cache = { getByUri: (uri: string) => { base64: () => string; blob: () => Blob } | undefined }
+  const editors = ((window as unknown as { tinymce?: { get: () => { editorUpload?: { blobCache?: Cache } }[] } }).tinymce?.get() || [])
+  return html.replace(/(<img\b[^>]*?\ssrc=")(blob:[^"]+)(")/gi, (whole, pre: string, uri: string, post: string) => {
+    for (const editor of editors) {
+      const info = editor.editorUpload?.blobCache?.getByUri(uri)
+      if (info) return `${pre}data:${info.blob().type};base64,${info.base64()}${post}`
+    }
+    return whole
+  })
+}
+/** Live page DOM → storable HTML. */
+function readPageHtml(node: HTMLElement): string {
+  return sanitizePageHtml(inlineBlobImages(node.innerHTML))
+}
+/** A blob: URL is only alive if this tab can still fetch it. */
+async function deadBlobSrcs(htmls: string[]): Promise<Set<string>> {
+  const srcs = blobImageSrcs(htmls)
+  const alive = await Promise.all(srcs.map(src => fetch(src).then(r => r.ok, () => false)))
+  return new Set(srcs.filter((_, i) => !alive[i]))
+}
+
 function estimatePageCount(source: Element): number {
   const measurement = document.createElement('div')
   measurement.className = 'a4-sheet'
@@ -54,12 +85,20 @@ function estimatePageCount(source: Element): number {
   } finally { measurement.remove() }
 }
 
-export function A4DocumentEditor({ model, onChange, onReady }: {
+export function A4DocumentEditor({ model, onChange, onReady, onFeeEdits }: {
   model: ProposalDocModel
   onChange: (value: A4Document) => void
   onReady: (ready: boolean) => void
+  /** Fee Structure cells edited on the page (amount/term/component), so the
+   *  wizard's Pricing rows and every total follow what's on the page. */
+  onFeeEdits?: (edits: FeeCellEdit[]) => void
 }) {
   const initialModel = useRef(model).current
+  const feeEditsRef = useRef(onFeeEdits); feeEditsRef.current = onFeeEdits
+  // The editor's own copy of the fee rows, kept in step with on-page edits —
+  // used to recalculate the table's total rows live and to report only real
+  // changes upward (not every keystroke elsewhere on the page).
+  const feeServices = useRef(initialModel.services.map(s => ({ ...s, feeRows: s.feeRows.map(r => ({ ...r })) })))
   const pendingFocus = useRef<string | null>(null)
   const sourceRef = useRef<HTMLDivElement>(null)
   const nodes = useRef(new Map<string, HTMLElement>())
@@ -144,7 +183,7 @@ export function A4DocumentEditor({ model, onChange, onReady }: {
   function syncFromDom() {
     pageList.current = pageList.current.map(p => {
       const node = nodes.current.get(p.id)
-      return node ? { ...p, html: sanitizePageHtml(node.innerHTML) } : p
+      return node ? { ...p, html: readPageHtml(node) } : p
     })
   }
   // Push a page's overflowing tail content onto the following page, creating
@@ -247,9 +286,39 @@ export function A4DocumentEditor({ model, onChange, onReady }: {
     if (suppressBackwardRef.current) { suppressBackwardRef.current = false; return 'done' }
     return reflowBackward()
   }
+  // Read every linked Fee Structure cell on the mounted pages, fold changes
+  // into feeServices, report them upward, then rewrite the total rows'
+  // values (doc-fee-sum--* cells) from the updated rows. A total cell the
+  // user is typing in right now is left alone.
+  function syncFees() {
+    const edits: FeeCellEdit[] = []
+    for (const node of nodes.current.values()) {
+      node.querySelectorAll('td[data-edit-field], th[data-edit-field]').forEach(cell => {
+        const edit = readFeeEditField(cell)
+        if (!edit) return
+        const row = feeServices.current.find(s => s.code === edit.code)?.feeRows.find(r => r.id === edit.rowId)
+        if (!row || row[edit.column] === edit.value) return
+        ;(row as Record<string, unknown>)[edit.column] = edit.value
+        edits.push(edit)
+      })
+    }
+    if (edits.length) feeEditsRef.current?.(edits)
+    const sums = feeSumRows(documentFeeTotals({ services: feeServices.current, clientDeclinedServices: initialModel.clientDeclinedServices }), initialModel.currencySymbol, true)
+    const selection = window.getSelection()
+    const focused = selection?.rangeCount ? selection.getRangeAt(0).commonAncestorContainer : null
+    for (const node of nodes.current.values()) {
+      for (const sum of sums) {
+        node.querySelectorAll(`td.${sum.cls}`).forEach(cell => {
+          if (focused && cell.contains(focused)) return
+          if (cell.textContent !== sum.value) cell.textContent = sum.value
+        })
+      }
+    }
+  }
   function publish() {
     if (reflow() === 'restructured') return
-    const next = pageList.current.map(p => ({ ...p, html: sanitizePageHtml(nodes.current.get(p.id)?.innerHTML ?? p.html) }))
+    syncFees()
+    const next = pageList.current.map(p => { const node = nodes.current.get(p.id); return { ...p, html: node ? readPageHtml(node) : p.html } })
     pageList.current = next
     changeRef.current({ version: 1, pages: next })
     checkOverflow()
@@ -278,10 +347,16 @@ export function A4DocumentEditor({ model, onChange, onReady }: {
           // a cover chosen since (Step 5) actually shows. If it changed, publish
           // the refreshed document so the stored copy (and Word export) follow.
           const liveCover = sourceRef.current.querySelector('#proposal-print-root .doc-cover')?.outerHTML
-          const cleaned = saved.pages.map(p => ({ ...p, html: sanitizePageHtml(p.html) }))
+          let cleaned = saved.pages.map(p => ({ ...p, html: sanitizePageHtml(p.html) }))
+          // Images saved as blob: URLs by an earlier session can't be
+          // recovered (the bytes were never stored) and crash TinyMCE's image
+          // scanner — drop them, and save the cleaned pages straight away.
+          const dead = await deadBlobSrcs(cleaned.map(p => p.html))
+          if (cancelled) return
+          if (dead.size) cleaned = cleaned.map(p => ({ ...p, html: removeImagesBySrc(p.html, dead) }))
           const refreshed = refreshCoverPages(cleaned, liveCover)
           commit(refreshed)
-          if (refreshed !== cleaned) changeRef.current({ version: 1, pages: refreshed })
+          if (refreshed !== cleaned || dead.size) changeRef.current({ ...saved, version: 1, pages: refreshed })
           return
         }
         const source = sourceRef.current.querySelector('#proposal-print-root')!
@@ -316,6 +391,13 @@ export function A4DocumentEditor({ model, onChange, onReady }: {
               // letter always stays its own standalone page 2.
               hardBreakPending = true
               return
+            }
+            // A section (or block) flagged with a forced page break —
+            // pageBreaks.<section> → .doc-section--break, or a block's
+            // data-manual-page-break — starts a fresh, hard-broken page, the
+            // same way print-rules.css breaks it in the printed PDF.
+            if (el.classList.contains('doc-section--break') || el.getAttribute('data-manual-page-break') === 'true') {
+              flush(); hardBreakPending = true
             }
             // Same flatten list as estimatePageCount()'s add(), plus
             // doc-heading-row: SectionHeading renders its <h3> inside a
@@ -429,23 +511,18 @@ export function A4DocumentEditor({ model, onChange, onReady }: {
     if (!from || !range || !from.contains(range.commonAncestorContainer)) return
     const index = pageList.current.findIndex(p => p.id === id)
     if (pageList.current[index]?.kind === 'cover') return
+    if (splitAtCursor) { breakAtCursor(from, range, index); return }
     if (direction === -1 && index <= 0) return
     if (direction === -1 && pageList.current[index - 1]?.kind === 'cover') return
-    let html: string
-    if (splitAtCursor) {
-      const tail = document.createRange(); tail.setStart(range.startContainer, range.startOffset); tail.setEnd(from, from.childNodes.length)
-      const box = document.createElement('div'); box.appendChild(tail.extractContents()); html = box.innerHTML
-    } else {
-      let block: Node = range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentNode!
-      while (block.parentNode && block.parentNode !== from) block = block.parentNode
-      if (block === from) return
-      const box = document.createElement('div'); box.appendChild(block); html = box.innerHTML
-    }
+    let block: Node = range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentNode!
+    while (block.parentNode && block.parentNode !== from) block = block.parentNode
+    if (block === from) return
+    const box = document.createElement('div'); box.appendChild(block); const html = inlineBlobImages(box.innerHTML)
     syncFromDom()
     const next = pageList.current.slice()
     let target = next[index + direction]
     if (!target || (direction === 1 && target.kind === 'cover')) {
-      target = { id: pageId(), kind: 'body', html: '', breakBefore: splitAtCursor }; next.splice(index + 1, 0, target)
+      target = { id: pageId(), kind: 'body', html: '', breakBefore: false }; next.splice(index + 1, 0, target)
     }
     if (target.kind === 'cover') { setError('Move body content to a body page, not the cover.'); return }
     const destination = nodes.current.get(target.id)
@@ -453,7 +530,7 @@ export function A4DocumentEditor({ model, onChange, onReady }: {
       const destBlocks = contentChildren(destination)
       if (destBlocks.length === 1 && isBlankPlaceholder(destBlocks[0])) destBlocks[0].remove()
       destination.insertAdjacentHTML(direction === 1 ? 'afterbegin' : 'beforeend', sanitizePageHtml(html))
-      target.html = sanitizePageHtml(destination.innerHTML)
+      target.html = readPageHtml(destination)
     } else target.html = sanitizePageHtml(html) || '<p><br></p>'
     // Existing sheets remain mounted and retain their editor history.
     pendingFocus.current = target.id
@@ -461,6 +538,33 @@ export function A4DocumentEditor({ model, onChange, onReady }: {
     // placement from being immediately pulled back by reflowBackward.
     suppressBackwardRef.current = true
     commit(next); focusPage(target.id); rangeRef.current = null
+  }
+  // Manual page break (Ctrl/⌘+Enter or the toolbar button): everything from
+  // the cursor to the end of this page moves onto a NEW page inserted right
+  // after it, marked breakBefore so neither reflow pass ever merges it back.
+  // It used to prepend the tail onto whatever page already followed — a
+  // plain, non-hard page — so the very next edit's reflowBackward pulled the
+  // content straight back up and the break silently disappeared (it only
+  // ever "worked" on the last page, where a new page had to be created).
+  function breakAtCursor(from: HTMLElement, range: Range, index: number) {
+    const tail = document.createRange(); tail.setStart(range.startContainer, range.startOffset); tail.setEnd(from, from.childNodes.length)
+    const box = document.createElement('div'); box.appendChild(tail.extractContents())
+    // Splitting at the very start/end of a paragraph leaves an empty shell
+    // of it behind on one side — drop those so neither page gains a blank line.
+    const isEmpty = (el: Element) => !el.textContent?.trim() && !el.querySelector('img,svg,table,br')
+    const lastLeft = contentChildren(from).pop()
+    if (lastLeft && isEmpty(lastLeft)) lastLeft.remove()
+    if (!contentChildren(from).length) from.innerHTML = '<p><br></p>'
+    const firstMoved = box.firstElementChild
+    if (firstMoved && isEmpty(firstMoved) && box.children.length > 1) firstMoved.remove()
+    const html = sanitizePageHtml(inlineBlobImages(box.innerHTML))
+    const hasContent = !!box.textContent?.trim() || !!box.querySelector('img,svg,table')
+    syncFromDom()
+    const page: A4Page = { id: pageId(), kind: 'body', html: hasContent ? html : '<p><br></p>', breakBefore: true }
+    const next = pageList.current.slice(); next.splice(index + 1, 0, page)
+    pendingFocus.current = page.id
+    suppressBackwardRef.current = true
+    commit(next); focusPage(page.id); rangeRef.current = null
   }
   function removeEmptyPage() {
     const id = activeRef.current; const node = id ? nodes.current.get(id) : null

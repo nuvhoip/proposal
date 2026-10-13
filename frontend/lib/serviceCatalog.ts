@@ -336,23 +336,75 @@ export function generateRowId(prefix: string): string {
   return generateId(prefix)
 }
 
+// How a fee row counts towards totals. Fee type became free text on
+// 2026-10-12, so exact-code matching ('monthly'/'setup') silently dropped
+// any row typed as e.g. "Monthly Fee", "Retainer" or "One-off" from every
+// total. Known codes map directly; free text is classified by keyword.
+//   monthly — recurring, multiplied by the row's term
+//   setup   — one-time setup/onboarding fee
+//   oneoff  — any other one-time/fixed amount
+//   rate    — day/hourly rates, commission %, custom: not summable
+export type FeeKind = 'monthly' | 'setup' | 'oneoff' | 'rate'
+export function feeKind(feeType: string | undefined | null): FeeKind {
+  const raw = (feeType ?? '').trim().toLowerCase()
+  // Blank = the long-standing default for a new row (was forced to 'monthly').
+  if (!raw || raw === 'monthly') return 'monthly'
+  if (raw === 'setup') return 'setup'
+  if (raw === 'fixed') return 'oneoff'
+  if (['daily', 'hourly', 'commission', 'custom'].includes(raw)) return 'rate'
+  if (/set\s*-?\s*up|onboard|implementation|establishment|activation/.test(raw)) return 'setup'
+  if (/month|retainer|recurring|subscription|\bp\.?\s?\/?m\b|\bmrr\b/.test(raw)) return 'monthly'
+  if (/fixed|one[\s-]?off|one[\s-]?time|once|lump|project/.test(raw)) return 'oneoff'
+  return 'rate'
+}
+
+const num = (v: unknown) => (typeof v === 'number' && isFinite(v) ? v : typeof v === 'string' && v.trim() !== '' && isFinite(+v) ? +v : 0)
+
+export interface FeeTotals {
+  /** Sum of recurring monthly fees. */
+  monthly: number
+  /** Setup fees: the Setup fee column on every row + rows typed as setup. */
+  setup:   number
+  /** Other one-time amounts (Fixed Fee, One-off, …). */
+  oneOff:  number
+  /** Longest term across the rows (months), 12 when none is set. */
+  term:    number
+  /** Σ monthly fee × that row's term (or `term`) + setup + one-off. */
+  contract: number
+  /** Rows priced as a rate (day/hourly/commission/custom) — not in any total. */
+  rateRows: number
+}
+export function computeFeeTotals(feeRows: FeeRow[] | undefined | null): FeeTotals {
+  const rows = feeRows || []
+  const term = rows.reduce((max, r) => Math.max(max, num(r.term)), 0) || 12
+  let monthly = 0, setup = 0, oneOff = 0, recurring = 0, rateRows = 0
+  for (const r of rows) {
+    setup += num(r.setupFee)
+    const fee = num(r.fee)
+    switch (feeKind(r.feeType)) {
+      case 'monthly': monthly += fee; recurring += fee * (num(r.term) || term); break
+      case 'setup':   setup += fee; break
+      case 'oneoff':  oneOff += fee; break
+      default:        if (fee) rateRows++
+    }
+  }
+  return { monthly, setup, oneOff, term, contract: recurring + setup + oneOff, rateRows }
+}
+/** Totals across several services (e.g. the whole proposal). */
+export function sumFeeTotals(list: FeeTotals[]): FeeTotals {
+  return list.reduce((a, t) => ({
+    monthly: a.monthly + t.monthly, setup: a.setup + t.setup, oneOff: a.oneOff + t.oneOff,
+    term: Math.max(a.term, t.term), contract: a.contract + t.contract, rateRows: a.rateRows + t.rateRows,
+  }), { monthly: 0, setup: 0, oneOff: 0, term: 0, contract: 0, rateRows: 0 })
+}
+
 // Sum helpers — derive the flat monthlyFee/setupFee/term summary fields from
 // a service line's feeRows (kept in sync with DraftServiceLine for the
 // worker's proposal_services columns and dashboard/total calculations).
+// setupFee carries every one-time amount (setup + other one-off fees) so the
+// worker's `monthly_fee * term_months + setup_fee` contract value matches
+// computeFeeTotals().contract whenever the monthly rows share one term.
 export function deriveFeeSummary(feeRows: FeeRow[]): { monthlyFee: number; setupFee: number; term: number } {
-  const monthlyFee = feeRows
-    .filter(r => r.feeType === 'monthly')
-    .reduce((sum, r) => sum + (typeof r.fee === 'number' ? r.fee : 0), 0)
-  // Setup fees now come from two places: legacy rows whose Fee type is
-  // "Setup" (their amount lives in `fee`), plus NUVCL-151's dedicated
-  // Setup fee column on any row.
-  const setupFee = feeRows
-    .filter(r => r.feeType === 'setup')
-    .reduce((sum, r) => sum + (typeof r.fee === 'number' ? r.fee : 0), 0)
-    + feeRows.reduce((sum, r) => sum + (typeof r.setupFee === 'number' ? r.setupFee : 0), 0)
-  const term = feeRows.reduce((max, r) => {
-    const t = typeof r.term === 'number' ? r.term : 0
-    return t > max ? t : max
-  }, 0)
-  return { monthlyFee, setupFee, term: term || 12 }
+  const t = computeFeeTotals(feeRows)
+  return { monthlyFee: t.monthly, setupFee: t.setup + t.oneOff, term: t.term }
 }

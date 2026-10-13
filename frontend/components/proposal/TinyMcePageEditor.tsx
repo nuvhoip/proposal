@@ -66,9 +66,6 @@ function TinyMcePageEditorImpl({ page, onNode, onDirty, onFocus, onBreak, onMove
       onRemove={() => onNode(page.id, null)}
       onFocus={() => onFocus(page.id)}
       onEditorChange={() => onDirty()}
-      onKeyDown={event => {
-        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); onBreak() }
-      }}
       init={{
         menubar: false,
         statusbar: false,
@@ -92,6 +89,15 @@ function TinyMcePageEditorImpl({ page, onNode, onDirty, onFocus, onBreak, onMove
         // TinyMCE's own paste cleanup alone — mirrors the old paste() handler's intent.
         setup: (editor: TinyMCEEditor) => {
           editor.on('PastePreProcess', event => { event.content = sanitizePageHtml(event.content) })
+          // Ctrl/⌘+Enter = manual page break. Registered here with prepend
+          // (3rd arg) so it runs BEFORE TinyMCE's own Enter handling — the
+          // old React onKeyDown prop was bound after it, so TinyMCE had
+          // already inserted a new paragraph by the time the break ran.
+          editor.on('keydown', event => {
+            if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+              event.preventDefault(); event.stopImmediatePropagation(); onBreak()
+            }
+          }, true)
           editor.ui.registry.addButton('pagebreak', {
             icon: 'page-break', tooltip: 'Manual page break at cursor (Ctrl/⌘+Enter)',
             onAction: () => onBreak(),

@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { Proposal } from '@/lib/types'
 import { buildDocModelFromProposal } from '@/lib/documentModel'
+import { computeFeeTotals, sumFeeTotals } from '@/lib/serviceCatalog'
 import { ProposalDocument } from '@/components/proposal/ProposalDocument'
 
 const WORKER = process.env.NEXT_PUBLIC_WORKER_URL
@@ -217,15 +218,20 @@ export default function ProposalDetailPage() {
 
   // NUVCL-154: services the client declined at signing are out of the deal.
   const activeServices = (proposal.services || []).filter((s: any) => s.acceptance !== 'declined')
-  const totalMRR = activeServices.reduce(
-    (a: number, s: any) => a + (s.monthly_fee || 0), 0
-  )
-  const totalSetup = activeServices.reduce(
-    (a: number, s: any) => a + (s.setup_fee || 0), 0
-  )
-  const totalContract = activeServices.reduce(
-    (a: number, s: any) => a + (s.monthly_fee || 0) * (s.term_months || 12) + (s.setup_fee || 0), 0
-  )
+  // Totals come from each service's fee rows (the same computeFeeTotals the
+  // wizard and the document's total rows use), so they're right even when
+  // the stored monthly_fee/setup_fee summary columns are stale — e.g. rows
+  // whose free-text fee type ("Monthly Fee", "One-off") the old exact-code
+  // match never counted. Falls back to the summary columns for a service
+  // saved without fee rows.
+  const serviceTotals = (s: any) => Array.isArray(s.fee_rows) && s.fee_rows.length
+    ? computeFeeTotals(s.fee_rows)
+    : { monthly: s.monthly_fee || 0, setup: s.setup_fee || 0, oneOff: 0, term: s.term_months || 12,
+        contract: (s.monthly_fee || 0) * (s.term_months || 12) + (s.setup_fee || 0), rateRows: 0 }
+  const grand = sumFeeTotals(activeServices.map(serviceTotals))
+  const totalMRR = grand.monthly
+  const totalSetup = grand.setup + grand.oneOff
+  const totalContract = grand.contract
 
   const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL}/p/${proposal.signing_token}`
   const canSend   = proposal.status === 'draft'
@@ -482,16 +488,16 @@ export default function ProposalDetailPage() {
                       {SERVICE_LABELS[s.code] || s.code}
                       {s.acceptance === 'declined' && <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--nv-error)', textDecoration: 'none', display: 'inline-block' }}>Not accepted by client</span>}
                     </td>
-                    <td className="nv-num">${s.monthly_fee.toLocaleString()}</td>
-                    <td className="nv-num">${s.setup_fee.toLocaleString()}</td>
-                    <td className="nv-num">{s.term_months}m</td>
+                    <td className="nv-num">{docModel.currencySymbol}{serviceTotals(s).monthly.toLocaleString()}</td>
+                    <td className="nv-num">{docModel.currencySymbol}{(serviceTotals(s).setup + serviceTotals(s).oneOff).toLocaleString()}</td>
+                    <td className="nv-num">{serviceTotals(s).term}m</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr>
                   <td colSpan={4} className="nv-num detail-table__total">
-                    Total contract value: ${totalContract.toLocaleString()}
+                    Total contract value: {docModel.currencySymbol}{totalContract.toLocaleString()}
                   </td>
                 </tr>
               </tfoot>
@@ -534,11 +540,11 @@ export default function ProposalDetailPage() {
               Proposal value
             </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <ValueRow label="Monthly retainer" value={`$${totalMRR.toLocaleString()}`} />
-              <ValueRow label="Setup fees" value={`$${totalSetup.toLocaleString()}`} />
+              <ValueRow label="Monthly retainer" value={`${docModel.currencySymbol}${totalMRR.toLocaleString()}`} />
+              <ValueRow label="Setup & one-off fees" value={`${docModel.currencySymbol}${totalSetup.toLocaleString()}`} />
               <div style={{ borderTop: '1px solid rgba(255,255,255,0.15)', paddingTop: 12 }} />
               <ValueRow label="Total contract"
-                value={`$${totalContract.toLocaleString()}`}
+                value={`${docModel.currencySymbol}${totalContract.toLocaleString()}`}
                 highlight />
             </div>
           </div>

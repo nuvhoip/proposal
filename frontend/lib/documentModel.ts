@@ -1,4 +1,5 @@
 import type { A4Document, PageLayoutSettings } from './a4Document'
+import { readA4Document } from './a4Document'
 // ─── Proposal Document Model ─────────────────────────────────────────────────
 // A normalized, presentation-ready shape that both the wizard's Preview & Send
 // step (working from an in-progress ProposalDraft) and the Proposal Details
@@ -7,7 +8,7 @@ import type { A4Document, PageLayoutSettings } from './a4Document'
 // serve both places instead of duplicating the document layout twice.
 
 import type { ProposalDraft, ScopeItem, FeeRow, PricingFootnote, TermsClause } from './types'
-import { getServiceLabel, currencySymbol } from './serviceCatalog'
+import { getServiceLabel, currencySymbol, computeFeeTotals, sumFeeTotals, type FeeTotals } from './serviceCatalog'
 
 export const ROLE_LABELS: Record<string, string> = {
   exec: 'Executive', bd: 'Business Development', account_manager: 'Account Manager',
@@ -188,7 +189,8 @@ export function proposalTitle(labels: string[]): string {
 
 // NUVCL-157: the cover shows the service title without the trailing
 // "Services" — "Sales & Revenue Management Services" → "Sales & Revenue
-// Management". The letter's "RE:" line and body copy keep the full title.
+// Management". Since 2026-10-13 the letter's "RE:" line drops it too; the
+// body copy keeps the full title.
 export function coverTitle(title: string): string {
   const trimmed = (title || '').replace(/\s+services$/i, '').trim()
   return trimmed || 'Proposal'
@@ -332,4 +334,73 @@ export function downloadBlob(blob: Blob, filename: string): void {
   a.click()
   a.remove()
   URL.revokeObjectURL(url)
+}
+
+/** Fee Structure totals for the whole document — every service the client
+ *  hasn't declined (clientDeclinedServices holds labels). Shared by the
+ *  on-screen/PDF table (ProposalDocument), the Word export and the A4
+ *  editor's live recalculation so all three always agree. */
+export function documentFeeTotals(model: Pick<ProposalDocModel, 'services' | 'clientDeclinedServices'>): FeeTotals {
+  const declined = new Set(model.clientDeclinedServices || [])
+  return sumFeeTotals(model.services.filter(s => !declined.has(s.label)).map(s => computeFeeTotals(s.feeRows)))
+}
+export function formatMoney(symbol: string, amount: number): string {
+  return `${symbol}${amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+}
+/** Text of the Fee Structure total rows, keyed by the class the A4 editor
+ *  uses to find and refresh each value cell. Rows with nothing to show are
+ *  omitted (the contract total always shows) unless includeEmpty — the A4
+ *  editor needs every value so a row already on the page can drop to zero. */
+export const FEE_SUM_RATE_NOTE = 'Day rates, hourly rates and commissions are charged as incurred and are not included in the totals above.'
+export function feeSumRows(t: FeeTotals, symbol: string, includeEmpty = false): { cls: string; label: string; value: string }[] {
+  const rows: { cls: string; label: string; value: string }[] = []
+  if (t.monthly || includeEmpty) rows.push({ cls: 'doc-fee-sum--monthly', label: 'Total monthly fees', value: `${formatMoney(symbol, t.monthly)} / month` })
+  if (t.setup + t.oneOff || includeEmpty) rows.push({ cls: 'doc-fee-sum--oneoff', label: 'Total setup & one-off fees', value: formatMoney(symbol, t.setup + t.oneOff) })
+  rows.push({ cls: 'doc-fee-sum--contract', label: 'Total contract value', value: formatMoney(symbol, t.contract) })
+  return rows
+}
+
+/** Fingerprint of the wizard data that the A4 pages are generated from —
+ *  letter, scope, pricing, footnotes, service order and T&C. Stored on the
+ *  saved A4 document (A4Document.sourceKey) when its pages are laid out, so
+ *  Preview & Save can tell the pages are out of date and prompt a rebuild.
+ *  Values are normalised so a save → reload round trip (null ↔ '', number
+ *  formatting) never reads as a change; the cover is left out because it is
+ *  always refreshed live. */
+export function documentSourceKey(draft: ProposalDraft): string {
+  const t = (v: unknown) => (typeof v === 'string' ? v.trim() : v == null ? '' : String(v))
+  const n = (v: unknown) => (v === '' || v == null ? '' : Number(v))
+  const data = {
+    h: [draft.hotel.name, draft.hotel.hotelGroupName, draft.hotel.contactName, draft.hotel.contactTitle,
+        draft.hotel.contactEmail, draft.hotel.contactPhone].map(t),
+    r: [draft.regionSettings.address, draft.regionSettings.companyName, draft.regionSettings.aboutNuvho,
+        draft.regionSettings.footerText, draft.regionSettings.currency].map(t),
+    m: [t(draft.sender.staffId), t(draft.sender.message)],
+    s: draft.services.map(s => [
+      s.code,
+      s.scopeItems.map(i => [t(i.sectionHeading), t(i.text), !!i.enabled]),
+      s.feeRows.map(r => [t(r.component), t(r.feeType), n(r.setupFee), n(r.fee), n(r.term)]),
+      s.footnotes.map(f => t(f.text)),
+    ]),
+    c: draft.terms.clauses.map(c => [t(c.heading), t(c.text), !!c.enabled]),
+    v: n(draft.terms.validityDays),
+  }
+  // cyrb53 — small, fast, non-cryptographic; only has to detect change.
+  const str = JSON.stringify(data)
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i)
+    h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677)
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+  return `v1-${(4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36)}`
+}
+
+/** true = saved pages predate wizard changes; false = in sync;
+ *  null = no saved pages, or pages saved before sourceKey existed. */
+export function savedPagesStale(draft: ProposalDraft): boolean | null {
+  const saved = readA4Document(draft.terms.pageBreaks || {})
+  if (!saved?.sourceKey) return null
+  return saved.sourceKey !== documentSourceKey(draft)
 }

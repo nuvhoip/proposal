@@ -10,7 +10,7 @@ import {
   getServiceLabel, getServiceColor, feeTypeLabel, normaliseFeeType, REGION_META, initScopeItems, initFeeRows,
   initFootnotes, initTerms, generateRowId, deriveFeeSummary,
 } from '@/lib/serviceCatalog'
-import { buildDocModelFromDraft, parseCoverUrl, buildCoverUrl, buildDefaultIntroMessage } from '@/lib/documentModel'
+import { buildDocModelFromDraft, parseCoverUrl, buildCoverUrl, buildDefaultIntroMessage, documentSourceKey, savedPagesStale } from '@/lib/documentModel'
 import dynamic from 'next/dynamic'
 
 // The page editor uses native browser selection and editable A4 sheets.
@@ -18,7 +18,7 @@ const A4DocumentEditor = dynamic(
   () => import('@/components/proposal/A4DocumentEditor').then(m => m.A4DocumentEditor),
   { ssr: false, loading: () => <p className="step-desc">Loading page editor…</p> },
 )
-import type { A4Document } from '@/lib/a4Document'
+import type { A4Document, FeeCellEdit } from '@/lib/a4Document'
 import { RichTextEditor } from '@/components/proposal/RichTextEditor'
 import { setNavigationGuard } from '@/lib/navigationGuard'
 import { EMPTY_ADDRESS, formatAddress, joinPropertyNames, parseSavedAddress, parseSavedPids, type PostalAddress } from '@/lib/address'
@@ -550,6 +550,12 @@ export default function NewProposalPage() {
 
   async function createDraftProposal(): Promise<string> {
     let id: string
+    // Re-derive each service's monthly/setup/term summary from its fee rows
+    // at save time, not only when a Pricing row is edited — otherwise a
+    // proposal re-opened and saved without touching Pricing keeps whatever
+    // (possibly wrong) totals were stored before, e.g. free-text fee types
+    // the old exact-code match never counted.
+    const servicesForSave = draft.services.map(s => ({ ...s, ...deriveFeeSummary(s.feeRows) }))
     if (editId) {
       const res = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/proposals/${editId}`, {
         method: 'PATCH',
@@ -579,7 +585,7 @@ export default function NewProposalPage() {
           sender_message:   draft.sender.message,
           cover_url:        draft.cover.coverUrl,
           hubspot_deal_id:  draft.hotel.hubspotDealId,
-          services:         draft.services,
+          services:         servicesForSave,
           terms:            draft.terms,
         }),
       })
@@ -595,7 +601,7 @@ export default function NewProposalPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ ...draft, cover: coverForApi }),
+        body: JSON.stringify({ ...draft, services: servicesForSave, cover: coverForApi }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to create proposal')
@@ -639,7 +645,18 @@ export default function NewProposalPage() {
   // The worker's /proposals/:id/attachments endpoints and proposal_attachments
   // table are untouched — just no wizard UI feeds them anymore.
 
+  // Last chance to catch pages that don't reflect wizard changes (see
+  // savedPagesStale / Step7Preview's banner) before they're saved and sent.
+  function confirmStalePages(): boolean {
+    if (savedPagesStale(draft) !== true) return true
+    return window.confirm(
+      'The document pages are out of date — changes you made in Scope, Pricing, Terms or the letter are not on them yet.\n\n' +
+      'Click Cancel, then "Rebuild pages from wizard" to apply them.\nClick OK to save the pages as they are.',
+    )
+  }
+
   async function handleSaveDraft() {
+    if (!confirmStalePages()) return
     setSavingDraft(true)
     try {
       const id = await createDraftProposal()
@@ -655,6 +672,7 @@ export default function NewProposalPage() {
   // proposal. Sending now happens exclusively from the proposal's detail
   // page (its Send button always confirms before sending, per NUVCL-99).
   async function handleSubmit() {
+    if (!confirmStalePages()) return
     setSaving(true)
     try {
       const id = await createDraftProposal()
@@ -3263,8 +3281,43 @@ function Step7Preview({ draft, setDraft, staff = [], onDocumentReady, serviceCat
   // Only for pages laid out BEFORE this visit (the editor itself saves a
   // _document the moment it opens, so checking live would always be true).
   const [hasSavedPages, setHasSavedPages] = useState(() => !!draft.terms.pageBreaks?._document)
+  // true = the editor is laying pages out from the wizard right now (no saved
+  // pages, or just rebuilt), so whatever it saves reflects the current draft.
+  const freshLayout = useRef(!draft.terms.pageBreaks?._document)
+  // Pages laid out before an edit made since in Scope/Pricing/Terms/letter.
+  // savePages only carries the stored stamp forward (it never re-stamps
+  // saved pages), so this stays true until "Rebuild pages from wizard".
+  const stale = hasSavedPages ? savedPagesStale(draft) : false
   function savePages(document: A4Document) {
-    setDraft(d => ({ ...d, terms: { ...d.terms, pageBreaks: { ...d.terms.pageBreaks, _document: document } } }))
+    setDraft(d => {
+      const previous = d.terms.pageBreaks?._document
+      const sourceKey = freshLayout.current ? documentSourceKey(d) : previous?.sourceKey
+      return { ...d, terms: { ...d.terms, pageBreaks: { ...d.terms.pageBreaks, _document: sourceKey ? { ...document, sourceKey } : document } } }
+    })
+  }
+  // A fee amount / term / component edited directly in the Fee Structure
+  // table on the A4 page → write it back into the Pricing rows (and their
+  // summary totals). If the pages were in sync before, they still are — the
+  // page already shows the new value — so the stamp moves with the draft.
+  function applyFeeEdits(edits: FeeCellEdit[]) {
+    setDraft(d => {
+      const before = documentSourceKey(d)
+      const services = d.services.map(s => {
+        const mine = edits.filter(e => e.code === s.code)
+        if (!mine.length) return s
+        const feeRows = s.feeRows.map(r => {
+          const rowEdits = mine.filter(e => e.rowId === r.id)
+          return rowEdits.length ? rowEdits.reduce((row, e) => ({ ...row, [e.column]: e.value }), r) : r
+        })
+        return { ...s, feeRows, ...deriveFeeSummary(feeRows) }
+      })
+      const next = { ...d, services }
+      const doc = d.terms.pageBreaks?._document
+      if (doc && (freshLayout.current || doc.sourceKey === before)) {
+        next.terms = { ...d.terms, pageBreaks: { ...d.terms.pageBreaks, _document: { ...doc, sourceKey: documentSourceKey(next) } } }
+      }
+      return next
+    })
   }
   // NUVCL-151/152: once a proposal has saved A4 pages, those pages are frozen
   // HTML — later wizard changes (fee table, service order, scope edits) never
@@ -3276,6 +3329,7 @@ function Step7Preview({ draft, setDraft, staff = [], onDocumentReady, serviceCat
       const { _document: _discarded, ...rest } = d.terms.pageBreaks || {}
       return { ...d, terms: { ...d.terms, pageBreaks: rest } }
     })
+    freshLayout.current = true
     setEditorKey(k => k + 1)
     setHasSavedPages(false)
   }
@@ -3283,12 +3337,16 @@ function Step7Preview({ draft, setDraft, staff = [], onDocumentReady, serviceCat
     <h2 className="step-title">Preview & save</h2>
     <p className="step-desc">Edit directly on each A4 sheet — content flows onto the next page automatically as you type or delete, just like Word. Use each page’s own toolbar for a manual page break or a precise move. Save Document below saves the pages exactly as arranged.</p>
     {hasSavedPages && (
-      <div className="rebuild-pages">
-        <span>These pages were laid out earlier. Changes made since in Scope, Pricing or service order won’t appear until you rebuild them.</span>
-        <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm" onClick={rebuildPages}>Rebuild pages from wizard</button>
+      <div className={`rebuild-pages${stale ? ' rebuild-pages--stale' : ''}`} role={stale ? 'alert' : undefined}>
+        <span>
+          {stale === true && <><strong>These pages are out of date.</strong> You changed the letter, Scope, Pricing, service order or Terms since they were laid out, so those changes (and the fee totals) aren’t shown below yet. Rebuild to apply them — edits typed directly on the pages will be replaced.</>}
+          {stale === null && <>These pages were laid out earlier. Changes made since in Scope, Pricing, Terms or service order — and the fee total rows — won’t appear until you rebuild them.</>}
+          {stale === false && <>These pages match the current wizard data.</>}
+        </span>
+        <button type="button" className={`nv-btn nv-btn--sm ${stale ? 'nv-btn--primary' : 'nv-btn--outlined'}`} onClick={rebuildPages}>Rebuild pages from wizard</button>
       </div>
     )}
-    <A4DocumentEditor key={editorKey} model={model} onChange={savePages} onReady={onDocumentReady!} />
+    <A4DocumentEditor key={editorKey} model={model} onChange={savePages} onReady={onDocumentReady!} onFeeEdits={applyFeeEdits} />
     <style jsx>{`
       .rebuild-pages {
         display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
@@ -3296,6 +3354,7 @@ function Step7Preview({ draft, setDraft, staff = [], onDocumentReady, serviceCat
         background: rgba(40,104,127,0.06); border: 1px solid rgba(40,104,127,0.2);
         font-size: 12px; color: var(--nv-text-body);
       }
+      .rebuild-pages--stale { background: rgba(214,138,0,0.10); border-color: rgba(214,138,0,0.55); }
     `}</style>
   </div>
 }
