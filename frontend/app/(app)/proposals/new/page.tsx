@@ -645,18 +645,7 @@ export default function NewProposalPage() {
   // The worker's /proposals/:id/attachments endpoints and proposal_attachments
   // table are untouched — just no wizard UI feeds them anymore.
 
-  // Last chance to catch pages that don't reflect wizard changes (see
-  // savedPagesStale / Step7Preview's banner) before they're saved and sent.
-  function confirmStalePages(): boolean {
-    if (savedPagesStale(draft) !== true) return true
-    return window.confirm(
-      'The document pages are out of date — changes you made in Scope, Pricing, Terms or the letter are not on them yet.\n\n' +
-      'Click Cancel, then "Rebuild pages from wizard" to apply them.\nClick OK to save the pages as they are.',
-    )
-  }
-
   async function handleSaveDraft() {
-    if (!confirmStalePages()) return
     setSavingDraft(true)
     try {
       const id = await createDraftProposal()
@@ -672,7 +661,6 @@ export default function NewProposalPage() {
   // proposal. Sending now happens exclusively from the proposal's detail
   // page (its Send button always confirms before sending, per NUVCL-99).
   async function handleSubmit() {
-    if (!confirmStalePages()) return
     setSaving(true)
     try {
       const id = await createDraftProposal()
@@ -2243,12 +2231,13 @@ function Step2Services({ draft, setDraft, errors, serviceCategories = [], servic
       // Pricing is configured entirely on the Pricing step now — seed the
       // monthlyFee/setupFee/term summary from the catalog's default fee rows
       // so totals are correct even if the user never edits a row there.
-      const feeRows = initFeeRows(code)
       // Prefer this category's live Settings → Service Lines default Scope of
       // Work (staff-editable) over the hardcoded SERVICE_CATALOG fallback —
       // initScopeItems() only falls back to the hardcoded sections when
-      // liveScope is empty/undefined.
+      // liveScope is empty/undefined. Same for Pricing: Settings → Default
+      // fees (mapped to this service line) before the built-in rows.
       const category = serviceCategories.find(c => c.code === code)
+      const feeRows = initFeeRows(code, category?.defaultFees)
       return {
         ...d,
         services: [...d.services, {
@@ -2277,7 +2266,7 @@ function Step2Services({ draft, setDraft, errors, serviceCategories = [], servic
       const additions = serviceCategories
         .filter(c => !existingCodes.has(c.code))
         .map(c => {
-          const feeRows = initFeeRows(c.code)
+          const feeRows = initFeeRows(c.code, c.defaultFees)
           return {
             code: c.code,
             ...deriveFeeSummary(feeRows),
@@ -3272,22 +3261,24 @@ function TermsEditor({ clauses, onChange }: { clauses: TermsClause[]; onChange: 
 
 /* ─── Step 7: Preview & Save ─── */
 function Step7Preview({ draft, setDraft, staff = [], onDocumentReady, serviceCategories = [] }: StepProps) {
+  // Pages are rebuilt automatically (2026-10-13 — no Rebuild button, no
+  // confirm): saved pages are reused only while they still match the wizard
+  // data they were laid out from (A4Document.sourceKey). If Scope, Pricing,
+  // Terms, the letter or service order changed since — or the pages predate
+  // sourceKey, so it can't be told — they're discarded and laid out fresh
+  // from the current wizard data. Decided once, when this step opens.
+  const freshLayout = useRef<boolean | null>(null)
+  if (freshLayout.current === null) {
+    freshLayout.current = !draft.terms.pageBreaks?._document || savedPagesStale(draft) !== false
+  }
+  // The editor snapshots its model once at mount: for a fresh layout, hand it
+  // the draft without the stale saved pages so it lays out new ones.
+  const modelDraft = freshLayout.current && draft.terms.pageBreaks?._document
+    ? (() => { const { _document: _stale, ...rest } = draft.terms.pageBreaks || {}; return { ...draft, terms: { ...draft.terms, pageBreaks: rest } } })()
+    : draft
   const model = buildDocModelFromDraft(
-    draft, staff, Object.fromEntries(serviceCategories.map(c => [c.code, c.label])),
+    modelDraft, staff, Object.fromEntries(serviceCategories.map(c => [c.code, c.label])),
   )
-  // Bumped to remount A4DocumentEditor from scratch (it snapshots its model
-  // once at mount — see its initialModel ref).
-  const [editorKey, setEditorKey] = useState(0)
-  // Only for pages laid out BEFORE this visit (the editor itself saves a
-  // _document the moment it opens, so checking live would always be true).
-  const [hasSavedPages, setHasSavedPages] = useState(() => !!draft.terms.pageBreaks?._document)
-  // true = the editor is laying pages out from the wizard right now (no saved
-  // pages, or just rebuilt), so whatever it saves reflects the current draft.
-  const freshLayout = useRef(!draft.terms.pageBreaks?._document)
-  // Pages laid out before an edit made since in Scope/Pricing/Terms/letter.
-  // savePages only carries the stored stamp forward (it never re-stamps
-  // saved pages), so this stays true until "Rebuild pages from wizard".
-  const stale = hasSavedPages ? savedPagesStale(draft) : false
   function savePages(document: A4Document) {
     setDraft(d => {
       const previous = d.terms.pageBreaks?._document
@@ -3319,43 +3310,10 @@ function Step7Preview({ draft, setDraft, staff = [], onDocumentReady, serviceCat
       return next
     })
   }
-  // NUVCL-151/152: once a proposal has saved A4 pages, those pages are frozen
-  // HTML — later wizard changes (fee table, service order, scope edits) never
-  // reach them. This regenerates the pages from the current wizard data,
-  // discarding manual edits made on the sheets (hence the confirm).
-  function rebuildPages() {
-    if (!window.confirm('Rebuild all pages from the current wizard data? Any edits you made directly on the A4 pages will be lost.')) return
-    setDraft(d => {
-      const { _document: _discarded, ...rest } = d.terms.pageBreaks || {}
-      return { ...d, terms: { ...d.terms, pageBreaks: rest } }
-    })
-    freshLayout.current = true
-    setEditorKey(k => k + 1)
-    setHasSavedPages(false)
-  }
   return <div className="step-content">
     <h2 className="step-title">Preview & save</h2>
-    <p className="step-desc">Edit directly on each A4 sheet — content flows onto the next page automatically as you type or delete, just like Word. Use each page’s own toolbar for a manual page break or a precise move. Save Document below saves the pages exactly as arranged.</p>
-    {hasSavedPages && (
-      <div className={`rebuild-pages${stale ? ' rebuild-pages--stale' : ''}`} role={stale ? 'alert' : undefined}>
-        <span>
-          {stale === true && <><strong>These pages are out of date.</strong> You changed the letter, Scope, Pricing, service order or Terms since they were laid out, so those changes (and the fee totals) aren’t shown below yet. Rebuild to apply them — edits typed directly on the pages will be replaced.</>}
-          {stale === null && <>These pages were laid out earlier. Changes made since in Scope, Pricing, Terms or service order — and the fee total rows — won’t appear until you rebuild them.</>}
-          {stale === false && <>These pages match the current wizard data.</>}
-        </span>
-        <button type="button" className={`nv-btn nv-btn--sm ${stale ? 'nv-btn--primary' : 'nv-btn--outlined'}`} onClick={rebuildPages}>Rebuild pages from wizard</button>
-      </div>
-    )}
-    <A4DocumentEditor key={editorKey} model={model} onChange={savePages} onReady={onDocumentReady!} onFeeEdits={applyFeeEdits} />
-    <style jsx>{`
-      .rebuild-pages {
-        display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
-        padding: 10px 14px; margin-bottom: 14px; border-radius: 8px;
-        background: rgba(40,104,127,0.06); border: 1px solid rgba(40,104,127,0.2);
-        font-size: 12px; color: var(--nv-text-body);
-      }
-      .rebuild-pages--stale { background: rgba(214,138,0,0.10); border-color: rgba(214,138,0,0.55); }
-    `}</style>
+    <p className="step-desc">Edit directly on each A4 sheet — content flows onto the next page automatically as you type or delete, just like Word. Use each page’s own toolbar for a manual page break or a precise move. Pages are regenerated automatically whenever the wizard data changes. Save Document below saves the pages exactly as arranged.</p>
+    <A4DocumentEditor model={model} onChange={savePages} onReady={onDocumentReady!} onFeeEdits={applyFeeEdits} />
   </div>
 }
 

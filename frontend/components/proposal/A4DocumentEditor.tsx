@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { ProposalDocument } from './ProposalDocument'
 import { TinyMcePageEditor } from './TinyMcePageEditor'
-import { documentFeeTotals, feeSumRows, type ProposalDocModel } from '@/lib/documentModel'
+import type { ProposalDocModel } from '@/lib/documentModel'
 import { blobImageSrcs, contentChildren, pageHeaderVars, pageId, readA4Document, readFeeEditField, refreshCoverPages, removeImagesBySrc, sanitizePageHtml, type A4Document, type A4Page, type FeeCellEdit } from '@/lib/a4Document'
 
 /** Fast, approximate page-count estimate shown the instant the source
@@ -95,9 +95,8 @@ export function A4DocumentEditor({ model, onChange, onReady, onFeeEdits }: {
 }) {
   const initialModel = useRef(model).current
   const feeEditsRef = useRef(onFeeEdits); feeEditsRef.current = onFeeEdits
-  // The editor's own copy of the fee rows, kept in step with on-page edits —
-  // used to recalculate the table's total rows live and to report only real
-  // changes upward (not every keystroke elsewhere on the page).
+  // The editor's own copy of the fee rows, kept in step with on-page edits,
+  // so only real changes are reported upward (not every keystroke elsewhere).
   const feeServices = useRef(initialModel.services.map(s => ({ ...s, feeRows: s.feeRows.map(r => ({ ...r })) })))
   const pendingFocus = useRef<string | null>(null)
   const sourceRef = useRef<HTMLDivElement>(null)
@@ -287,9 +286,9 @@ export function A4DocumentEditor({ model, onChange, onReady, onFeeEdits }: {
     return reflowBackward()
   }
   // Read every linked Fee Structure cell on the mounted pages, fold changes
-  // into feeServices, report them upward, then rewrite the total rows'
-  // values (doc-fee-sum--* cells) from the updated rows. A total cell the
-  // user is typing in right now is left alone.
+  // into feeServices and report them upward, so the Pricing rows (and the
+  // Proposal Details totals computed from them) follow what's on the page.
+  // The document itself shows no calculated totals (2026-10-13).
   function syncFees() {
     const edits: FeeCellEdit[] = []
     for (const node of nodes.current.values()) {
@@ -303,17 +302,6 @@ export function A4DocumentEditor({ model, onChange, onReady, onFeeEdits }: {
       })
     }
     if (edits.length) feeEditsRef.current?.(edits)
-    const sums = feeSumRows(documentFeeTotals({ services: feeServices.current, clientDeclinedServices: initialModel.clientDeclinedServices }), initialModel.currencySymbol, true)
-    const selection = window.getSelection()
-    const focused = selection?.rangeCount ? selection.getRangeAt(0).commonAncestorContainer : null
-    for (const node of nodes.current.values()) {
-      for (const sum of sums) {
-        node.querySelectorAll(`td.${sum.cls}`).forEach(cell => {
-          if (focused && cell.contains(focused)) return
-          if (cell.textContent !== sum.value) cell.textContent = sum.value
-        })
-      }
-    }
   }
   function publish() {
     if (reflow() === 'restructured') return

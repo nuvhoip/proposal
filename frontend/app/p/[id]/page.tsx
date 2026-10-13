@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation'
 import { NuvhoLogo } from '@/components/ui/NuvhoLogo'
 import { ProposalDocument } from '@/components/proposal/ProposalDocument'
 import { SignaturePad } from '@/components/proposal/SignaturePad'
-import { buildDocModelFromProposal, getVisibleSections } from '@/lib/documentModel'
+import { buildDocModelFromProposal } from '@/lib/documentModel'
 import type { ProposalDocModel } from '@/lib/documentModel'
 
 /* Public, unauthenticated proposal view (proposals.nuvho.com/p/{signing_token}).
@@ -35,11 +35,6 @@ export default function PublicProposalPage() {
   const [sigName,    setSigName]    = useState('')
   const [sigTitle,   setSigTitle]   = useState('')
   const [sigDataUrl, setSigDataUrl] = useState('')
-  // NUVCL-105: requires an explicit "I have read and agree to the Terms and
-  // Conditions" acknowledgement before Accept & Sign is enabled — mirrors
-  // the approval statement added to the Quote Approval section of the
-  // generated document itself.
-  const [approved, setApproved] = useState(false)
   // NUVCL-154: one acceptance checkbox per proposed service (never per
   // component/scope item). The client can sign with any non-empty subset;
   // the worker records the rest as declined and drops them from the fees,
@@ -74,14 +69,9 @@ export default function PublicProposalPage() {
   // Services in this proposal, in document order (docModel.services mirrors
   // the saved proposal_services order).
   const offeredServices = docModel?.services.map(s => ({ code: s.code, label: s.label })) ?? []
-  // Whether the document has a Terms & Conditions section (enabled clauses,
-  // shown only when the T&C appendix itself renders). No T&C → no
-  // "I have read and agree to the terms and conditions" checkbox at all.
-  const hasTerms = !!docModel && getVisibleSections(docModel).some(s => s.key === 'appendix')
 
   async function handleSign() {
     if (!docModel) return
-    if (hasTerms && !approved) return
     if (offeredServices.length && !acceptedServices.length) return
     if (!sigName.trim()) return
     if (sigMethod === 'draw' && !sigDataUrl) return
@@ -107,7 +97,7 @@ export default function PublicProposalPage() {
       // client_* fields (see documentModel.ts), not the sender's own
       // signatureMethod/signatoryName/signatureDataUrl, which are the
       // sender's letter sign-off and must stay untouched. This is what
-      // ProposalDocument.tsx's doc-client-acceptance block (top of Terms &
+      // ProposalDocument.tsx's doc-client-acceptance block (end of Terms &
       // Conditions) reads from — previously the client's signature was
       // written into the sender's own fields instead, so it never showed up
       // distinctly, and was missing from the generated PDF entirely.
@@ -129,15 +119,26 @@ export default function PublicProposalPage() {
     }
   }
 
-  // NUVCL-131: PDF download for the client, once signed — same print-to-PDF
-  // mechanism as the internal Proposal Details page's "⬇ PDF" button
-  // (window.print(); @media print in globals.css hides everything except
-  // #proposal-print-root, which <ProposalDocument> renders into, and hides
-  // .no-print content such as the sign form / this button itself).
-  const handleDownloadPdf = () => {
+  // NUVCL-131: PDF download for the client, once signed. Since 2026-10-13
+  // the PDF is generated from the document on this page and downloaded
+  // directly (lib/exportPdf.ts, same as Proposal Details) — no print dialog;
+  // .no-print content such as the sign form is left out.
+  const handleDownloadPdf = async () => {
     setExporting(true)
-    window.setTimeout(() => window.print(), 50)
-    window.setTimeout(() => setExporting(false), 600)
+    try {
+      const root = document.getElementById('proposal-print-root')
+      if (!root) throw new Error('The document is not available.')
+      const { exportDocumentPdf, proposalPdfFileName } = await import('@/lib/exportPdf')
+      await exportDocumentPdf(root, proposalPdfFileName({
+        engagementIds: raw?.engagement_ids || [],
+        proposalId:    raw?.prop_id || raw?.np_id,
+        client:        raw?.hotel_group_name || raw?.hotel_name,
+      }))
+    } catch (e: any) {
+      setError('Could not create the PDF: ' + (e?.message || e))
+    } finally {
+      setExporting(false)
+    }
   }
 
   if (loading) return <LoadingScreen />
@@ -253,22 +254,10 @@ export default function PublicProposalPage() {
                     </fieldset>
                   )}
 
-                  {/* Only when the document has Terms & Conditions. */}
-                  {hasTerms && (
-                    <label className="approval-check">
-                      <input type="checkbox" checked={approved} onChange={e => setApproved(e.target.checked)} />
-                      <span>
-                        {/* NUVCL-158: plain text, no link — the form now sits
-                            directly after the Terms & Conditions. */}
-                        I have read and agree to the terms and conditions.
-                      </span>
-                    </label>
-                  )}
-
                   <button
                     className="nv-btn nv-btn--primary"
                     onClick={handleSign}
-                    disabled={signing || (hasTerms && !approved) || (offeredServices.length > 0 && !acceptedServices.length) || !sigName.trim() || (sigMethod === 'draw' && !sigDataUrl)}
+                    disabled={signing || (offeredServices.length > 0 && !acceptedServices.length) || !sigName.trim() || (sigMethod === 'draw' && !sigDataUrl)}
                     aria-busy={signing}
                   >
                     {signing ? 'Signing…' : 'Accept and sign'}

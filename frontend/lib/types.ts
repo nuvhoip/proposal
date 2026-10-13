@@ -207,6 +207,28 @@ export interface ServiceCategory {
   active:           boolean
   defaultScope:     ServiceCategoryScopeSection[]
   defaultFootnotes: ServiceCategoryFootnote[]
+  // Settings → Default fees (migration 0021): this line's mapped, active fee
+  // configurations in mapping order — pre-fills Pricing on new proposals.
+  // Absent/empty → the built-in catalog rows (serviceCatalog.initFeeRows).
+  defaultFees?:     DefaultFee[]
+}
+
+// One reusable default fee row from Settings → Default fees.
+export interface DefaultFee {
+  id:        string
+  name:      string
+  component: string
+  feeType:   FeeType
+  setupFee:  number | ''
+  fee:       number | ''
+  term:      number | ''
+  active:    boolean
+}
+
+// A fee configuration as managed in Settings → Default fees, with the
+// service lines it is mapped to (service_line_fee_configurations).
+export interface FeeConfiguration extends DefaultFee {
+  serviceCodes: string[]
 }
 
 export type SignatureMethod = 'type' | 'draw'

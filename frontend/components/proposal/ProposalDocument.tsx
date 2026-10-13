@@ -5,7 +5,7 @@ import { LETTERHEAD_LOGO_PX, pageHeaderVars, readA4Document } from '@/lib/a4Docu
 import { A4Pages } from './A4Pages'
 import { NuvhoLogo, NuvhoIconMark } from '@/components/ui/NuvhoLogo'
 import { feeTypeLabel } from '@/lib/serviceCatalog'
-import { parseCoverUrl, getVisibleSections, coverTitle, resolveSavedPagePlaceholders, documentFeeTotals, feeSumRows, FEE_SUM_RATE_NOTE } from '@/lib/documentModel'
+import { parseCoverUrl, getVisibleSections, coverTitle, resolveSavedPagePlaceholders } from '@/lib/documentModel'
 import type { ProposalDocModel } from '@/lib/documentModel'
 
 /* Read-only rendering of a normalized ProposalDocModel in the same letter +
@@ -361,22 +361,19 @@ export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBre
           coverNode={coverNode}
           headerVars={pageHeaderVars(model.hotelGroupName || model.hotelName, model.dateIssued)}
           frozen={!!model.clientSignedAt}
-          appendAtEnd={afterDocument ? (
-            <div className="doc-flow a4-running-header">{afterDocument}</div>
+          // Client Acceptance (once signed) and the public Accept & Sign form
+          // (while unsigned) both come after the last page — i.e. after
+          // Terms & Conditions — on screen and in the PDF alike.
+          appendAtEnd={(afterDocument || model.clientSignedAt) ? (
+            <div className="doc-flow a4-running-header">
+              <ClientAcceptance model={model} />
+              {afterDocument}
+            </div>
           ) : undefined}
-          insertBeforeTerms={(beforeAppendix || model.clientSignedAt) ? (
+          insertBeforeTerms={beforeAppendix ? (
             // a4-running-header: same hotel-group-name / month / divider
             // header as the A4 pages around it (globals.css).
-            <div className="doc-flow a4-running-header">
-              {beforeAppendix}
-              {model.clientSignedAt && <div className="doc-client-acceptance">
-                <h4>Client Acceptance</h4>
-                {model.clientSignatureMethod === 'draw' && model.clientSignatureDataUrl && <img src={model.clientSignatureDataUrl} alt="Client signature" className="doc-signature__img" />}
-                <strong>{model.clientSignatoryName}</strong> {model.clientSignatoryTitle}<br />
-                Signed {model.clientSignedAt}
-                <AcceptedServicesNote model={model} />
-              </div>}
-            </div>
+            <div className="doc-flow a4-running-header">{beforeAppendix}</div>
           ) : undefined}
         />
       </> : <>
@@ -605,25 +602,6 @@ export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBre
                     </React.Fragment>
                   ))}
                 </tbody>
-                {/* Fee totals. Each value cell carries a doc-fee-sum--* class so the
-                    A4 editor can recalculate it live when a fee is edited on
-                    the page (A4DocumentEditor.refreshFeeTotals). */}
-                {(() => {
-                  const totals = documentFeeTotals(model)
-                  return (
-                    <tfoot className="doc-fee-table__totals">
-                      {feeSumRows(totals, model.currencySymbol).map(r => (
-                        <tr key={r.cls} className={r.cls === 'doc-fee-sum--contract' ? 'doc-fee-table__grand' : undefined}>
-                          <td colSpan={3}>{r.label}</td>
-                          <td colSpan={2} className={r.cls}>{r.value}</td>
-                        </tr>
-                      ))}
-                      {totals.rateRows > 0 && (
-                        <tr className="doc-fee-table__note"><td colSpan={5}>{FEE_SUM_RATE_NOTE}</td></tr>
-                      )}
-                    </tfoot>
-                  )
-                })()}
               </table>
               {model.footnotes.length > 0 && (
                 <div className="doc-footnotes">
@@ -645,26 +623,6 @@ export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBre
           breakBefore: !!model.pageBreaks?.appendix,
           node: (
             <div className={`doc-section${breakClass('appendix')}`} id="doc-section-appendix">
-              {model.clientSignedAt && (
-                <div className="doc-client-acceptance">
-                  <h4 className="doc-subheading">Client Acceptance</h4>
-                  <div className="doc-signature__mark">
-                    {model.clientSignatureMethod === 'draw'
-                      ? (model.clientSignatureDataUrl
-                          ? <img src={model.clientSignatureDataUrl} alt="Client signature" className="doc-signature__img" />
-                          : <span className="doc-empty">Signature not captured</span>)
-                      : (model.clientSignatoryName
-                          ? <span className="doc-signature__script">{model.clientSignatoryName}</span>
-                          : <span className="doc-empty">Signature not captured</span>)}
-                  </div>
-                  <div className="doc-client-acceptance__meta">
-                    <strong>{model.clientSignatoryName || '[Client Name]'}</strong>
-                    {model.clientSignatoryTitle && <>, {model.clientSignatoryTitle}</>}<br />
-                    Signed {model.clientSignedAt}
-                    <AcceptedServicesNote model={model} />
-                  </div>
-                </div>
-              )}
               <SectionHeading text="Terms & Conditions" sectionKey="appendix" />
               {model.clauses.map(c => (
                 <div key={c.id} {...block(`block:clause:${c.id}`, c.heading || "Terms clause", ["clause", c.id])} className="doc-clause">
@@ -672,6 +630,7 @@ export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBre
                   <p {...field("clause", c.id, "text")}>{c.text}</p>
                 </div>
               ))}
+              <ClientAcceptance model={model} />
             </div>
           ),
         })
@@ -1022,10 +981,6 @@ export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBre
         :global(.doc-fee-table th) { text-align: left; background: var(--nv-blue-slate); color: white; padding: 6px 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
         :global(.doc-fee-table td) { padding: 6px 8px; border-bottom: 1px solid var(--nv-border-hair); }
         :global(.doc-fee-table__group td) { background: var(--nv-platinum); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
-        :global(.doc-fee-table__totals td) { font-weight: 600; color: var(--nv-blue-slate); }
-        :global(.doc-fee-table__totals td:last-child) { text-align: right; }
-        :global(.doc-fee-table__grand td) { font-weight: 700; border-top: 2px solid var(--nv-blue-slate); border-bottom: none; }
-        :global(.doc-fee-table__note td) { font-weight: 400; font-style: italic; font-size: 11px; color: var(--nv-text-muted); text-align: left !important; border-bottom: none; }
         :global(.doc-fee-total) { text-align: right; margin-top: 10px; font-weight: 700; color: var(--nv-blue-slate); }
         :global(.doc-footnotes) { margin-top: 12px; } /* NUVCL-132: item styling now comes from .doc-bullet, matching Scope of Works */
 
@@ -1037,11 +992,12 @@ export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBre
 
         :global(.doc-clause) { margin-bottom: 14px; }
 
-        /* NUVCL-131: client's captured signature, printed at the top of
-           Terms & Conditions once the proposal has been signed. */
+        /* NUVCL-131: client's captured signature — since 2026-10-13 at the
+           END of Terms & Conditions once the proposal has been signed. */
         :global(.doc-client-acceptance) {
-          margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--nv-border-hair);
+          margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--nv-border-hair);
         }
+        :global(.doc-flow > .doc-client-acceptance:first-child) { margin-top: 0; padding-top: 0; border-top: 0; }
         :global(.doc-client-acceptance__meta) { font-size: 11.5px; color: var(--nv-text-muted); line-height: 1.5; }
         :global(.doc-client-acceptance__services) { margin-top: 6px; font-size: 11.5px; color: var(--nv-text-body); line-height: 1.5; }
       `}</style>
@@ -1052,6 +1008,32 @@ export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBre
 /* NUVCL-154: which services the client accepted when signing. Only shown
    when they declined at least one — a full acceptance reads exactly as it
    always did. */
+/** The client's signature record. Rendered at the END of Terms &
+ *  Conditions (2026-10-13) in every path — preview, saved A4 pages, public
+ *  signing page and PDF — so the client signs after reading the terms. */
+function ClientAcceptance({ model }: { model: ProposalDocModel }) {
+  if (!model.clientSignedAt) return null
+  return <div className="doc-client-acceptance">
+    <h4 className="doc-subheading">Client Acceptance</h4>
+    <div className="doc-signature__mark">
+      {model.clientSignatureMethod === 'draw'
+        ? (model.clientSignatureDataUrl
+            // eslint-disable-next-line @next/next/no-img-element
+            ? <img src={model.clientSignatureDataUrl} alt="Client signature" className="doc-signature__img" />
+            : <span className="doc-empty">Signature not captured</span>)
+        : (model.clientSignatoryName
+            ? <span className="doc-signature__script">{model.clientSignatoryName}</span>
+            : <span className="doc-empty">Signature not captured</span>)}
+    </div>
+    <div className="doc-client-acceptance__meta">
+      <strong>{model.clientSignatoryName || '[Client Name]'}</strong>
+      {model.clientSignatoryTitle && <>, {model.clientSignatoryTitle}</>}<br />
+      Signed {model.clientSignedAt}
+      <AcceptedServicesNote model={model} />
+    </div>
+  </div>
+}
+
 function AcceptedServicesNote({ model }: { model: ProposalDocModel }) {
   if (!model.clientDeclinedServices?.length) return null
   return <div className="doc-client-acceptance__services">

@@ -307,6 +307,9 @@ function upgradeLetterSubject(root: HTMLElement) {
 }
 function upgradeLegacyFeeTables(root: HTMLElement) {
   root.querySelectorAll('.doc-fee-total').forEach(el => el.remove())
+  // 2026-10-13: calculated totals live only on Proposal Details now — drop
+  // the short-lived tfoot total rows from any page saved with them.
+  root.querySelectorAll('tfoot.doc-fee-table__totals').forEach(el => el.remove())
   root.querySelectorAll('table.doc-fee-table').forEach(table => {
     const headRow = table.querySelector('thead tr')
     if (!headRow) return

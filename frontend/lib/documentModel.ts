@@ -8,7 +8,7 @@ import { readA4Document } from './a4Document'
 // serve both places instead of duplicating the document layout twice.
 
 import type { ProposalDraft, ScopeItem, FeeRow, PricingFootnote, TermsClause } from './types'
-import { getServiceLabel, currencySymbol, computeFeeTotals, sumFeeTotals, type FeeTotals } from './serviceCatalog'
+import { getServiceLabel, currencySymbol } from './serviceCatalog'
 
 export const ROLE_LABELS: Record<string, string> = {
   exec: 'Executive', bd: 'Business Development', account_manager: 'Account Manager',
@@ -334,30 +334,6 @@ export function downloadBlob(blob: Blob, filename: string): void {
   a.click()
   a.remove()
   URL.revokeObjectURL(url)
-}
-
-/** Fee Structure totals for the whole document — every service the client
- *  hasn't declined (clientDeclinedServices holds labels). Shared by the
- *  on-screen/PDF table (ProposalDocument), the Word export and the A4
- *  editor's live recalculation so all three always agree. */
-export function documentFeeTotals(model: Pick<ProposalDocModel, 'services' | 'clientDeclinedServices'>): FeeTotals {
-  const declined = new Set(model.clientDeclinedServices || [])
-  return sumFeeTotals(model.services.filter(s => !declined.has(s.label)).map(s => computeFeeTotals(s.feeRows)))
-}
-export function formatMoney(symbol: string, amount: number): string {
-  return `${symbol}${amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
-}
-/** Text of the Fee Structure total rows, keyed by the class the A4 editor
- *  uses to find and refresh each value cell. Rows with nothing to show are
- *  omitted (the contract total always shows) unless includeEmpty — the A4
- *  editor needs every value so a row already on the page can drop to zero. */
-export const FEE_SUM_RATE_NOTE = 'Day rates, hourly rates and commissions are charged as incurred and are not included in the totals above.'
-export function feeSumRows(t: FeeTotals, symbol: string, includeEmpty = false): { cls: string; label: string; value: string }[] {
-  const rows: { cls: string; label: string; value: string }[] = []
-  if (t.monthly || includeEmpty) rows.push({ cls: 'doc-fee-sum--monthly', label: 'Total monthly fees', value: `${formatMoney(symbol, t.monthly)} / month` })
-  if (t.setup + t.oneOff || includeEmpty) rows.push({ cls: 'doc-fee-sum--oneoff', label: 'Total setup & one-off fees', value: formatMoney(symbol, t.setup + t.oneOff) })
-  rows.push({ cls: 'doc-fee-sum--contract', label: 'Total contract value', value: formatMoney(symbol, t.contract) })
-  return rows
 }
 
 /** Fingerprint of the wizard data that the A4 pages are generated from —

@@ -32,6 +32,8 @@ import {
   getRegionSettings, getEntitySettings, updateEntitySettings,
   getServiceCategories, createServiceCategory, updateServiceCategory,
   deleteServiceCategory, reorderServiceCategories,
+  listFeeConfigurations, createFeeConfiguration, updateFeeConfiguration,
+  deleteFeeConfiguration, reorderServiceLineFees,
 } from './routes/settings'
 import {
   handleHotelGroupTypeahead,
@@ -349,6 +351,26 @@ async function route(
   }
   if (serviceCategoryMatch && method === 'DELETE') {
     return deleteServiceCategory(serviceCategoryMatch[1], env, session)
+  }
+
+  // Default fee configuration (Settings → Default fees) — the fee library
+  // plus its service-line mapping table (migration 0021).
+  if (path === '/settings/fee-configurations' && method === 'GET') {
+    return listFeeConfigurations(env, session)
+  }
+  if (path === '/settings/fee-configurations' && method === 'POST') {
+    return createFeeConfiguration(request, env, session)
+  }
+  const feeConfigMatch = path.match(/^\/settings\/fee-configurations\/([A-Za-z0-9_-]+)$/)
+  if (feeConfigMatch && method === 'PUT') {
+    return updateFeeConfiguration(feeConfigMatch[1], request, env, session)
+  }
+  if (feeConfigMatch && method === 'DELETE') {
+    return deleteFeeConfiguration(feeConfigMatch[1], env, session)
+  }
+  const serviceLineFeesMatch = path.match(/^\/settings\/service-categories\/([A-Za-z0-9_-]+)\/fee-configurations\/order$/)
+  if (serviceLineFeesMatch && method === 'PUT') {
+    return reorderServiceLineFees(serviceLineFeesMatch[1], request, env, session)
   }
 
   // Proposals list

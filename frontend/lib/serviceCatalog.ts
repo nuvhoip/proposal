@@ -5,7 +5,7 @@
 // Scope / Pricing / Terms steps.
 
 import type {
-  FeeRow, FeeType, PricingFootnote, ProposalTerms, Region, ScopeItem,
+  DefaultFee, FeeRow, FeeType, PricingFootnote, ProposalTerms, Region, ScopeItem,
   ServiceCategoryFootnote, ServiceCategoryScopeSection, ServiceCode, TermsClause,
 } from './types'
 
@@ -268,7 +268,20 @@ export function initScopeItems(code: ServiceCode, liveScope?: ServiceCategorySco
   )
 }
 
-export function initFeeRows(code: ServiceCode): FeeRow[] {
+// `liveFees` — the service line's mapped default fees from Settings →
+// Default fees (ServiceCategory.defaultFees). When present they replace the
+// hardcoded SERVICE_CATALOG rows, same priority rule as liveScope/liveFootnotes.
+export function initFeeRows(code: ServiceCode, liveFees?: DefaultFee[]): FeeRow[] {
+  if (liveFees && liveFees.length > 0) {
+    return liveFees.map(f => ({
+      id:        generateId('fee'),
+      component: f.component,
+      feeType:   f.feeType,
+      setupFee:  f.setupFee === '' || f.setupFee == null ? '' : Number(f.setupFee),
+      fee:       f.fee === '' || f.fee == null ? '' : Number(f.fee),
+      term:      f.term === '' || f.term == null ? '' : Number(f.term),
+    }))
+  }
   const entry = getServiceEntry(code)
   return entry.defaultPricingRows.map(row => ({
     id:        generateId('fee'),

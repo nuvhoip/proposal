@@ -1,4 +1,5 @@
-import type { Env, EntitySettingsRow, ServiceCategoryRow, Session } from '../types'
+import type { Env, EntitySettingsRow, FeeConfigurationRow, ServiceCategoryRow, Session } from '../types'
+import { ulid } from '../lib/ulid'
 import { ok, err } from '../lib/response'
 import { listEntities, RegistryError } from '../lib/registry'
 
@@ -143,6 +144,25 @@ export async function getServiceCategories(env: Env, session: Session): Promise<
     'SELECT * FROM service_categories ORDER BY sort_order, label'
   ).all<ServiceCategoryRow>()
 
+  // Default fee rows per service line, from the Settings → Default fees
+  // mapping (migration 0021), in mapping order. Tolerates the migration not
+  // having run yet — every service line then just has no mapped defaults and
+  // the wizard falls back to its built-in catalog rows.
+  const feesByCode = new Map<string, ReturnType<typeof feeConfigDto>[]>()
+  try {
+    const { results: mapped } = await env.DB.prepare(`
+      SELECT m.service_code, f.* FROM service_line_fee_configurations m
+      JOIN fee_configurations f ON f.id = m.fee_configuration_id
+      WHERE f.active = 1
+      ORDER BY m.service_code, m.sort_order, f.name
+    `).all<FeeConfigurationRow & { service_code: string }>()
+    for (const row of mapped) {
+      const list = feesByCode.get(row.service_code) || []
+      list.push(feeConfigDto(row))
+      feesByCode.set(row.service_code, list)
+    }
+  } catch { /* migration 0021 not applied yet */ }
+
   const data = results.map(r => ({
     code:             r.code,
     label:            r.label,
@@ -151,6 +171,7 @@ export async function getServiceCategories(env: Env, session: Session): Promise<
     active:           !!r.active,
     defaultScope:     JSON.parse(r.default_scope_json || '[]'),
     defaultFootnotes: JSON.parse(r.default_footnotes_json || '[]'),
+    defaultFees:      feesByCode.get(r.code) || [],
   }))
 
   return ok(data)
@@ -250,5 +271,172 @@ export async function reorderServiceCategories(request: Request, env: Env, sessi
   )
   await env.DB.batch(stmts)
 
+  return ok({ reordered: true })
+}
+
+/* ─── Default fee configuration (Settings → Default fees, migration 0021) ──
+ * A library of reusable default fee rows (fee_configurations) linked to
+ * service lines through the service_line_fee_configurations mapping table
+ * (many-to-many, ordered per service line). New proposals pre-fill a service
+ * line's Pricing rows from its mapped, active configurations. Templates only:
+ * editing or deleting one never touches an existing proposal's fee rows.
+ */
+function feeConfigDto(r: FeeConfigurationRow) {
+  return {
+    id:        r.id,
+    name:      r.name,
+    component: r.component,
+    feeType:   r.fee_type,
+    setupFee:  r.setup_fee ?? '',
+    fee:       r.fee ?? '',
+    term:      r.term ?? '',
+    active:    !!r.active,
+  }
+}
+
+type FeeConfigBody = {
+  name?: string; component?: string; feeType?: string
+  setupFee?: number | string | null; fee?: number | string | null; term?: number | string | null
+  active?: boolean; serviceCodes?: string[]
+}
+
+/** '' / null / undefined → NULL; anything else must be a finite number ≥ 0. */
+function amount(value: unknown, field: string): number | null {
+  if (value === '' || value === null || value === undefined) return null
+  const n = Number(value)
+  if (!Number.isFinite(n) || n < 0) throw new Error(`${field} must be a number of 0 or more.`)
+  return n
+}
+
+async function validServiceCodes(env: Env, codes: unknown): Promise<string[]> {
+  if (!Array.isArray(codes)) return []
+  const unique = Array.from(new Set(codes.filter((c): c is string => typeof c === 'string' && c.trim() !== '')))
+  if (!unique.length) return []
+  const { results } = await env.DB.prepare(
+    `SELECT code FROM service_categories WHERE code IN (${unique.map(() => '?').join(',')})`
+  ).bind(...unique).all<{ code: string }>()
+  const known = new Set(results.map(r => r.code))
+  const missing = unique.filter(c => !known.has(c))
+  if (missing.length) throw new Error(`Unknown service line(s): ${missing.join(', ')}`)
+  return unique
+}
+
+/** Replace a configuration's service-line links. Lines it was already on keep
+ *  their position; newly linked lines get it appended at the end. */
+async function setFeeConfigMapping(env: Env, id: string, codes: string[]) {
+  const { results: current } = await env.DB.prepare(
+    'SELECT service_code FROM service_line_fee_configurations WHERE fee_configuration_id = ?'
+  ).bind(id).all<{ service_code: string }>()
+  const have = new Set(current.map(r => r.service_code))
+  const want = new Set(codes)
+  const stmts: D1PreparedStatement[] = []
+  for (const code of have) if (!want.has(code)) {
+    stmts.push(env.DB.prepare('DELETE FROM service_line_fee_configurations WHERE service_code = ? AND fee_configuration_id = ?').bind(code, id))
+  }
+  for (const code of want) if (!have.has(code)) {
+    stmts.push(env.DB.prepare(`
+      INSERT INTO service_line_fee_configurations (service_code, fee_configuration_id, sort_order)
+      VALUES (?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM service_line_fee_configurations WHERE service_code = ?))
+    `).bind(code, id, code))
+  }
+  if (stmts.length) await env.DB.batch(stmts)
+}
+
+async function feeConfigWithMapping(env: Env, id: string) {
+  const row = await env.DB.prepare('SELECT * FROM fee_configurations WHERE id = ?').bind(id).first<FeeConfigurationRow>()
+  if (!row) return null
+  const { results } = await env.DB.prepare(
+    'SELECT service_code FROM service_line_fee_configurations WHERE fee_configuration_id = ? ORDER BY service_code'
+  ).bind(id).all<{ service_code: string }>()
+  return { ...feeConfigDto(row), serviceCodes: results.map(r => r.service_code) }
+}
+
+export async function listFeeConfigurations(env: Env, session: Session): Promise<Response> {
+  const { results } = await env.DB.prepare('SELECT * FROM fee_configurations ORDER BY name').all<FeeConfigurationRow>()
+  const { results: links } = await env.DB.prepare(
+    'SELECT service_code, fee_configuration_id, sort_order FROM service_line_fee_configurations ORDER BY service_code, sort_order'
+  ).all<{ service_code: string; fee_configuration_id: string; sort_order: number }>()
+  const byConfig = new Map<string, string[]>()
+  const byService: Record<string, string[]> = {}
+  for (const l of links) {
+    byConfig.set(l.fee_configuration_id, [...(byConfig.get(l.fee_configuration_id) || []), l.service_code])
+    ;(byService[l.service_code] ||= []).push(l.fee_configuration_id)
+  }
+  return ok({
+    configurations: results.map(r => ({ ...feeConfigDto(r), serviceCodes: byConfig.get(r.id) || [] })),
+    // Ordered configuration ids per service line — the mapping table as-is.
+    mapping: byService,
+  })
+}
+
+export async function createFeeConfiguration(request: Request, env: Env, session: Session): Promise<Response> {
+  const body = await request.json() as FeeConfigBody
+  const name = (body.name ?? '').trim() || (body.component ?? '').trim()
+  if (!name) return err('Name or component is required.')
+  let setupFee: number | null, fee: number | null, term: number | null, codes: string[]
+  try {
+    setupFee = amount(body.setupFee, 'Setup fee'); fee = amount(body.fee, 'Fee'); term = amount(body.term, 'Terms')
+    codes = await validServiceCodes(env, body.serviceCodes)
+  } catch (e) { return err(e instanceof Error ? e.message : 'Invalid fee configuration.') }
+  const id = `feecfg_${ulid()}`
+  await env.DB.prepare(`
+    INSERT INTO fee_configurations (id, name, component, fee_type, setup_fee, fee, term, active, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+  `).bind(id, name, (body.component ?? '').trim(), (body.feeType ?? 'monthly').trim() || 'monthly',
+    setupFee, fee, term === null ? null : Math.round(term), body.active === false ? 0 : 1).run()
+  await setFeeConfigMapping(env, id, codes)
+  return ok(await feeConfigWithMapping(env, id), 201)
+}
+
+export async function updateFeeConfiguration(id: string, request: Request, env: Env, session: Session): Promise<Response> {
+  const existing = await env.DB.prepare('SELECT * FROM fee_configurations WHERE id = ?').bind(id).first<FeeConfigurationRow>()
+  if (!existing) return err('Unknown fee configuration.', 404)
+  const body = await request.json() as FeeConfigBody
+  let setupFee = existing.setup_fee, fee = existing.fee, term = existing.term
+  let codes: string[] | null = null
+  try {
+    if ('setupFee' in body) setupFee = amount(body.setupFee, 'Setup fee')
+    if ('fee' in body) fee = amount(body.fee, 'Fee')
+    if ('term' in body) { const t = amount(body.term, 'Terms'); term = t === null ? null : Math.round(t) }
+    if (body.serviceCodes !== undefined) codes = await validServiceCodes(env, body.serviceCodes)
+  } catch (e) { return err(e instanceof Error ? e.message : 'Invalid fee configuration.') }
+  const name = body.name !== undefined ? body.name.trim() : existing.name
+  if (!name) return err('Name is required.')
+  await env.DB.prepare(`
+    UPDATE fee_configurations
+    SET name = ?, component = ?, fee_type = ?, setup_fee = ?, fee = ?, term = ?, active = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `).bind(
+    name,
+    body.component !== undefined ? body.component.trim() : existing.component,
+    body.feeType !== undefined ? (body.feeType.trim() || 'monthly') : existing.fee_type,
+    setupFee, fee, term,
+    body.active !== undefined ? (body.active ? 1 : 0) : existing.active,
+    id,
+  ).run()
+  if (codes) await setFeeConfigMapping(env, id, codes)
+  return ok(await feeConfigWithMapping(env, id))
+}
+
+export async function deleteFeeConfiguration(id: string, env: Env, session: Session): Promise<Response> {
+  const existing = await env.DB.prepare('SELECT id FROM fee_configurations WHERE id = ?').bind(id).first()
+  if (!existing) return err('Unknown fee configuration.', 404)
+  // Mapping rows go explicitly too, in case foreign-key cascades are off.
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM service_line_fee_configurations WHERE fee_configuration_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM fee_configurations WHERE id = ?').bind(id),
+  ])
+  return ok({ deleted: true })
+}
+
+/** Reorder one service line's mapped default fees — body { ids: [...] } in
+ *  the new order (ids not currently mapped to that line are ignored). */
+export async function reorderServiceLineFees(code: string, request: Request, env: Env, session: Session): Promise<Response> {
+  const body = await request.json() as { ids?: string[] }
+  const ids = Array.isArray(body.ids) ? body.ids.filter(i => typeof i === 'string') : []
+  if (!ids.length) return err('ids array is required.')
+  await env.DB.batch(ids.map((id, i) => env.DB.prepare(
+    'UPDATE service_line_fee_configurations SET sort_order = ? WHERE service_code = ? AND fee_configuration_id = ?'
+  ).bind(i + 1, code, id)))
   return ok({ reordered: true })
 }

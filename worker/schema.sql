@@ -488,3 +488,53 @@ VALUES
   ('staff_jude', 'Jude Bolger', 'jude.bolger@nuvho.com', 'Director',        'bd',  1, 1, 'Australia/Sydney'),
   ('staff_emma', 'Emma Clarke', 'emma.clarke@nuvho.com', 'BD Manager',      'bd',  1, 0, 'Australia/Sydney'),
   ('staff_ryan', 'Ryan Nguyen', 'ryan.nguyen@nuvho.com', 'Revenue Manager', 'ops', 0, 0, 'Australia/Sydney');
+
+-- ── Default fee configuration (migration 0021) ───────────────
+-- Settings → Default fees library + service-line mapping table; see
+-- migrations/0021_fee_configurations.sql for the full rationale.
+CREATE TABLE IF NOT EXISTS fee_configurations (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,                      -- label in Settings only
+  component   TEXT NOT NULL DEFAULT '',           -- "Component" column in the document
+  fee_type    TEXT NOT NULL DEFAULT 'monthly',    -- known code (monthly/setup/fixed/…) or free text
+  setup_fee   REAL,                               -- NULL = none
+  fee         REAL,                               -- NULL = left blank for staff to fill in
+  term        INTEGER,                            -- months; NULL = none
+  active      INTEGER NOT NULL DEFAULT 1,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS service_line_fee_configurations (
+  service_code         TEXT NOT NULL REFERENCES service_categories(code) ON DELETE CASCADE,
+  fee_configuration_id TEXT NOT NULL REFERENCES fee_configurations(id) ON DELETE CASCADE,
+  sort_order           INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (service_code, fee_configuration_id)
+);
+CREATE INDEX IF NOT EXISTS idx_slfc_service ON service_line_fee_configurations(service_code, sort_order);
+CREATE INDEX IF NOT EXISTS idx_slfc_fee     ON service_line_fee_configurations(fee_configuration_id);
+
+-- Seed: the built-in catalog defaults (frontend/lib/serviceCatalog.ts), so
+-- new proposals pre-fill exactly as before until staff change them. One
+-- shared "Setup Fee" row is mapped to both RM and CR.
+INSERT OR IGNORE INTO fee_configurations (id, name, component, fee_type, setup_fee, fee, term) VALUES
+  ('feecfg_setup_1500',        'Setup Fee — $1,500',            'Setup Fee',            'setup',   NULL, 1500, NULL),
+  ('feecfg_rm_monthly',        'RM Monthly Management',         'Monthly Management',   'monthly', NULL, 7499, 12),
+  ('feecfg_sm_setup_outlet',   'SM Setup Fee per Outlet',       'Setup Fee per Outlet', 'setup',   NULL, 1500, NULL),
+  ('feecfg_sm_retainer',       'SM Monthly Retainer',           'Monthly Retainer',     'monthly', NULL, 8500, 6),
+  ('feecfg_cr_monthly',        'CR Monthly Fee',                'Monthly Fee',          'monthly', NULL, 5999, 12),
+  ('feecfg_cr_after_hours',    'CR After Hours (optional)',     'After Hours',          'monthly', NULL, NULL, 12),
+  ('feecfg_mk_retainer',       'MK Monthly Retainer',           'Monthly Retainer',     'monthly', NULL, NULL, NULL);
+
+INSERT OR IGNORE INTO service_line_fee_configurations (service_code, fee_configuration_id, sort_order)
+SELECT m.code, m.fee_id, m.ord FROM (
+  SELECT 'RM' AS code, 'feecfg_setup_1500'      AS fee_id, 1 AS ord UNION ALL
+  SELECT 'RM',         'feecfg_rm_monthly',               2         UNION ALL
+  SELECT 'SM',         'feecfg_sm_setup_outlet',          1         UNION ALL
+  SELECT 'SM',         'feecfg_sm_retainer',              2         UNION ALL
+  SELECT 'CR',         'feecfg_setup_1500',               1         UNION ALL
+  SELECT 'CR',         'feecfg_cr_monthly',               2         UNION ALL
+  SELECT 'CR',         'feecfg_cr_after_hours',           3         UNION ALL
+  SELECT 'MK',         'feecfg_mk_retainer',              1
+) AS m
+WHERE EXISTS (SELECT 1 FROM service_categories sc WHERE sc.code = m.code);

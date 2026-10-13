@@ -1154,9 +1154,15 @@ export async function getPublicProposal(token: string, request: Request, env: En
   ).bind(proposal.id).first<{ hgid: string }>()
   const hotelGroupName = await resolveHotelGroupName(env, proposal, publicLink?.hgid ?? null)
 
+  // Engagement IDs (one per service line) — used only to name the client's
+  // downloaded PDF ("ENG-… - Client - Proposal.pdf", 2026-10-13).
+  const { results: eidRows } = await env.DB.prepare(
+    'SELECT eid FROM proposal_registry_links WHERE proposal_id = ? AND eid IS NOT NULL ORDER BY service_line'
+  ).bind(proposal.id).all<{ eid: string }>()
+
   // Strip internal fields from public response
   const { signing_token: _, ...safe } = proposal
-  return ok({ ...safe, services: servicesWithChildren, sender, terms, hotel_group_name: hotelGroupName })
+  return ok({ ...safe, services: servicesWithChildren, sender, terms, hotel_group_name: hotelGroupName, engagement_ids: eidRows.map(r => r.eid) })
 }
 
 /* ─── Public: sign proposal ────────────────────────────────── */

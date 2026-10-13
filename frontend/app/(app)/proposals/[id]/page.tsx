@@ -240,13 +240,27 @@ export default function ProposalDetailPage() {
   const canDownloadPdf = proposal.status === 'signed' || proposal.status === 'fully_signed'
   const docModel  = buildDocModelFromProposal(proposal)
 
-  const handleDownloadPdf = () => {
+  // 2026-10-13: the PDF is generated from the document preview and
+  // downloaded directly (lib/exportPdf.ts) — no print dialog. The preview is
+  // revealed first because the PDF is rendered from it.
+  const handleDownloadPdf = async () => {
     setShowDoc(true)
     setExporting('pdf')
-    // Print-to-PDF: @media print (globals.css) hides everything except
-    // #proposal-print-root, which <ProposalDocument> renders into.
-    window.setTimeout(() => window.print(), 50)
-    window.setTimeout(() => setExporting(null), 600)
+    try {
+      await new Promise(resolve => window.setTimeout(resolve, 50))
+      const root = document.getElementById('proposal-print-root')
+      if (!root) throw new Error('The document preview is not available.')
+      const { exportDocumentPdf, proposalPdfFileName } = await import('@/lib/exportPdf')
+      await exportDocumentPdf(root, proposalPdfFileName({
+        engagementIds: (proposal.registryLinks || []).map((l: any) => l.eid),
+        proposalId:    proposal.prop_id || proposal.np_id,
+        client:        proposal.hotel_group_name || proposal.hotel_name,
+      }))
+    } catch (e: any) {
+      alert('Could not create the PDF: ' + (e?.message || e))
+    } finally {
+      setExporting(null)
+    }
   }
 
   return (

@@ -6,7 +6,7 @@ require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileMo
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true },
 }).outputText, filename)
 const { feeKind, computeFeeTotals, deriveFeeSummary } = require('../lib/serviceCatalog.ts')
-const { documentSourceKey, documentFeeTotals, feeSumRows } = require('../lib/documentModel.ts')
+const { documentSourceKey } = require('../lib/documentModel.ts')
 
 const row = (feeType, fee, extra = {}) => ({ id: Math.random().toString(36), component: 'x', feeType, fee, term: '', setupFee: '', ...extra })
 
@@ -35,19 +35,6 @@ test('totals: monthly × per-row term, setup column, one-offs, rates excluded', 
   assert.deepEqual(deriveFeeSummary([row('Monthly Fee', 1000, { term: 12 })]), { monthlyFee: 1000, setupFee: 0, term: 12 })
 })
 
-test('document totals skip declined services and format rows', () => {
-  const model = { currencySymbol: '€', clientDeclinedServices: ['Marketing'], services: [
-    { code: 'RM', label: 'Revenue Management', feeRows: [row('monthly', 1500, { term: 12 })] },
-    { code: 'MK', label: 'Marketing', feeRows: [row('monthly', 999, { term: 12 })] },
-  ] }
-  const t = documentFeeTotals(model)
-  assert.equal(t.contract, 18000)
-  const rows = feeSumRows(t, '€')
-  assert.deepEqual(rows.map(r => r.cls), ['doc-fee-sum--monthly', 'doc-fee-sum--contract'])
-  assert.equal(rows[1].value, '€18,000')
-  assert.equal(feeSumRows(t, '€', true).length, 3)
-})
-
 test('source key ignores save/reload normalisation but sees real changes', () => {
   const draft = {
     hotel: { name: 'Hotel A', hotelGroupName: 'G', contactName: 'C', contactTitle: '', contactEmail: 'a@b', contactPhone: '' },
@@ -66,4 +53,18 @@ test('source key ignores save/reload normalisation but sees real changes', () =>
   assert.notEqual(documentSourceKey(changed), documentSourceKey(draft))
   const reordered = JSON.parse(JSON.stringify(draft)); reordered.terms.clauses[0].enabled = false
   assert.notEqual(documentSourceKey(reordered), documentSourceKey(draft))
+})
+
+test('Settings → Default fees mapping pre-fills Pricing; built-in rows are the fallback', () => {
+  const { initFeeRows } = require('../lib/serviceCatalog.ts')
+  const live = [
+    { id: 'feecfg_a', name: 'Setup', component: 'Setup Fee', feeType: 'setup', setupFee: '', fee: 1500, term: '', active: true },
+    { id: 'feecfg_b', name: 'RM', component: 'Monthly Management', feeType: 'monthly', setupFee: 250, fee: '', term: 12, active: true },
+  ]
+  const rows = initFeeRows('RM', live)
+  assert.deepEqual(rows.map(r => [r.component, r.feeType, r.setupFee, r.fee, r.term]), [
+    ['Setup Fee', 'setup', '', 1500, ''], ['Monthly Management', 'monthly', 250, '', 12],
+  ])
+  assert.notEqual(rows[0].id, rows[1].id)
+  assert.ok(initFeeRows('RM', []).length > 0, 'falls back to the catalog when nothing is mapped')
 })

@@ -710,7 +710,9 @@ input[type="checkbox"]:disabled:checked { background: rgba(195,202,206,0.5); }
    inside the content. */
 .a4-sheet--body {
   position: relative;
-  background: white url(/logo-primary.svg) no-repeat right 14mm bottom 5mm / auto 6mm;
+  /* Corner logo 6mm → 9mm tall (+50%, 2026-10-13), sitting 2mm from the
+     bottom edge so its top stays (almost) inside the bottom padding. */
+  background: white url(/logo-primary.svg) no-repeat right 14mm bottom 2mm / auto 9mm;
 }
 .a4-sheet--body::before,
 .a4-sheet--body::after,
@@ -748,7 +750,7 @@ input[type="checkbox"]:disabled:checked { background: rgba(195,202,206,0.5); }
 .a4-sheet--body:not(:has(.doc-letterhead)) {
   padding-top: 19.9mm;
   padding-bottom: 10.1mm;
-  background-position: right 14mm bottom 4mm;
+  background-position: right 14mm bottom 2mm;
 }
 /* "Accept this Document" (and, once signed, Client Acceptance) — rendered
    between the A4 pages on the public signing page as a .doc-flow card. It
@@ -759,10 +761,10 @@ input[type="checkbox"]:disabled:checked { background: rgba(195,202,206,0.5); }
 #proposal-print-root .doc-flow.a4-running-header {
   position: relative;
   padding-top: 19.9mm;
-  /* Same small corner logo as the A4 body pages (right 14mm, bottom 4mm,
-     6mm tall), with bottom padding that keeps the last line clear of it. */
+  /* Same corner logo as the A4 body pages (right 14mm, bottom 2mm,
+     9mm tall), with bottom padding that keeps the last line clear of it. */
   padding-bottom: 14mm;
-  background: white url(/logo-primary.svg) no-repeat right 14mm bottom 4mm / auto 6mm;
+  background: white url(/logo-primary.svg) no-repeat right 14mm bottom 2mm / auto 9mm;
 }
 /* The header already draws the divider — drop the sign form's own top rule
    and spacing so there aren't two lines. */

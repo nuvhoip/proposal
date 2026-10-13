@@ -218,6 +218,20 @@ export interface ServiceCategoryRow {
   updated_at:             string
 }
 
+// Migration 0021 — Settings → Default fees library + service-line mapping.
+export interface FeeConfigurationRow {
+  id:         string
+  name:       string
+  component:  string
+  fee_type:   string
+  setup_fee:  number | null
+  fee:        number | null
+  term:       number | null
+  active:     number
+  created_at: string
+  updated_at: string
+}
+
 export interface StaffRow {
   id:               string
   name:             string
