@@ -44,15 +44,22 @@ INSERT OR IGNORE INTO fee_configurations (id, name, component, fee_type, setup_f
   ('feecfg_cr_after_hours',    'CR After Hours (optional)',     'After Hours',          'monthly', NULL, NULL, 12),
   ('feecfg_mk_retainer',       'MK Monthly Retainer',           'Monthly Retainer',     'monthly', NULL, NULL, NULL);
 
+-- One statement per link (D1 rejects a long UNION ALL: "too many terms in
+-- compound SELECT"). Each only inserts if that service line exists, so the
+-- file can be re-run safely.
 INSERT OR IGNORE INTO service_line_fee_configurations (service_code, fee_configuration_id, sort_order)
-SELECT m.code, m.fee_id, m.ord FROM (
-  SELECT 'RM' AS code, 'feecfg_setup_1500'      AS fee_id, 1 AS ord UNION ALL
-  SELECT 'RM',         'feecfg_rm_monthly',               2         UNION ALL
-  SELECT 'SM',         'feecfg_sm_setup_outlet',          1         UNION ALL
-  SELECT 'SM',         'feecfg_sm_retainer',              2         UNION ALL
-  SELECT 'CR',         'feecfg_setup_1500',               1         UNION ALL
-  SELECT 'CR',         'feecfg_cr_monthly',               2         UNION ALL
-  SELECT 'CR',         'feecfg_cr_after_hours',           3         UNION ALL
-  SELECT 'MK',         'feecfg_mk_retainer',              1
-) AS m
-WHERE EXISTS (SELECT 1 FROM service_categories sc WHERE sc.code = m.code);
+  SELECT 'RM', 'feecfg_setup_1500', 1 WHERE EXISTS (SELECT 1 FROM service_categories WHERE code = 'RM');
+INSERT OR IGNORE INTO service_line_fee_configurations (service_code, fee_configuration_id, sort_order)
+  SELECT 'RM', 'feecfg_rm_monthly', 2 WHERE EXISTS (SELECT 1 FROM service_categories WHERE code = 'RM');
+INSERT OR IGNORE INTO service_line_fee_configurations (service_code, fee_configuration_id, sort_order)
+  SELECT 'SM', 'feecfg_sm_setup_outlet', 1 WHERE EXISTS (SELECT 1 FROM service_categories WHERE code = 'SM');
+INSERT OR IGNORE INTO service_line_fee_configurations (service_code, fee_configuration_id, sort_order)
+  SELECT 'SM', 'feecfg_sm_retainer', 2 WHERE EXISTS (SELECT 1 FROM service_categories WHERE code = 'SM');
+INSERT OR IGNORE INTO service_line_fee_configurations (service_code, fee_configuration_id, sort_order)
+  SELECT 'CR', 'feecfg_setup_1500', 1 WHERE EXISTS (SELECT 1 FROM service_categories WHERE code = 'CR');
+INSERT OR IGNORE INTO service_line_fee_configurations (service_code, fee_configuration_id, sort_order)
+  SELECT 'CR', 'feecfg_cr_monthly', 2 WHERE EXISTS (SELECT 1 FROM service_categories WHERE code = 'CR');
+INSERT OR IGNORE INTO service_line_fee_configurations (service_code, fee_configuration_id, sort_order)
+  SELECT 'CR', 'feecfg_cr_after_hours', 3 WHERE EXISTS (SELECT 1 FROM service_categories WHERE code = 'CR');
+INSERT OR IGNORE INTO service_line_fee_configurations (service_code, fee_configuration_id, sort_order)
+  SELECT 'MK', 'feecfg_mk_retainer', 1 WHERE EXISTS (SELECT 1 FROM service_categories WHERE code = 'MK');
