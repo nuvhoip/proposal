@@ -181,7 +181,7 @@ export default function PublicProposalPage() {
                 <div className="public-sign-form">
                   <h2 className="public-section-title">Accept this Document</h2>
                   <p style={{ fontSize: 14, color: 'var(--nv-text-muted)', marginBottom: 20 }}>
-                    By signing below, you acknowledge and accept the terms and services outlined in this document.
+                    By signing below, you acknowledge and accept the terms outlined in this document.
                   </p>
 
                   <div className="sign-fields">
@@ -255,7 +255,7 @@ export default function PublicProposalPage() {
                   )}
 
                   <button
-                    className="nv-btn nv-btn--primary"
+                    className="nv-btn nv-btn--primary public-sign-submit"
                     onClick={handleSign}
                     disabled={signing || (offeredServices.length > 0 && !acceptedServices.length) || !sigName.trim() || (sigMethod === 'draw' && !sigDataUrl)}
                     aria-busy={signing}
@@ -453,6 +453,10 @@ export default function PublicProposalPage() {
         .service-accept legend { padding: 0 6px; margin-left: -6px; }
         .service-accept__item { margin: 10px 0; }
         .service-accept__hint { font-size: 12px; color: var(--nv-text-muted); margin: 0 0 10px; }
+
+        /* Breathing room between the last form block (Scope you accept /
+           signature capture) and the Accept and sign button. */
+        .public-sign-submit { margin-top: 24px; }
 
         .public-signed, .public-expired {
           text-align: center;
