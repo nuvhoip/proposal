@@ -56,7 +56,7 @@ const EMPTY_DRAFT: ProposalDraft = {
   },
   regionSettings: { address: '', companyName: '', aboutNuvho: '', footerText: '', currency: REGION_META.au.currency },
   services:     [],
-  sender:       { staffId: '', accountManagerId: '', message: '' },
+  sender:       { staffId: '', accountManagerId: '', message: '', cc: '', bcc: '' },
   cover:        { coverUrl: '' },
   terms:        initTerms('au'),
   preview:      { recipientEmail: '' },
@@ -375,6 +375,8 @@ export default function NewProposalPage() {
             staffId: p.sender_staff_id || '',
             accountManagerId: p.account_manager_stf_id || '',
             message: p.sender_message || '',
+            cc: p.sender_cc || '',
+            bcc: p.sender_bcc || '',
           },
           cover:   { coverUrl: p.cover_url || '' },
           // Spread over initTerms() defaults, not just `p.terms || initTerms(...)`,
@@ -583,6 +585,8 @@ export default function NewProposalPage() {
           sender_staff_id:  draft.sender.staffId,
           account_manager_stf_id: draft.sender.accountManagerId || null,
           sender_message:   draft.sender.message,
+          sender_cc:        normaliseEmailList(draft.sender.cc) || null,
+          sender_bcc:       normaliseEmailList(draft.sender.bcc) || null,
           cover_url:        draft.cover.coverUrl,
           hubspot_deal_id:  draft.hotel.hubspotDealId,
           services:         servicesForSave,
@@ -601,7 +605,16 @@ export default function NewProposalPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ ...draft, services: servicesForSave, cover: coverForApi }),
+        body: JSON.stringify({
+          ...draft,
+          sender: {
+            ...draft.sender,
+            cc:  normaliseEmailList(draft.sender.cc),
+            bcc: normaliseEmailList(draft.sender.bcc),
+          },
+          services: servicesForSave,
+          cover: coverForApi,
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to create proposal')
@@ -1791,6 +1804,23 @@ function Step1HotelDetails({
         <FormField label="Contact phone" error={errors.contactPhone}>
           <input className="nv-input" type="tel" placeholder="+61 2 9876 5432"
             value={h.contactPhone} onChange={e => update('contactPhone', e.target.value)} />
+        </FormField>
+
+        {/* CC/BCC for the proposal email — optional, comma-separated. Saved
+            as sender_cc/sender_bcc; the Proposal Details page's Send uses
+            them, and its Resend dialog pre-fills from them. */}
+        <FormField label="CC email(s)" error={errors.senderCc}>
+          <input className="nv-input" type="text" inputMode="email" autoComplete="off"
+            placeholder="e.g. gm@hotel.com, owner@hotel.com"
+            value={draft.sender.cc}
+            onChange={e => setDraft(d => ({ ...d, sender: { ...d.sender, cc: e.target.value } }))} />
+        </FormField>
+
+        <FormField label="BCC email(s)" error={errors.senderBcc}>
+          <input className="nv-input" type="text" inputMode="email" autoComplete="off"
+            placeholder="e.g. sales@nuvho.com"
+            value={draft.sender.bcc}
+            onChange={e => setDraft(d => ({ ...d, sender: { ...d.sender, bcc: e.target.value } }))} />
         </FormField>
 
         {/* Regular postal address (migration 0019) — formatted onto separate
@@ -3452,6 +3482,23 @@ if (typeof document !== 'undefined') {
 }
 
 /* ─── Validation ─── */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+// CC/BCC fields take comma- or semicolon-separated addresses (Outlook users
+// paste with semicolons). Split, trim and drop blanks.
+function splitEmailList(value: string | undefined | null): string[] {
+  return (value || '').split(/[,;]/).map(e => e.trim()).filter(Boolean)
+}
+
+// Canonical stored form: "a@x.com, b@y.com" — the worker splits on commas.
+function normaliseEmailList(value: string | undefined | null): string {
+  return splitEmailList(value).join(', ')
+}
+
+function invalidEmails(value: string | undefined | null): string[] {
+  return splitEmailList(value).filter(e => !EMAIL_RE.test(e))
+}
+
 function validateStep(draft: ProposalDraft): Record<string, string> {
   const errs: Record<string, string> = {}
   if (draft.step === 1) {
@@ -3461,6 +3508,10 @@ function validateStep(draft: ProposalDraft): Record<string, string> {
     if (!draft.hotel.contactName)   errs.contactName  = 'Contact name is required'
     if (!draft.hotel.contactEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.hotel.contactEmail))
       errs.contactEmail = 'Valid email required'
+    const badCc  = invalidEmails(draft.sender.cc)
+    const badBcc = invalidEmails(draft.sender.bcc)
+    if (badCc.length)  errs.senderCc  = `Invalid email: ${badCc.join(', ')}`
+    if (badBcc.length) errs.senderBcc = `Invalid email: ${badBcc.join(', ')}`
   }
   if (draft.step === 2 && draft.services.length === 0) {
     errs.services = 'Please select at least one service'

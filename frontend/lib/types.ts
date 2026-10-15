@@ -318,14 +318,17 @@ export interface ProposalDraft {
   // and message are now set from Step 1 (Hotel Details) — accountManagerId
   // because it's a client-relationship field, and message because it's
   // actually the letter's opening paragraph (see documentModel.ts's
-  // introMessage), not merely an email body. subject/cc/bcc are gone from
-  // the wizard; the worker's sendProposalEmail() (used by the Proposal
-  // Details page's Send button) still falls back to its own defaults when
-  // those DB columns are blank.
+  // introMessage), not merely an email body. subject is gone from the
+  // wizard; the worker's sendProposalEmail() (used by the Proposal Details
+  // page's Send button) still falls back to its own default when blank.
+  // cc/bcc are captured again on Step 1 (comma-separated address lists) and
+  // stored as sender_cc/sender_bcc, which the first Send and Resend both use.
   sender: {
     staffId: string
     accountManagerId: string
     message: string
+    cc: string
+    bcc: string
   }
 
   // Step 5 — Cover
