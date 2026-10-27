@@ -86,3 +86,20 @@ test('signed proposals expose which services the client accepted', () => {
   assert.equal(model.clientDeclinedServices.length, 1)
   assert.deepEqual(buildDocModelFromProposal({ services: [{ code: 'RM' }] }).clientDeclinedServices, [])
 })
+
+test('signed proposals list every offered service with the client\'s tick', () => {
+  const signed = buildDocModelFromProposal({
+    terms: { clientSignedAt: '2026-10-27T00:00:00Z' },
+    services: [
+      { code: 'RM', label: 'Revenue Management', acceptance: 'accepted' },
+      { code: 'MK', label: 'Marketing', acceptance: 'declined' },
+      { code: 'SM', label: 'Sales Management' }, // legacy: signed before per-service acceptance
+    ],
+  })
+  assert.deepEqual(signed.clientServiceChoices, [
+    { code: 'RM', label: 'RM - Revenue Management', accepted: true },
+    { code: 'MK', label: 'MK - Marketing', accepted: false },
+    { code: 'SM', label: 'SM - Sales Management', accepted: true },
+  ])
+  assert.deepEqual(buildDocModelFromProposal({ services: [{ code: 'RM', acceptance: 'accepted' }] }).clientServiceChoices, [])
+})

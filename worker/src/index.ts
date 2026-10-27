@@ -49,12 +49,15 @@ import {
   handleListAllHotelGroups, handleListAllProperties,
 } from './routes/registry'
 import { handleProvisionHotelGroupChannel } from './routes/teamsChannels'
+import { handleSimilarAccounts } from './routes/accountSuggest'
 import {
   searchHubspotObjects,
   createHubspotClient,
   updateHubspotCompany,
   searchHubspotDeals,
   createHubspotDeal,
+  suggestHubspotDeals,
+  listResolvedPipelines,
 } from './routes/hubspot'
 
 /* ── Rate limiter ────────────────────────────────────────────── */
@@ -518,6 +521,17 @@ async function route(
     return handleListPropertiesByHgid(env, hgPropsMatch[1])
   }
 
+  // "Did you mean…?" — fuzzy registry + HubSpot suggestions for the Hotel
+  // Details account search, used only when the exact searches find nothing.
+  if (path === '/accounts/similar' && method === 'GET') {
+    return handleSimilarAccounts(request, env)
+  }
+
+  // HubSpot — which deal pipeline/stages each region (AU / UK / EU) resolves to (diagnostic).
+  if (path === '/hubspot/pipelines' && method === 'GET') {
+    return listResolvedPipelines(env)
+  }
+
   // HubSpot — search companies/contacts (proxied; HUBSPOT_API_KEY stays server-side).
   // Separate CRM check from the registry lookups above — see routes/hubspot.ts.
   if (path === '/hubspot/search' && method === 'GET') {
@@ -542,6 +556,10 @@ async function route(
   }
   if (path === '/hubspot/deals' && method === 'POST') {
     return createHubspotDeal(request, env)
+  }
+  // 2026-10-14 — suggested deals for the selected hotel group/property
+  if (path === '/hubspot/deals/suggest' && method === 'GET') {
+    return suggestHubspotDeals(request, env)
   }
 
   return err('Not found', 404)

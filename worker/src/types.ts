@@ -12,6 +12,11 @@ export interface Env {
   AZURE_CLIENT_ID:     string
   ASANA_WORKSPACE_GID: string
   REGISTRY_BASE_URL:   string   // e.g. https://register.nuvho.com
+  // HubSpot deal pipelines (2026-10-20): one per geo, "GEO - id" pairs —
+  // e.g. "UK - default / AU - 754627427 / EU - 757095237". Proposal region
+  // ie → EU. See lib/hubspotPipelines.ts.
+  HUBSPOT_PIPELINE_ID?:   string
+  HUBSPOT_STAGE_SENT?:    string
   // (2026-09-15: removed MS_TEAM_ID_AU/UK/IE — the v2.0 fixed-geo-Team
   // design they supported was abandoned in favor of one dedicated Team
   // per Hotel Group; see lib/graph.ts's createClientTeam/findTeamByName

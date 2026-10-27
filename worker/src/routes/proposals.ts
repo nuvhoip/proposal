@@ -11,6 +11,7 @@ import {
   type RegistryProposalStatus, type RegistryEngagementStatus,
 } from '../lib/registry'
 import { formatNpIdLocal } from '../lib/npId'
+import { ensureProposalDeal, syncDealForProposalEvent } from './hubspot'
 import {
   sendMailViaGraph, createClientTeam, findTeamByName, addExistingTeamMember,
   createOrUpdateHotelGroupChannel,
@@ -296,6 +297,20 @@ export async function createProposal(request: Request, env: Env, session: Sessio
     npId = formatNpIdLocal(geo)
   }
 
+  // 2026-10-14: every proposal is tracked in HubSpot. If staff didn't link
+  // (or confirm a suggested) deal in Step 1, create one now — named after the
+  // document and associated to the hotel group's Company/Contact. A HubSpot
+  // failure is logged and never blocks the save.
+  const dealResult = await ensureProposalDeal(env, {
+    dealId:    hotel.hubspotDealId || null,
+    dealName:  hotel.name,
+    hgid:      hotel.hgid,
+    companyId: hotel.hubspotCompanyId || null,
+    contactId: hotel.hubspotContactId || null,
+    region:    hotel.region,   // 2026-10-20: AU / UK / EU pipeline
+  })
+  const hubspotDealId = dealResult.dealId
+
   // Insert proposal
   await env.DB.prepare(`
     INSERT INTO proposals (
@@ -316,7 +331,7 @@ export async function createProposal(request: Request, env: Env, session: Sessio
     sender.staffId, sender.accountManagerId || null, sender.message || null,
     sender.cc || null, sender.bcc || null,
     sender.subject || null,
-    cover?.coverUrl || null, hotel.hubspotDealId || null,
+    cover?.coverUrl || null, hubspotDealId,
     signingToken, expiresAt, expiresAt,
     address ? JSON.stringify(address) : null, pids.length ? JSON.stringify(pids) : null,
     (typeof hotel.hotelGroupName === 'string' && hotel.hotelGroupName.trim()) || null,
@@ -371,7 +386,7 @@ export async function createProposal(request: Request, env: Env, session: Sessio
         ...(pids.length ? { pids } : {}),
         status: 'draft',
         expires_at: expiresAt,
-        hubspot_deal_id: hotel.hubspotDealId || null,
+        hubspot_deal_id: hubspotDealId,
       })
       propId = record.prop_id
       propSyncedAt = new Date().toISOString()
@@ -414,7 +429,7 @@ export async function createProposal(request: Request, env: Env, session: Sessio
           service_line: registrySvcLine,
           geo,
           status: 'prospect',
-          hubspot_deal_id: hotel.hubspotDealId || null,
+          hubspot_deal_id: hubspotDealId,
           signed_proposal_id: propId,
         })
         eid = record.eid
@@ -450,13 +465,16 @@ export async function createProposal(request: Request, env: Env, session: Sessio
 
   // Audit log
   await auditLog(env, proposalId, 'created', session.email, { hotelName: hotel.name })
+  if (dealResult.created) {
+    await auditLog(env, proposalId, 'hubspot_deal_created', session.email, { dealId: hubspotDealId, dealName: hotel.name })
+  }
 
   // Trigger background automations (non-blocking)
   if (ctx?.waitUntil) {
     ctx.waitUntil(triggerAutomations(proposalId, 'created', env))
   }
 
-  return ok({ id: proposalId, signingToken }, 201)
+  return ok({ id: proposalId, signingToken, hubspotDealId, hubspotDealCreated: dealResult.created }, 201)
 }
 
 /* ─── Registry sync helper ──────────────────────────────────── */
@@ -971,14 +989,34 @@ export async function updateProposal(
   delete (body as any).pids
   delete (body as any).property_address_fields
 
-  const current = await env.DB.prepare('SELECT status FROM proposals WHERE id = ?')
-    .bind(proposalId).first<{ status: string }>()
+  const current = await env.DB.prepare('SELECT status, hotel_name, hubspot_deal_id, region FROM proposals WHERE id = ?')
+    .bind(proposalId).first<{ status: string; hotel_name: string; hubspot_deal_id: string | null; region: string | null }>()
   if (!current) return err('Proposal not found', 404)
 
   const editingFullFields = FULL_EDIT_FIELDS.some(f => f in body && !ALWAYS_ALLOWED_FIELDS.includes(f))
     || Array.isArray(body.services)
   if (editingFullFields && current.status !== 'draft') {
     return err('This proposal has already been sent — hotel, contact, and service details can no longer be edited', 409)
+  }
+
+  // 2026-10-14: a draft saved from the edit wizard without a linked deal gets
+  // one created, same as createProposal. Only when the wizard actually sent
+  // the deal field (an edit save), never on status-only PATCHes.
+  let hubspotDealCreated = false
+  if (current.status === 'draft' && 'hubspot_deal_id' in body && !body.hubspot_deal_id) {
+    const link = await env.DB.prepare('SELECT hgid FROM proposal_registry_links WHERE proposal_id = ? LIMIT 1')
+      .bind(proposalId).first<{ hgid: string | null }>()
+    const dealResult = await ensureProposalDeal(env, {
+      dealId:   null,
+      dealName: (typeof body.hotel_name === 'string' && body.hotel_name.trim()) || current.hotel_name,
+      hgid:     link?.hgid ?? null,
+      region:   (typeof body.region === 'string' && body.region) || current.region,
+    })
+    if (dealResult.dealId) {
+      body.hubspot_deal_id = dealResult.dealId
+      hubspotDealCreated = dealResult.created
+      await auditLog(env, proposalId, 'hubspot_deal_created', session.email, { dealId: dealResult.dealId })
+    }
   }
 
   const allowed = ['status', ...FULL_EDIT_FIELDS]
@@ -1048,7 +1086,7 @@ export async function updateProposal(
 
   await auditLog(env, proposalId, 'edited', session.email, { fields: Object.keys(body) })
 
-  return ok({ updated: true })
+  return ok({ updated: true, hubspotDealId: body.hubspot_deal_id ?? current.hubspot_deal_id ?? null, hubspotDealCreated })
 }
 
 /* ─── Dashboard stats ──────────────────────────────────────── */
@@ -1751,8 +1789,9 @@ async function triggerAutomations(proposalId: string, event: string, env: Env) {
   }
 
   if (event === 'signed') {
-    // A2: HubSpot — mark deal as won
-    await triggerHubspot(proposal, services, 'won', env).catch(console.error)
+    // A2: HubSpot — 2026-10-20: no longer automated. Won/lost and later deal
+    // stages are worked manually in HubSpot (Ody); syncDealForProposalEvent
+    // also ignores 'won' as a backstop.
     // A3: Asana — create onboarding project
     await triggerAsana(proposal, services, env).catch(console.error)
     // A4: SharePoint — create client folder
@@ -1763,27 +1802,15 @@ async function triggerAutomations(proposalId: string, event: string, env: Env) {
 }
 
 async function triggerHubspot(proposal: ProposalRow, services: ServiceRow[], event: string, env: Env) {
-  if (!proposal.hubspot_deal_id) return
-
-  const stageMap: Record<string, string> = {
-    sent:    'presentationscheduled',
-    won:     'closedwon',
-    created: 'qualifiedtobuy',
+  if (!proposal.hubspot_deal_id) {
+    console.warn(`[HubSpot] proposal ${proposal.id} has no linked deal — ${event} not synced`)
+    return
   }
-
-  await fetch(`https://api.hubapi.com/crm/v3/objects/deals/${proposal.hubspot_deal_id}`, {
-    method: 'PATCH',
-    headers: {
-      'Authorization': `Bearer ${env.HUBSPOT_API_KEY}`,
-      'Content-Type':  'application/json',
-    },
-    body: JSON.stringify({
-      properties: {
-        dealstage: stageMap[event] || 'qualifiedtobuy',
-        amount:    services.reduce((a, s) => a + s.monthly_fee * s.term_months + s.setup_fee, 0),
-      },
-    }),
-  })
+  const stageEvent = event === 'won' ? 'won' : event === 'sent' ? 'sent' : 'created'
+  const amount = services.reduce((a, s) => a + s.monthly_fee * s.term_months + s.setup_fee, 0)
+  // Logs every failure, uses the configured pipeline/stage ids, and never
+  // moves a deal backwards — see routes/hubspot.ts syncDealForProposalEvent.
+  await syncDealForProposalEvent(env, proposal.hubspot_deal_id, stageEvent, amount, proposal.region)
 }
 
 async function triggerAsana(proposal: ProposalRow, services: ServiceRow[], env: Env) {

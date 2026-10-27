@@ -151,6 +151,21 @@ export interface ProposalDocModel {
   // acceptance existed (everything accepted).
   clientAcceptedServices: string[]
   clientDeclinedServices: string[]
+  // Every service offered, in document order, with whether the client
+  // ticked it on the signing page — rendered as a checklist in the Client
+  // Acceptance block (document preview + PDF). Empty until signed.
+  clientServiceChoices: ClientServiceChoice[]
+}
+
+export interface ClientServiceChoice {
+  code:     string
+  label:    string   // "MK - Marketing", same wording as the signing page
+  accepted: boolean
+}
+
+/** "MK - Marketing" — the same wording the public signing page uses. */
+export function serviceChoiceLabel(code: string, label?: string): string {
+  return label && label !== code ? `${code} - ${label}` : code
 }
 
 // Which of ProposalDocument's category sections currently have content to
@@ -262,6 +277,7 @@ export function buildDocModelFromDraft(
     clientSignedAt:         '',
     clientAcceptedServices: [],
     clientDeclinedServices: [],
+    clientServiceChoices:   [],
   }
 }
 
@@ -322,6 +338,16 @@ export function buildDocModelFromProposal(p: any): ProposalDocModel {
     clientSignedAt:         terms.clientSignedAt || '',
     clientAcceptedServices: rawServices.filter(s => s.acceptance === 'accepted').map(s => getServiceLabel(s.code, s.label || undefined)),
     clientDeclinedServices: rawServices.filter(s => s.acceptance === 'declined').map(s => getServiceLabel(s.code, s.label || undefined)),
+    // Only once the client has signed. A service with no recorded acceptance
+    // on a signed proposal predates per-service acceptance (NUVCL-154), when
+    // signing accepted everything — so it reads as ticked.
+    clientServiceChoices: terms.clientSignedAt
+      ? rawServices.map(s => ({
+          code:     s.code,
+          label:    serviceChoiceLabel(s.code, getServiceLabel(s.code, s.label || undefined)),
+          accepted: s.acceptance !== 'declined',
+        }))
+      : [],
   }
 }
 

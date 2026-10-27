@@ -27,6 +27,13 @@ AZURE_CLIENT_ID = "f5f35997-177f-4f24-9069-cc1f31113ae7"
 ASANA_WORKSPACE_GID = "1143618526084997"
 REGISTRY_BASE_URL = "https://register.nuvho.com"
 
+# HubSpot deal pipelines (2026-10-20): one per geo. Proposal region uk → UK,
+# au → AU, ie → EU. New deals start in the pipeline's first open stage; on
+# Send they move to the "sent" stage below. Won/lost etc. are worked manually
+# in HubSpot. Verify with GET /hubspot/pipelines (signed in).
+HUBSPOT_PIPELINE_ID = "UK - default / AU - 754627427 / EU - 757095237"
+HUBSPOT_STAGE_SENT  = "UK - presentationscheduled / AU - 1097460770 / EU - 1101712252"
+
 # (2026-09-15: the v2.0 fixed-geo-Team design that used to need
 # MS_TEAM_ID_AU/UK/IE here was abandoned — Teams are now created/reused one
 # per Hotel Group via lib/graph.ts's createClientTeam/findTeamByName, no
