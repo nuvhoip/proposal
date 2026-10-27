@@ -2070,7 +2070,7 @@ function Step1HotelDetails({
               <p className="hs-section__hint deal-suggest__status">
                 {dealSuggestDone && dealSuggestions.length === 0
                   ? <>No HubSpot deal matches this property name or hotel group. </>
-                  : <>If you don't link a deal, </>}
+                  : <>If you don&apos;t link a deal, </>}
                 a new deal <strong>&ldquo;{autoDealName}&rdquo;</strong> will be created in HubSpot when the document is saved.
               </p>
             )}
