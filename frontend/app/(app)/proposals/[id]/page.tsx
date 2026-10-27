@@ -5,17 +5,15 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { Proposal } from '@/lib/types'
 import { buildDocModelFromProposal } from '@/lib/documentModel'
-import { computeFeeTotals, sumFeeTotals } from '@/lib/serviceCatalog'
+import { computeFeeTotals, sumFeeTotals, getServiceLabel } from '@/lib/serviceCatalog'
 import { ProposalDocument } from '@/components/proposal/ProposalDocument'
 
 const WORKER = process.env.NEXT_PUBLIC_WORKER_URL
 
-const SERVICE_LABELS: Record<string, string> = {
-  RM: 'Revenue Management',
-  SM: 'Social Media',
-  MK: 'Marketing',
-  CR: 'Corporate Rate',
-}
+// Service line names come from Settings → Service Lines (the worker joins
+// service_categories.label onto each proposal service), falling back to the
+// built-in catalogue — not a hard-coded map, which had drifted ("SM Social
+// Media", "CR Corporate Rate") from the real names (2026-10-27).
 const STATUS_CLASSES: Record<string, string> = {
   draft:        'nv-badge--draft',
   generated:    'nv-badge--generated',
@@ -499,7 +497,7 @@ export default function ProposalDetailPage() {
                   <tr key={s.id} style={s.acceptance === 'declined' ? { opacity: 0.55, textDecoration: 'line-through' } : undefined}>
                     <td>
                       <span className="detail-service-tag">{s.code}</span>
-                      {SERVICE_LABELS[s.code] || s.code}
+                      {getServiceLabel(s.code, s.label || undefined)}
                       {s.acceptance === 'declined' && <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--nv-error)', textDecoration: 'none', display: 'inline-block' }}>Not accepted by client</span>}
                     </td>
                     <td className="nv-num">{docModel.currencySymbol}{serviceTotals(s).monthly.toLocaleString()}</td>
