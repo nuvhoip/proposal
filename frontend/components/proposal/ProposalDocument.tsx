@@ -999,7 +999,18 @@ export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBre
         }
         :global(.doc-flow > .doc-client-acceptance:first-child) { margin-top: 0; padding-top: 0; border-top: 0; }
         :global(.doc-client-acceptance__meta) { font-size: 11.5px; color: var(--nv-text-muted); line-height: 1.5; }
-        :global(.doc-client-acceptance__services) { margin-top: 6px; font-size: 11.5px; color: var(--nv-text-body); line-height: 1.5; }
+        :global(.doc-client-acceptance__services) { margin-top: 8px; font-size: 11.5px; color: var(--nv-text-body); line-height: 1.5; }
+        :global(.doc-client-acceptance__services-title) { font-weight: 600; margin-bottom: 4px; }
+        :global(.doc-service-checklist) { list-style: none; margin: 0; padding: 0; }
+        :global(.doc-service-check) { display: flex; align-items: center; gap: 8px; margin: 3px 0; break-inside: avoid; }
+        :global(.doc-service-check__box) {
+          width: 13px; height: 13px; flex-shrink: 0; box-sizing: border-box; border-radius: 3px;
+          border: 1.5px solid #5E6B6C; background: #FFFFFF; display: inline-grid; place-content: center;
+          -webkit-print-color-adjust: exact; print-color-adjust: exact;
+        }
+        :global(.doc-service-check--on .doc-service-check__box) { border-color: var(--nv-blue-slate, #28687F); background: var(--nv-blue-slate, #28687F); }
+        :global(.doc-service-check--off .doc-service-check__label) { color: var(--nv-text-muted); }
+        :global(.doc-service-check__status) { font-size: 10.5px; color: var(--nv-text-muted); font-style: italic; }
       `}</style>
     </div>
   )
@@ -1034,10 +1045,28 @@ function ClientAcceptance({ model }: { model: ProposalDocModel }) {
   </div>
 }
 
+// The services the client ticked (or left unticked) on the signing page,
+// shown as a checklist under their signature — always, not only when some
+// were declined (2026-10-27). Boxes are drawn with CSS/inline SVG rather
+// than ☑/☐ glyphs so they render identically in the PDF export, whatever
+// fonts html-to-image has available.
 function AcceptedServicesNote({ model }: { model: ProposalDocModel }) {
-  if (!model.clientDeclinedServices?.length) return null
+  const choices = model.clientServiceChoices ?? []
+  if (!choices.length) return null
   return <div className="doc-client-acceptance__services">
-    Services accepted: {model.clientAcceptedServices.join(', ') || '—'}<br />
-    Not accepted: {model.clientDeclinedServices.join(', ')}
+    <div className="doc-client-acceptance__services-title">Services accepted by the client:</div>
+    <ul className="doc-service-checklist">
+      {choices.map(c => (
+        <li key={c.code} className={`doc-service-check ${c.accepted ? 'doc-service-check--on' : 'doc-service-check--off'}`}>
+          <span className="doc-service-check__box" role="img" aria-label={c.accepted ? 'Accepted' : 'Not accepted'}>
+            {c.accepted && (
+              <svg viewBox="0 0 12 12" width="10" height="10"><path d="M2.5 6.2l2.3 2.3 4.7-5" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            )}
+          </span>
+          <span className="doc-service-check__label">{c.label}</span>
+          {!c.accepted && <span className="doc-service-check__status">Not accepted</span>}
+        </li>
+      ))}
+    </ul>
   </div>
 }

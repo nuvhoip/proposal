@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation'
 import { NuvhoLogo } from '@/components/ui/NuvhoLogo'
 import { ProposalDocument } from '@/components/proposal/ProposalDocument'
 import { SignaturePad } from '@/components/proposal/SignaturePad'
-import { buildDocModelFromProposal } from '@/lib/documentModel'
+import { buildDocModelFromProposal, serviceChoiceLabel } from '@/lib/documentModel'
 import type { ProposalDocModel } from '@/lib/documentModel'
 
 /* Public, unauthenticated proposal view (proposals.nuvho.com/p/{signing_token}).
@@ -110,6 +110,11 @@ export default function PublicProposalPage() {
         clientSignedAt:         new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' }),
         clientAcceptedServices: offeredServices.filter(s => acceptedServices.includes(s.code)).map(s => s.label),
         clientDeclinedServices: offeredServices.filter(s => !acceptedServices.includes(s.code)).map(s => s.label),
+        // Same checklist the saved proposal renders (documentModel.ts), so
+        // the page and the PDF downloaded right after signing show it too.
+        clientServiceChoices:   offeredServices.map(s => ({
+          code: s.code, label: serviceChoiceLabel(s.code, s.label), accepted: acceptedServices.includes(s.code),
+        })),
       } : prev)
       setSigned(true)
     } catch (e: any) {
@@ -245,7 +250,7 @@ export default function PublicProposalPage() {
                               ? [...prev, s.code]
                               : prev.filter(code => code !== s.code))} />
                           {/* "MK - Marketing", "CA - Confidentiality Agreement" */}
-                          <span>{s.label && s.label !== s.code ? `${s.code} - ${s.label}` : s.code}</span>
+                          <span>{serviceChoiceLabel(s.code, s.label)}</span>
                         </label>
                       ))}
                       {acceptedServices.length > 0 && acceptedServices.length < offeredServices.length && (

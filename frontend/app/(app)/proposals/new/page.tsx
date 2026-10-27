@@ -199,82 +199,103 @@ export default function NewProposalPage() {
   // regional fallback. Fetched once here for the same "don't drop an
   // in-flight fetch when a step unmounts" reason as entities/
   // regionSettingsMap above.
-  const [entitySettingsMap, setEntitySettingsMap] = useState<Record<string, {
-    clauses: TermsClause[]; address: string; companyName: string
-    aboutNuvho: string; footerText: string; currency: string
-  }> | null>(null)
+  const [entitySettingsMap, setEntitySettingsMap] = useState<Record<string, EntityDefaults> | null>(null)
 
-  React.useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/settings/entities`, { credentials: 'include' })
-        const data = await res.json()
-        if (!res.ok || cancelled) return
-        const map: Record<string, {
-          clauses: TermsClause[]; address: string; companyName: string
-          aboutNuvho: string; footerText: string; currency: string
-        }> = {}
-        for (const e of (data.data as {
-          entityCode: string; legalName: string; clauses: TermsClause[]
-          address: string; aboutNuvho: string; footerText: string; currency: string
-        }[])) {
-          map[e.entityCode] = {
-            clauses:     e.clauses || [],
-            address:     e.address || '',
-            companyName: e.legalName || '',
-            aboutNuvho:  e.aboutNuvho || '',
-            footerText:  e.footerText || '',
-            currency:    e.currency || '',
-          }
+  // Fetched on mount AND again whenever the tab regains focus (2026-10-27):
+  // previously this ran once per wizard mount, so editing Settings →
+  // Entities in another tab (or before an earlier mount was cached by the
+  // client router) never reached an open wizard. Re-fetching only refreshes
+  // the map — the effects below decide what to re-apply, and never wipe
+  // per-proposal clause edits just because the map was refreshed.
+  const loadEntitySettings = React.useCallback(async (signal?: { cancelled: boolean }) => {
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/settings/entities`, { credentials: 'include', cache: 'no-store' })
+      const data = await res.json()
+      if (!res.ok || signal?.cancelled) return
+      const map: Record<string, EntityDefaults> = {}
+      for (const e of (data.data as {
+        entityCode: string; legalName: string; clauses: TermsClause[]
+        address: string; aboutNuvho: string; footerText: string; currency: string
+      }[])) {
+        map[e.entityCode] = {
+          clauses:     e.clauses || [],
+          address:     e.address || '',
+          companyName: e.legalName || '',
+          aboutNuvho:  e.aboutNuvho || '',
+          footerText:  e.footerText || '',
+          currency:    e.currency || '',
         }
-        setEntitySettingsMap(map)
-      } catch { /* the effect below falls back to an empty clause list / blank fields */ }
-    })()
-    return () => { cancelled = true }
+      }
+      setEntitySettingsMap(map)
+    } catch { /* the effects below fall back to an empty clause list / blank fields */ }
   }, [])
 
-  // Entity-specific document content — address/company name/about-us/
-  // footer/currency AND Terms & Conditions clauses all come from whichever
-  // Governing Entity is selected (Settings → Entities), not from a
-  // region-wide default. Previously only clauses were entity-driven here;
-  // address/companyName/aboutNuvho/footerText were still keyed by REGION
-  // (applyRegionSettings, further below) via a fixed per-region "operating"
-  // entity code, so they silently kept showing the wrong entity's
-  // letterhead whenever the Governing Entity was changed a second time
-  // after an initial pick (the auto-default effect above only sets
-  // governingEntityCode once, while it's still unset) — reported by
-  // Odysseus 2026-09-17: picking "Nuvho Ltd - UK" still showed the AU
-  // entity's address/footer/T&Cs. Runs for brand-new proposals always; in
-  // edit mode it's held back until the Governing Entity actually changes
-  // from what the proposal was saved with, so simply opening an existing
-  // proposal for editing never silently rewrites its saved snapshot — only
-  // a deliberate entity change does. When no Governing Entity has resolved
-  // yet, clauses are blanked (an unresolved entity means an empty
-  // Appendix, not a generic filler set) but regionSettings is left alone so
-  // the Step 1 default population isn't clobbered before a pick is made.
   React.useEffect(() => {
-    if (editId && draft.terms.governingEntityCode === initialGoverningEntityCodeRef.current) return
+    const signal = { cancelled: false }
+    loadEntitySettings(signal)
+    const onFocus = () => { if (document.visibilityState === 'visible') loadEntitySettings(signal) }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onFocus)
+    return () => {
+      signal.cancelled = true
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onFocus)
+    }
+  }, [loadEntitySettings])
+
+  // Entity-specific document content comes from whichever Governing Entity
+  // is selected (Settings → Entities), not from a region-wide default
+  // (reported 2026-09-17: picking "Nuvho Ltd - UK" still showed the AU
+  // entity's address/footer/T&Cs). Split in two on 2026-10-27, because
+  // Settings → Entities changes never reached the wizard:
+  //
+  // 1. Letterhead — address / company name / about / footer / currency.
+  //    These aren't editable anywhere in the wizard, so they always track
+  //    the selected entity's CURRENT settings, for new proposals and for
+  //    drafts being edited alike (only drafts can be edited). A no-op when
+  //    nothing changed, so saved A4 pages are only re-laid out when the
+  //    entity content really did change.
+  React.useEffect(() => {
     if (!entitySettingsMap) return
     const code = draft.terms.governingEntityCode
+    if (!code) return
+    const settings = entitySettingsMap[code]
+    if (!settings) return
+    setDraft(d => {
+      if (d.terms.governingEntityCode !== code) return d
+      const next = {
+        address:     settings.address,
+        companyName: settings.companyName,
+        aboutNuvho:  settings.aboutNuvho,
+        footerText:  settings.footerText,
+        currency:    settings.currency || REGION_META[d.hotel.region].currency,
+      }
+      const cur = d.regionSettings
+      if (cur.address === next.address && cur.companyName === next.companyName && cur.aboutNuvho === next.aboutNuvho
+        && cur.footerText === next.footerText && cur.currency === next.currency) return d
+      return { ...d, regionSettings: next }
+    })
+  }, [draft.terms.governingEntityCode, entitySettingsMap])
+
+  // 2. Terms & Conditions clauses — these ARE editable per proposal (Step 6),
+  //    so they're only (re)seeded from the entity when the Governing Entity
+  //    actually changes, never on a settings re-fetch. In edit mode the
+  //    entity the proposal was saved with counts as already applied, so
+  //    opening a draft keeps its own clauses; Step 6 shows a "Reset to
+  //    entity defaults" prompt when they differ from current Settings.
+  //    No entity yet → empty clause list (no generic filler set).
+  const clausesAppliedForEntityRef = useRef<string | null | undefined>(undefined)
+  React.useEffect(() => {
+    if (!entitySettingsMap) return
+    const code = draft.terms.governingEntityCode
+    if (editId) {
+      if (initialGoverningEntityCodeRef.current === null) return // proposal not loaded yet
+      if (clausesAppliedForEntityRef.current === undefined) clausesAppliedForEntityRef.current = initialGoverningEntityCodeRef.current
+    }
+    if (clausesAppliedForEntityRef.current === code) return
+    clausesAppliedForEntityRef.current = code
     const settings = code ? entitySettingsMap[code] : undefined
-    setDraft(d => ({
-      ...d,
-      regionSettings: code ? {
-        address:     settings?.address     ?? '',
-        companyName: settings?.companyName ?? '',
-        aboutNuvho:  settings?.aboutNuvho  ?? '',
-        footerText:  settings?.footerText  ?? '',
-        currency:    settings?.currency    || REGION_META[d.hotel.region].currency,
-      } : d.regionSettings,
-      terms: {
-        ...d.terms,
-        clauses: (settings?.clauses ?? []).map(c => ({
-          id: generateRowId('term'), heading: c.heading, text: c.text,
-          enabled: (c as Partial<TermsClause>).enabled ?? true,
-        })),
-      },
-    }))
+    setDraft(d => ({ ...d, terms: { ...d.terms, clauses: entityClausesToDraft(settings?.clauses) } }))
   }, [draft.terms.governingEntityCode, entitySettingsMap, editId])
 
   function applyRegionSettings(region: Region) {
@@ -286,7 +307,10 @@ export default function NewProposalPage() {
     const currency    = rs?.currency    ?? REGION_META[region].currency
     // Clauses are no longer applied from here — they're entity-specific now
     // (see the entitySettingsMap effect above), not region-specific.
-    setDraft(d => ({ ...d, regionSettings: { address, companyName, aboutNuvho, footerText, currency } }))
+    // A region default is only a placeholder until a Governing Entity is
+    // picked: if one already is (e.g. this fetch resolved late), the
+    // entity's own settings win and must not be overwritten.
+    setDraft(d => d.terms.governingEntityCode ? d : { ...d, regionSettings: { address, companyName, aboutNuvho, footerText, currency } })
   }
 
   // Apply once for the default region on a brand-new proposal only — editing
@@ -335,7 +359,8 @@ export default function NewProposalPage() {
           p.pid || (Array.isArray(p.registryLinks) ? p.registryLinks.find((l: any) => l.pid)?.pid : null),
         )
         const loadedAddress = parseSavedAddress(p.property_address_json, p.property_address)
-        initialGoverningEntityCodeRef.current = (p.terms && p.terms.governingEntityCode) || p.entity_code || null
+        // '' (not null) when the proposal has no entity: null means "not loaded yet".
+        initialGoverningEntityCodeRef.current = (p.terms && p.terms.governingEntityCode) || p.entity_code || ''
         setDraft({
           step: 1,
           hotel: {
@@ -746,7 +771,8 @@ export default function NewProposalPage() {
           )}
           {step === 6 && (
             <Step6Terms draft={draft} setDraft={setDraft} errors={errors}
-              entities={entities} entitiesLoading={entitiesLoading} />
+              entities={entities} entitiesLoading={entitiesLoading}
+              entitySettingsMap={entitySettingsMap} />
           )}
           {step === 7 && (
             <Step7Preview draft={draft} setDraft={setDraft} errors={errors} staff={staff} onDocumentReady={setDocumentReady}
@@ -860,6 +886,28 @@ interface RegistryHotelGroupSummary {
   trading_name: string | null
   geo: string
   status: string
+}
+
+// One entity's own document defaults from Settings → Entities.
+interface EntityDefaults {
+  clauses: TermsClause[]; address: string; companyName: string
+  aboutNuvho: string; footerText: string; currency: string
+}
+
+function entityClausesToDraft(clauses: TermsClause[] | undefined): TermsClause[] {
+  return (clauses ?? []).map(c => ({
+    id: generateRowId('term'), heading: c.heading, text: c.text,
+    enabled: (c as Partial<TermsClause>).enabled ?? true,
+  }))
+}
+
+// Whether a proposal's clauses still match an entity's defaults (ids are
+// regenerated per proposal, so only heading/text/enabled are compared).
+function clausesMatchDefaults(clauses: TermsClause[], defaults: TermsClause[]): boolean {
+  const norm = (list: TermsClause[]) => JSON.stringify(list.map(c => [
+    (c.heading || '').trim(), (c.text || '').trim(), (c as Partial<TermsClause>).enabled ?? true,
+  ]))
+  return norm(clauses) === norm(defaults)
 }
 
 interface RegistryEntity {
@@ -3128,8 +3176,17 @@ function Step5Cover({ draft, setDraft, errors }: StepProps) {
 }
 
 /* ─── Step 7: Terms & Conditions ─── */
-function Step6Terms({ draft, setDraft, errors, entities = [], entitiesLoading }: StepProps) {
+function Step6Terms({ draft, setDraft, errors, entities = [], entitiesLoading, entitySettingsMap }: StepProps) {
   const terms = draft.terms
+  // Current Settings → Entities defaults for the selected Governing Entity.
+  const entityDefaults = terms.governingEntityCode ? entitySettingsMap?.[terms.governingEntityCode] : undefined
+  const differsFromEntity = !!entityDefaults && entityDefaults.clauses.length > 0
+    && !clausesMatchDefaults(terms.clauses, entityDefaults.clauses)
+  function resetToEntityDefaults() {
+    if (!entityDefaults) return
+    if (!window.confirm(`Replace this proposal's clauses with the current ${entityDefaults.companyName || terms.governingEntityCode} defaults from Settings → Entities? Your edits on this step will be lost.`)) return
+    setDraft(d => ({ ...d, terms: { ...d.terms, clauses: entityClausesToDraft(entityDefaults.clauses) } }))
+  }
 
   function updateTerms(next: Partial<typeof terms>) {
     setDraft(d => ({ ...d, terms: { ...d.terms, ...next } }))
@@ -3168,6 +3225,18 @@ function Step6Terms({ draft, setDraft, errors, entities = [], entitiesLoading }:
         </FormField>
       </div>
 
+      {differsFromEntity && (
+        <div className="terms-entity-note">
+          <span>
+            These clauses differ from the current defaults for <strong>{entityDefaults!.companyName || terms.governingEntityCode}</strong> in
+            Settings → Entities.
+          </span>
+          <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm" onClick={resetToEntityDefaults}>
+            Reset to entity defaults
+          </button>
+        </div>
+      )}
+
       <TermsEditor clauses={terms.clauses} onChange={updateClauses} />
       <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm terms-add-clause" onClick={addClause}>
         {/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/plus.svg" width={14} height={14} alt="" className="nv-icon-inline" /> Add clause
@@ -3175,6 +3244,11 @@ function Step6Terms({ draft, setDraft, errors, entities = [], entitiesLoading }:
 
       <style jsx>{`
         .terms-add-clause { margin-top: 4px; margin-bottom: 20px; }
+        .terms-entity-note {
+          display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+          padding: 10px 12px; margin-bottom: 12px; border-radius: 6px; font-size: 12px;
+          background: rgba(40,104,127,0.06); border: 1px solid var(--nv-border-hair);
+        }
       `}</style>
     </div>
   )
@@ -3202,15 +3276,27 @@ function TermsEditor({ clauses, onChange }: { clauses: TermsClause[]; onChange: 
     onChange(updated)
   }
 
+  // 2026-10-27: editing a clause used to close the moment you clicked into
+  // its heading (or anywhere but the textarea) — the textarea's onBlur reset
+  // editingId, so moving focus from the auto-focused text to the heading
+  // input closed the editor, and the Edit button then re-opened it from a
+  // stale render. The row was also draggable while editing, which hijacks
+  // mouse text selection inside the inputs. Now: no blur-to-close — the
+  // editor stays open until Done, Escape, or opening another clause — and
+  // the row is only draggable while not being edited.
   return (
     <div className="clause-list">
       {clauses.map((clause, i) => {
         const isEditing = editingId === clause.id
         return (
           <div key={clause.id}
-            className={`clause-row ${clause.enabled ? 'clause-row--on' : 'clause-row--off'}`}
-            draggable
-            onDragStart={() => { dragIdx.current = i; dragOver.current = i }}
+            className={`clause-row ${clause.enabled ? 'clause-row--on' : 'clause-row--off'} ${isEditing ? 'clause-row--editing' : ''}`}
+            draggable={!isEditing}
+            onDragStart={e => {
+              // Never start a row drag from inside a form field.
+              if ((e.target as HTMLElement).closest('input, textarea')) { e.preventDefault(); return }
+              dragIdx.current = i; dragOver.current = i
+            }}
             onDragEnter={() => { dragOver.current = i }}
             onDragEnd={onDragEnd}
             onDragOver={e => e.preventDefault()}
@@ -3223,15 +3309,18 @@ function TermsEditor({ clauses, onChange }: { clauses: TermsClause[]; onChange: 
                 <img src="/icons/check.svg" width={12} height={12} alt="" style={{ filter: 'brightness(0) invert(1)' }} />
               )}
             </button>
-            <div className="clause-row__body" onClick={() => !isEditing && setEditingId(clause.id)}>
+            <div className="clause-row__body"
+              onClick={() => { if (!isEditing) setEditingId(clause.id) }}
+              onKeyDown={e => { if (isEditing && e.key === 'Escape') { e.stopPropagation(); setEditingId(null) } }}>
               {isEditing ? (
                 <>
                   <input className="nv-input clause-row__heading-input"
+                    placeholder="Clause heading"
                     value={clause.heading} onChange={e => update(clause.id, 'heading', e.target.value)} />
                   <textarea autoFocus className="nv-input clause-row__text-input"
+                    placeholder="Clause text"
                     value={clause.text}
-                    onChange={e => update(clause.id, 'text', e.target.value)}
-                    onBlur={() => setEditingId(null)} />
+                    onChange={e => update(clause.id, 'text', e.target.value)} />
                 </>
               ) : (
                 <>
@@ -3242,7 +3331,7 @@ function TermsEditor({ clauses, onChange }: { clauses: TermsClause[]; onChange: 
             </div>
             <div className="clause-row__actions">
               <button type="button" className="nv-btn nv-btn--ghost nv-btn--sm"
-                onClick={() => setEditingId(isEditing ? null : clause.id)}>Edit</button>
+                onClick={() => setEditingId(isEditing ? null : clause.id)}>{isEditing ? 'Done' : 'Edit'}</button>
               <button type="button" className="nv-btn nv-btn--ghost nv-btn--sm clause-row__remove"
                 onClick={() => remove(clause.id)}>Remove</button>
             </div>
@@ -3259,7 +3348,10 @@ function TermsEditor({ clauses, onChange }: { clauses: TermsClause[]; onChange: 
         .clause-row--on  { background: rgba(40,104,127,0.04); }
         .clause-row--off { background: var(--nv-platinum); }
         .clause-row__handle { color: var(--nv-text-muted); flex-shrink: 0; margin-top: 2px; }
-        .clause-row__body { flex: 1; cursor: text; }
+        .clause-row--editing { cursor: default; border-color: var(--nv-blue-slate); }
+        .clause-row__body { flex: 1; cursor: text; min-width: 0; }
+        .clause-row__heading-input, .clause-row__text-input { width: 100%; box-sizing: border-box; }
+        .clause-row__text-input { resize: vertical; }
         .clause-row__heading { font-size: 12px; font-weight: 600; font-family: var(--nv-font-body); margin-bottom: 3px; color: var(--nv-blue-slate); }
         .clause-row__text { font-size: 12px; line-height: 1.6; }
         .clause-row__heading-input { font-size: 12px; font-weight: 600; margin-bottom: 6px; }
@@ -3398,6 +3490,9 @@ interface StepProps {
   // entitiesLoading state comment in NewProposalPage.
   entities?: RegistryEntity[]
   entitiesLoading?: boolean
+  // Only used by Step6Terms — each entity's current Settings → Entities
+  // defaults, to offer resetting the clauses when they differ.
+  entitySettingsMap?: Record<string, EntityDefaults> | null
 }
 
 function FormField({ label, error, children, span }: {
