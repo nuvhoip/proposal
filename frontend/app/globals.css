@@ -698,6 +698,17 @@ input[type="checkbox"]:disabled:checked { background: rgba(195,202,206,0.5); }
 .a4-sheet--cover { padding: 0; }
 .a4-sheet .doc-cover { margin: 0; width: 210mm; max-width: none; height: 297mm; min-height: 0; box-shadow: none; border-radius: 0; }
 .a4-saved-pages { display: flex; flex-direction: column; align-items: center; gap: 40px; padding: 24px 16px; background: var(--nv-platinum); }
+/* Fit-to-width on phones (A4Pages sets --a4-fit = column width / 210mm, never
+   above 1). zoom, not transform, so the scaled sheet also takes up the scaled
+   space in the layout. .pdf-exporting (lib/exportPdf.ts) restores full size
+   while the PDF is captured; print-rules.css does the same for print. */
+.a4-saved-pages--fit { gap: 16px; padding: 16px 0; }
+.a4-saved-pages--fit > .a4-sheet { zoom: var(--a4-fit, 1); }
+.pdf-exporting .a4-saved-pages { gap: 40px; }
+.pdf-exporting .a4-saved-pages > .a4-sheet { zoom: 1; }
+/* The non-A4 cards (Client Acceptance, classic layout) shrink to the phone
+   width via max-width: 100% — export them at their real 210mm too. */
+.pdf-exporting .doc-flow, .pdf-exporting .doc-page { max-width: none !important; }
 
 /* NUVCL-153: running header + corner logo on every non-cover A4 page.
    Pure CSS — never part of the page's editable/saved HTML (so it applies to

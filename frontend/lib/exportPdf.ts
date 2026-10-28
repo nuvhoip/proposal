@@ -49,6 +49,18 @@ async function waitForAssets(root: HTMLElement) {
 }
 
 export async function exportDocumentPdf(root: HTMLElement, filename: string): Promise<void> {
+  // Phones show the A4 sheets zoomed to fit the screen (A4Pages / globals.css
+  // .a4-saved-pages--fit). Capture them at full 210mm size, so the PDF is the
+  // same on a phone as on a desktop; the class is removed again afterwards.
+  root.classList.add('pdf-exporting')
+  try {
+    await renderPdf(root, filename)
+  } finally {
+    root.classList.remove('pdf-exporting')
+  }
+}
+
+async function renderPdf(root: HTMLElement, filename: string): Promise<void> {
   await waitForAssets(root)
   const pages = collectPdfPages(root)
   if (!pages.length) throw new Error('Nothing to export — the document preview is empty.')
