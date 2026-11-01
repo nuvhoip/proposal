@@ -4,7 +4,7 @@ import React from 'react'
 import { LETTERHEAD_LOGO_PX, pageHeaderVars, readA4Document } from '@/lib/a4Document'
 import { A4Pages } from './A4Pages'
 import { NuvhoLogo, NuvhoIconMark } from '@/components/ui/NuvhoLogo'
-import { feeTypeLabel } from '@/lib/serviceCatalog'
+import { feeTypeLabel, computeFeeTotals, sumFeeTotals, acceptedFeeRows } from '@/lib/serviceCatalog'
 import { parseCoverUrl, getVisibleSections, coverTitle, resolveSavedPagePlaceholders } from '@/lib/documentModel'
 import type { ProposalDocModel } from '@/lib/documentModel'
 
@@ -1011,6 +1011,10 @@ export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBre
         :global(.doc-service-check--on .doc-service-check__box) { border-color: var(--nv-blue-slate, #28687F); background: var(--nv-blue-slate, #28687F); }
         :global(.doc-service-check--off .doc-service-check__label) { color: var(--nv-text-muted); }
         :global(.doc-service-check__status) { font-size: 10.5px; color: var(--nv-text-muted); font-style: italic; }
+        :global(.doc-service-checklist--items) { margin: 0 0 4px 21px; }
+        :global(.doc-service-check__detail) { font-size: 10.5px; color: var(--nv-text-muted); }
+        :global(.doc-service-check--off .doc-service-check__detail) { text-decoration: line-through; }
+        :global(.doc-client-acceptance__total) { margin-top: 6px; font-weight: 600; }
       `}</style>
     </div>
   )
@@ -1045,28 +1049,63 @@ function ClientAcceptance({ model }: { model: ProposalDocModel }) {
   </div>
 }
 
-// The services the client ticked (or left unticked) on the signing page,
-// shown as a checklist under their signature — always, not only when some
-// were declined (2026-10-27). Boxes are drawn with CSS/inline SVG rather
-// than ☑/☐ glyphs so they render identically in the PDF export, whatever
-// fonts html-to-image has available.
+// What the client signed for, as a checklist under their signature: each
+// service line and, under it, each package from its fee table (item-level
+// acceptance, 2026-11 — matching the master templates' Quote Approval, which
+// has one sign-off per package). Always shown, not only when something was
+// declined (2026-10-27). Boxes are drawn with CSS/inline SVG rather than ☑/☐
+// glyphs so they render identically in the PDF export, whatever fonts
+// html-to-image has available.
 function AcceptedServicesNote({ model }: { model: ProposalDocModel }) {
   const choices = model.clientServiceChoices ?? []
   if (!choices.length) return null
+  // Totals of what was accepted — the fee table above shows everything that
+  // was offered, including alternatives the client left out.
+  const accepted = sumFeeTotals(model.services.map(svc => {
+    const choice = choices.find(c => c.code === svc.code)
+    return computeFeeTotals(choice && !choice.accepted ? [] : acceptedFeeRows(svc.feeRows, !!choice && !choice.accepted))
+  }))
+  const sym = model.currencySymbol
+  const money = (v: number) => `${sym}${v.toLocaleString()}`
+  const totalParts = [
+    accepted.monthly ? `${money(accepted.monthly)} per month` : '',
+    accepted.setup + accepted.oneOff ? `${money(accepted.setup + accepted.oneOff)} setup/one-off` : '',
+  ].filter(Boolean)
   return <div className="doc-client-acceptance__services">
-    <div className="doc-client-acceptance__services-title">Services accepted by the client:</div>
+    <div className="doc-client-acceptance__services-title">Accepted by the client:</div>
     <ul className="doc-service-checklist">
       {choices.map(c => (
-        <li key={c.code} className={`doc-service-check ${c.accepted ? 'doc-service-check--on' : 'doc-service-check--off'}`}>
-          <span className="doc-service-check__box" role="img" aria-label={c.accepted ? 'Accepted' : 'Not accepted'}>
-            {c.accepted && (
-              <svg viewBox="0 0 12 12" width="10" height="10"><path d="M2.5 6.2l2.3 2.3 4.7-5" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
-            )}
-          </span>
-          <span className="doc-service-check__label">{c.label}</span>
-          {!c.accepted && <span className="doc-service-check__status">Not accepted</span>}
+        <li key={c.code} className="doc-service-check__group">
+          <CheckLine accepted={c.accepted} label={c.label} strong={c.items.length > 0} />
+          {c.items.length > 0 && (
+            <ul className="doc-service-checklist doc-service-checklist--items">
+              {c.items.map(item => (
+                <li key={item.id}>
+                  <CheckLine accepted={item.accepted} label={item.label} detail={item.detail} />
+                </li>
+              ))}
+            </ul>
+          )}
         </li>
       ))}
     </ul>
+    {totalParts.length > 0 && (
+      <div className="doc-client-acceptance__total">
+        Accepted fees: {totalParts.join(' + ')}
+      </div>
+    )}
+  </div>
+}
+
+function CheckLine({ accepted, label, detail, strong }: { accepted: boolean; label: string; detail?: string; strong?: boolean }) {
+  return <div className={`doc-service-check ${accepted ? 'doc-service-check--on' : 'doc-service-check--off'}`}>
+    <span className="doc-service-check__box" role="img" aria-label={accepted ? 'Accepted' : 'Not accepted'}>
+      {accepted && (
+        <svg viewBox="0 0 12 12" width="10" height="10"><path d="M2.5 6.2l2.3 2.3 4.7-5" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      )}
+    </span>
+    <span className="doc-service-check__label" style={strong ? { fontWeight: 600 } : undefined}>{label}</span>
+    {detail && <span className="doc-service-check__detail">{detail}</span>}
+    {!accepted && <span className="doc-service-check__status">Not accepted</span>}
   </div>
 }

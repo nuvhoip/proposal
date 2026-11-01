@@ -24,6 +24,9 @@ export default function BodyConfigurationPage() {
   const [newDesc, setNewDesc]       = useState('')
   const [adding, setAdding]         = useState(false)
   const [addError, setAddError]     = useState('')
+  // NUVCL-159: active entities (Master Registry, via GET /settings/entities)
+  // for each line's "Offered by" chips. Optional — empty if unreachable.
+  const [entities, setEntities]     = useState<{ entityCode: string; legalName: string; isActive: boolean }[]>([])
 
   // Scope of Work editor — fully editable per category (add/edit/remove/
   // reorder both sections and the bullets within a section). Only one
@@ -206,6 +209,11 @@ export default function BodyConfigurationPage() {
     } finally {
       setLoading(false)
     }
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/settings/entities`, { credentials: 'include' })
+      const data = await res.json()
+      if (res.ok) setEntities(((data.data ?? []) as { entityCode: string; legalName: string; isActive: boolean }[]).filter(e => e.isActive !== false))
+    } catch { /* entities are optional on this page */ }
   }
 
   useEffect(() => { load() }, [])
@@ -214,7 +222,7 @@ export default function BodyConfigurationPage() {
     setCategories(prev => prev ? prev.map(c => c.code === code ? { ...c, ...patch } : c) : prev)
   }
 
-  async function saveRow(code: string, patch: { label?: string; description?: string; active?: boolean }) {
+  async function saveRow(code: string, patch: { label?: string; description?: string; active?: boolean; entityCodes?: string[] }) {
     setSavingCode(code)
     setRowError(e => ({ ...e, [code]: '' }))
     try {
@@ -231,6 +239,14 @@ export default function BodyConfigurationPage() {
     } finally {
       setSavingCode(null)
     }
+  }
+
+  // NUVCL-159: which entities offer this line. None ticked = every entity.
+  async function toggleEntity(cat: ServiceCategory, entityCode: string) {
+    const current = cat.entityCodes || []
+    const entityCodes = current.includes(entityCode) ? current.filter(c => c !== entityCode) : [...current, entityCode]
+    updateLocal(cat.code, { entityCodes })
+    await saveRow(cat.code, { entityCodes })
   }
 
   async function toggleActive(cat: ServiceCategory) {
@@ -374,6 +390,22 @@ export default function BodyConfigurationPage() {
                   onClick={() => deleteCategory(cat)} disabled={savingCode === cat.code}>
                   Delete
                 </button>
+
+                {entities.length > 0 && (
+                  <div className="bc-entities" role="group" aria-label={`Entities offering ${cat.label}`}>
+                    <span className="bc-entities__label">
+                      Offered by: {(cat.entityCodes?.length ?? 0) === 0 && <em>every entity</em>}
+                    </span>
+                    {entities.map(e => (
+                      <label key={e.entityCode} title={e.legalName}
+                        className={`bc-entity-chip ${(cat.entityCodes || []).includes(e.entityCode) ? 'bc-entity-chip--on' : ''}`}>
+                        <input type="checkbox" checked={(cat.entityCodes || []).includes(e.entityCode)}
+                          onChange={() => toggleEntity(cat, e.entityCode)} disabled={savingCode === cat.code} />
+                        {e.entityCode}
+                      </label>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {expandedCode === cat.code && (
@@ -576,6 +608,11 @@ export default function BodyConfigurationPage() {
           flex-shrink: 0; white-space: nowrap;
         }
         .bc-delete { color: var(--nv-error); flex-shrink: 0; margin-left: auto; }
+        .bc-entities { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 6px; border-top: 1px dashed var(--nv-border-hair); }
+        .bc-entities__label { font-size: 12px; color: var(--nv-text-muted); margin-right: 2px; }
+        .bc-entity-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid var(--nv-border); border-radius: 999px; font-size: 11px; font-weight: 600; cursor: pointer; }
+        .bc-entity-chip--on { background: var(--nv-blue-slate); border-color: var(--nv-blue-slate); color: white; }
+        .bc-entity-chip input { margin: 0; }
         .bc-row__error {
           position: absolute; bottom: -18px; left: 12px; font-size: 11px; color: var(--nv-error);
         }

@@ -271,7 +271,25 @@ export function initScopeItems(code: ServiceCode, liveScope?: ServiceCategorySco
 // `liveFees` — the service line's mapped default fees from Settings →
 // Default fees (ServiceCategory.defaultFees). When present they replace the
 // hardcoded SERVICE_CATALOG rows, same priority rule as liveScope/liveFootnotes.
-export function initFeeRows(code: ServiceCode, liveFees?: DefaultFee[]): FeeRow[] {
+/* ─── Entity-specific defaults (migration 0024, NUVCL-159 / NUVCL-160) ── */
+
+/** A service line's default fees for one entity: the fees linked for that
+ *  entity when there are any, otherwise the all-entities fees. With no
+ *  entity known yet, only the all-entities fees. */
+export function defaultFeesForEntity(fees: DefaultFee[] | undefined, entityCode?: string): DefaultFee[] {
+  const list = fees || []
+  const specific = entityCode ? list.filter(f => f.entityCode === entityCode) : []
+  return specific.length ? specific : list.filter(f => !f.entityCode)
+}
+
+/** Whether a service line is offered for an entity. Lines with no entities
+ *  set are offered everywhere; so is every line while no entity is chosen. */
+export function isServiceOfferedBy(category: { entityCodes?: string[] }, entityCode?: string): boolean {
+  return !entityCode || !category.entityCodes?.length || category.entityCodes.includes(entityCode)
+}
+
+export function initFeeRows(code: ServiceCode, liveFees?: DefaultFee[], entityCode?: string): FeeRow[] {
+  liveFees = liveFees ? defaultFeesForEntity(liveFees, entityCode) : liveFees
   if (liveFees && liveFees.length > 0) {
     return liveFees.map(f => ({
       id:        generateId('fee'),
@@ -420,4 +438,42 @@ export function sumFeeTotals(list: FeeTotals[]): FeeTotals {
 export function deriveFeeSummary(feeRows: FeeRow[]): { monthlyFee: number; setupFee: number; term: number } {
   const t = computeFeeTotals(feeRows)
   return { monthlyFee: t.monthly, setupFee: t.setup + t.oneOff, term: t.term }
+}
+
+/* ─── Item-level client acceptance (2026-11-01, Hayley meeting) ─────────
+   Each fee row is a package the client can accept or leave out on the
+   signing page — e.g. "50 connects" vs "90 connects", or "Social Media
+   Management" without "Paid Media Management" — matching the master
+   templates' Quote Approval, which has one sign-off line per package. */
+
+/** A fee row worth offering for acceptance: it has a name or an amount. */
+export function isAcceptableFeeRow(row: FeeRow): boolean {
+  return !!(row.component || '').trim() || num(row.fee) !== 0 || num(row.setupFee) !== 0
+}
+
+/** Rows the client accepted. `acceptance` is only set once signed; a NULL on
+ *  a signed proposal predates item-level acceptance, so it follows the
+ *  service (`serviceDeclined`). */
+export function acceptedFeeRows(rows: FeeRow[] | undefined | null, serviceDeclined = false): FeeRow[] {
+  return (rows || []).filter(r => r.acceptance ? r.acceptance !== 'declined' : !serviceDeclined)
+}
+
+/** "Setup $500 · $800/month · 12 months" — one fee row's pricing, in words. */
+export function feeRowSummary(row: FeeRow, sym: string): string {
+  const money = (v: number) => `${sym}${v.toLocaleString('en-AU')}`
+  const parts: string[] = []
+  const setup = num(row.setupFee)
+  const fee = num(row.fee)
+  if (setup) parts.push(`Setup ${money(setup)}`)
+  if (fee) {
+    switch (feeKind(row.feeType)) {
+      case 'monthly': parts.push(`${money(fee)}/month`); break
+      case 'setup':   parts.push(`${money(fee)} setup`); break
+      case 'oneoff':  parts.push(`${money(fee)} one-off`); break
+      default:        parts.push(`${money(fee)}${(row.feeType || '').trim() ? ` (${row.feeType!.trim()})` : ''}`)
+    }
+  }
+  const term = num(row.term)
+  if (term && feeKind(row.feeType) === 'monthly') parts.push(`${term} months`)
+  return parts.join(' · ')
 }

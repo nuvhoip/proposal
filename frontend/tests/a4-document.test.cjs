@@ -97,9 +97,10 @@ test('signed proposals list every offered service with the client\'s tick', () =
     ],
   })
   assert.deepEqual(signed.clientServiceChoices, [
-    { code: 'RM', label: 'RM - Revenue Management', accepted: true },
-    { code: 'MK', label: 'MK - Marketing', accepted: false },
-    { code: 'SM', label: 'SM - Sales Management', accepted: true },
+    // items: [] — these services have no fee rows (item-level acceptance, 2026-11)
+    { code: 'RM', label: 'RM - Revenue Management', accepted: true, items: [] },
+    { code: 'MK', label: 'MK - Marketing', accepted: false, items: [] },
+    { code: 'SM', label: 'SM - Sales Management', accepted: true, items: [] },
   ])
   assert.deepEqual(buildDocModelFromProposal({ services: [{ code: 'RM', acceptance: 'accepted' }] }).clientServiceChoices, [])
 })

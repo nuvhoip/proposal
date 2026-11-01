@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { Proposal } from '@/lib/types'
 import { buildDocModelFromProposal } from '@/lib/documentModel'
-import { computeFeeTotals, sumFeeTotals, getServiceLabel } from '@/lib/serviceCatalog'
+import { computeFeeTotals, sumFeeTotals, getServiceLabel, acceptedFeeRows } from '@/lib/serviceCatalog'
 import { ProposalDocument } from '@/components/proposal/ProposalDocument'
 
 const WORKER = process.env.NEXT_PUBLIC_WORKER_URL
@@ -222,8 +222,11 @@ export default function ProposalDetailPage() {
   // whose free-text fee type ("Monthly Fee", "One-off") the old exact-code
   // match never counted. Falls back to the summary columns for a service
   // saved without fee rows.
+  // Item-level acceptance (migration 0023): a signed service counts only the
+  // packages the client accepted (a declined service keeps its offered
+  // figures for the struck-through row; it's out of the grand total anyway).
   const serviceTotals = (s: any) => Array.isArray(s.fee_rows) && s.fee_rows.length
-    ? computeFeeTotals(s.fee_rows)
+    ? computeFeeTotals(s.acceptance === 'declined' ? s.fee_rows : acceptedFeeRows(s.fee_rows))
     : { monthly: s.monthly_fee || 0, setup: s.setup_fee || 0, oneOff: 0, term: s.term_months || 12,
         contract: (s.monthly_fee || 0) * (s.term_months || 12) + (s.setup_fee || 0), rateRows: 0 }
   const grand = sumFeeTotals(activeServices.map(serviceTotals))

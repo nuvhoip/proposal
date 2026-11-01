@@ -8,7 +8,7 @@ import { readA4Document } from './a4Document'
 // serve both places instead of duplicating the document layout twice.
 
 import type { ProposalDraft, ScopeItem, FeeRow, PricingFootnote, TermsClause } from './types'
-import { getServiceLabel, currencySymbol } from './serviceCatalog'
+import { getServiceLabel, currencySymbol, acceptedFeeRows, feeRowSummary, isAcceptableFeeRow } from './serviceCatalog'
 
 export const ROLE_LABELS: Record<string, string> = {
   exec: 'Executive', bd: 'Business Development', account_manager: 'Account Manager',
@@ -161,6 +161,42 @@ export interface ClientServiceChoice {
   code:     string
   label:    string   // "MK - Marketing", same wording as the signing page
   accepted: boolean
+  // Item-level acceptance (migration 0023): every package in this service's
+  // fee table, with whether the client signed for it. Empty for a service
+  // with no fee rows — then the service line itself is the choice.
+  items:    ClientItemChoice[]
+}
+
+export interface ClientItemChoice {
+  id:       string
+  label:    string   // the fee row's Component, e.g. "Social Media Management"
+  detail:   string   // "Setup $500 · $800/month · 12 months"
+  accepted: boolean
+}
+
+/** The Client Acceptance checklist: each offered service, and under it each
+ *  package (fee row) with whether the client accepted it. Shared by the saved
+ *  proposal (buildDocModelFromProposal) and the public page right after
+ *  signing, so both render the same record. */
+export function buildClientServiceChoices(
+  services: { code: string; label: string; feeRows: FeeRow[]; acceptance?: string | null }[],
+  sym: string,
+): ClientServiceChoice[] {
+  return services.map(s => {
+    const declined = s.acceptance === 'declined'
+    const accepted = new Set(acceptedFeeRows(s.feeRows, declined).map(r => r.id))
+    return {
+      code:     s.code,
+      label:    serviceChoiceLabel(s.code, s.label),
+      accepted: !declined,
+      items:    (s.feeRows || []).filter(isAcceptableFeeRow).map(r => ({
+        id:       r.id,
+        label:    (r.component || '').trim() || 'Fee',
+        detail:   feeRowSummary(r, sym),
+        accepted: accepted.has(r.id),
+      })),
+    }
+  })
 }
 
 /** "MK - Marketing" — the same wording the public signing page uses. */
@@ -341,12 +377,13 @@ export function buildDocModelFromProposal(p: any): ProposalDocModel {
     // Only once the client has signed. A service with no recorded acceptance
     // on a signed proposal predates per-service acceptance (NUVCL-154), when
     // signing accepted everything — so it reads as ticked.
+    // Item-level (migration 0023): a fee row with no recorded acceptance
+    // follows its service, so older signed proposals read as before.
     clientServiceChoices: terms.clientSignedAt
-      ? rawServices.map(s => ({
-          code:     s.code,
-          label:    serviceChoiceLabel(s.code, getServiceLabel(s.code, s.label || undefined)),
-          accepted: s.acceptance !== 'declined',
-        }))
+      ? buildClientServiceChoices(
+          rawServices.map((s, i) => ({ code: s.code, label: services[i].label, feeRows: services[i].feeRows, acceptance: s.acceptance })),
+          currencySymbol(p.currency || 'AUD'),
+        )
       : [],
   }
 }

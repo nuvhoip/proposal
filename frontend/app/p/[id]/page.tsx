@@ -5,7 +5,8 @@ import { useParams } from 'next/navigation'
 import { NuvhoLogo } from '@/components/ui/NuvhoLogo'
 import { ProposalDocument } from '@/components/proposal/ProposalDocument'
 import { SignaturePad } from '@/components/proposal/SignaturePad'
-import { buildDocModelFromProposal, serviceChoiceLabel } from '@/lib/documentModel'
+import { buildDocModelFromProposal, buildClientServiceChoices, serviceChoiceLabel } from '@/lib/documentModel'
+import { isAcceptableFeeRow, feeRowSummary, computeFeeTotals, sumFeeTotals } from '@/lib/serviceCatalog'
 import type { ProposalDocModel } from '@/lib/documentModel'
 
 /* Public, unauthenticated proposal view (proposals.nuvho.com/p/{signing_token}).
@@ -35,10 +36,14 @@ export default function PublicProposalPage() {
   const [sigName,    setSigName]    = useState('')
   const [sigTitle,   setSigTitle]   = useState('')
   const [sigDataUrl, setSigDataUrl] = useState('')
-  // NUVCL-154: one acceptance checkbox per proposed service (never per
-  // component/scope item). The client can sign with any non-empty subset;
-  // the worker records the rest as declined and drops them from the fees,
-  // automations and Master Registry engagements.
+  // Item-level acceptance (2026-11, replaces NUVCL-154's one checkbox per
+  // service): one checkbox per package in the fee table — e.g. "50 connects"
+  // or "90 connects" — like the master templates' Quote Approval, which has
+  // a sign-off line per package. A service with no fee rows keeps a single
+  // service checkbox. The client can sign with any non-empty selection; the
+  // worker records the rest as declined, drops them from the totals and
+  // automations, and declines a service when none of its packages is ticked.
+  const [acceptedItems,    setAcceptedItems]    = useState<string[]>([])
   const [acceptedServices, setAcceptedServices] = useState<string[]>([])
 
   useEffect(() => {
@@ -68,11 +73,28 @@ export default function PublicProposalPage() {
 
   // Services in this proposal, in document order (docModel.services mirrors
   // the saved proposal_services order).
-  const offeredServices = docModel?.services.map(s => ({ code: s.code, label: s.label })) ?? []
+  const offeredServices = docModel?.services.map(s => ({
+    code: s.code, label: s.label, items: s.feeRows.filter(isAcceptableFeeRow),
+  })) ?? []
+  const toggle = (setter: React.Dispatch<React.SetStateAction<string[]>>, value: string, on: boolean) =>
+    setter(prev => on ? [...prev, value] : prev.filter(v => v !== value))
+  // A service is in the deal when one of its packages is ticked (or, with no
+  // packages, the service itself).
+  const serviceIsAccepted = (s: typeof offeredServices[number]) => s.items.length
+    ? s.items.some(r => acceptedItems.includes(r.id))
+    : acceptedServices.includes(s.code)
+  const anyAccepted = offeredServices.some(serviceIsAccepted)
+  const everythingAccepted = offeredServices.every(s => s.items.length
+    ? s.items.every(r => acceptedItems.includes(r.id))
+    : acceptedServices.includes(s.code))
+  // Running total of what's ticked, so the client sees what they're signing for.
+  const selectedTotals = sumFeeTotals(offeredServices.map(s => computeFeeTotals(s.items.filter(r => acceptedItems.includes(r.id)))))
+  const sym = docModel?.currencySymbol ?? ''
+  const money = (v: number) => `${sym}${v.toLocaleString()}`
 
   async function handleSign() {
     if (!docModel) return
-    if (offeredServices.length && !acceptedServices.length) return
+    if (offeredServices.length && !anyAccepted) return
     if (!sigName.trim()) return
     if (sigMethod === 'draw' && !sigDataUrl) return
     setSigning(true)
@@ -86,7 +108,12 @@ export default function PublicProposalPage() {
           signatoryName:     sigName.trim(),
           signatoryTitle:    sigTitle.trim(),
           signatureDataUrl:  sigMethod === 'draw' ? sigDataUrl : '',
-          acceptedServices,
+          // acceptedServices is still sent (derived) for a worker that
+          // predates item-level acceptance; the current worker decides from
+          // acceptedItems and uses acceptedServices only for services with
+          // no fee rows.
+          acceptedServices:  offeredServices.filter(serviceIsAccepted).map(s => s.code),
+          acceptedItems,
         }),
       })
       const data = await res.json()
@@ -108,13 +135,20 @@ export default function PublicProposalPage() {
         clientSignatureMethod:  sigMethod,
         clientSignatureDataUrl: sigMethod === 'draw' ? sigDataUrl : '',
         clientSignedAt:         new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' }),
-        clientAcceptedServices: offeredServices.filter(s => acceptedServices.includes(s.code)).map(s => s.label),
-        clientDeclinedServices: offeredServices.filter(s => !acceptedServices.includes(s.code)).map(s => s.label),
+        clientAcceptedServices: offeredServices.filter(serviceIsAccepted).map(s => s.label),
+        clientDeclinedServices: offeredServices.filter(s => !serviceIsAccepted(s)).map(s => s.label),
         // Same checklist the saved proposal renders (documentModel.ts), so
         // the page and the PDF downloaded right after signing show it too.
-        clientServiceChoices:   offeredServices.map(s => ({
-          code: s.code, label: serviceChoiceLabel(s.code, s.label), accepted: acceptedServices.includes(s.code),
-        })),
+        clientServiceChoices:   buildClientServiceChoices(prev.services.map(s => {
+          const offered = offeredServices.find(o => o.code === s.code)
+          const accepted = offered ? serviceIsAccepted(offered) : false
+          return {
+            code: s.code, label: s.label, acceptance: accepted ? 'accepted' : 'declined',
+            feeRows: s.feeRows.map(r => isAcceptableFeeRow(r)
+              ? { ...r, acceptance: acceptedItems.includes(r.id) ? 'accepted' as const : 'declined' as const }
+              : r),
+          }
+        }), prev.currencySymbol),
       } : prev)
       setSigned(true)
     } catch (e: any) {
@@ -240,21 +274,43 @@ export default function PublicProposalPage() {
 
                   {offeredServices.length > 0 && (
                     <fieldset className="service-accept">
-                      <legend className="sign-label">Scope you accept:</legend>
-                      {/* Only the service lines selected for this document
-                          when it was created, named as in Service Lines. */}
-                      {offeredServices.map(s => (
+                      <legend className="sign-label">Tick each item you accept:</legend>
+                      {/* Service lines as headings ("MK - Marketing"), each
+                          package from the fee table underneath with its
+                          price, so alternatives (50 or 90 connects) and
+                          optional packages are chosen individually. */}
+                      {offeredServices.map(s => s.items.length ? (
+                        <div key={s.code} className="service-accept__group">
+                          <div className="service-accept__service">{serviceChoiceLabel(s.code, s.label)}</div>
+                          {s.items.map(r => (
+                            <label key={r.id} className="approval-check service-accept__item">
+                              <input type="checkbox" checked={acceptedItems.includes(r.id)}
+                                onChange={e => toggle(setAcceptedItems, r.id, e.target.checked)} />
+                              <span>
+                                {(r.component || '').trim() || 'Fee'}
+                                {feeRowSummary(r, sym) && <span className="service-accept__price">{feeRowSummary(r, sym)}</span>}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      ) : (
                         <label key={s.code} className="approval-check service-accept__item">
                           <input type="checkbox" checked={acceptedServices.includes(s.code)}
-                            onChange={e => setAcceptedServices(prev => e.target.checked
-                              ? [...prev, s.code]
-                              : prev.filter(code => code !== s.code))} />
+                            onChange={e => toggle(setAcceptedServices, s.code, e.target.checked)} />
                           {/* "MK - Marketing", "CA - Confidentiality Agreement" */}
                           <span>{serviceChoiceLabel(s.code, s.label)}</span>
                         </label>
                       ))}
-                      {acceptedServices.length > 0 && acceptedServices.length < offeredServices.length && (
-                        <p className="service-accept__hint">Services you leave unticked won’t be included in the agreement or its fees.</p>
+                      {(selectedTotals.monthly > 0 || selectedTotals.setup + selectedTotals.oneOff > 0) && (
+                        <p className="service-accept__total">
+                          Selected: {[
+                            selectedTotals.monthly ? `${money(selectedTotals.monthly)} per month` : '',
+                            selectedTotals.setup + selectedTotals.oneOff ? `${money(selectedTotals.setup + selectedTotals.oneOff)} setup/one-off` : '',
+                          ].filter(Boolean).join(' + ')}
+                        </p>
+                      )}
+                      {anyAccepted && !everythingAccepted && (
+                        <p className="service-accept__hint">Items you leave unticked won’t be included in the agreement or its fees.</p>
                       )}
                     </fieldset>
                   )}
@@ -262,7 +318,7 @@ export default function PublicProposalPage() {
                   <button
                     className="nv-btn nv-btn--primary public-sign-submit"
                     onClick={handleSign}
-                    disabled={signing || (offeredServices.length > 0 && !acceptedServices.length) || !sigName.trim() || (sigMethod === 'draw' && !sigDataUrl)}
+                    disabled={signing || (offeredServices.length > 0 && !anyAccepted) || !sigName.trim() || (sigMethod === 'draw' && !sigDataUrl)}
                     aria-busy={signing}
                   >
                     {signing ? 'Signing…' : 'Accept and sign'}
@@ -458,6 +514,13 @@ export default function PublicProposalPage() {
         .service-accept legend { padding: 0 6px; margin-left: -6px; }
         .service-accept__item { margin: 10px 0; }
         .service-accept__hint { font-size: 12px; color: var(--nv-text-muted); margin: 0 0 10px; }
+        .service-accept__group { margin: 10px 0 4px; }
+        .service-accept__group + .service-accept__group { border-top: 1px solid var(--nv-border-hair); padding-top: 10px; }
+        .service-accept__service { font-size: 13px; font-weight: 600; color: var(--nv-text-heading); margin-bottom: 2px; }
+        .service-accept__group .service-accept__item { margin: 8px 0 8px 4px; align-items: flex-start; }
+        .service-accept__group .service-accept__item input { margin-top: 3px; }
+        .service-accept__price { display: block; font-size: 12px; color: var(--nv-text-muted); margin-top: 1px; }
+        .service-accept__total { font-size: 13px; font-weight: 600; margin: 12px 0 8px; }
 
         /* Breathing room between the last form block (Scope you accept /
            signature capture) and the Accept and sign button. */

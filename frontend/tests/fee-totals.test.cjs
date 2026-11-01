@@ -68,3 +68,64 @@ test('Settings → Default fees mapping pre-fills Pricing; built-in rows are the
   assert.notEqual(rows[0].id, rows[1].id)
   assert.ok(initFeeRows('RM', []).length > 0, 'falls back to the catalog when nothing is mapped')
 })
+
+test('item-level acceptance: accepted rows, summary text, client checklist (2026-11)', () => {
+  const { acceptedFeeRows, feeRowSummary, isAcceptableFeeRow, computeFeeTotals } = require('../lib/serviceCatalog.ts')
+  const { buildClientServiceChoices } = require('../lib/documentModel.ts')
+  const c50 = { id: 'a', component: '50 connects', feeType: 'monthly', setupFee: 500, fee: 2500, term: 6, acceptance: 'accepted' }
+  const c90 = { id: 'b', component: '90 connects', feeType: 'monthly', setupFee: '', fee: 3500, term: 6, acceptance: 'declined' }
+  const blank = { id: 'c', component: '', feeType: 'monthly', setupFee: '', fee: '', term: '' }
+  assert.equal(isAcceptableFeeRow(blank), false)
+  assert.deepEqual(acceptedFeeRows([c50, c90]).map(r => r.id), ['a'])
+  // Only the accepted alternative counts: £2,500 × 6 + £500, not both options.
+  assert.equal(computeFeeTotals(acceptedFeeRows([c50, c90])).contract, 2500 * 6 + 500)
+  // Unsigned rows (no acceptance) all count; legacy signed rows follow the service.
+  const legacy = [{ ...c50, acceptance: undefined }, { ...c90, acceptance: null }]
+  assert.equal(acceptedFeeRows(legacy).length, 2)
+  assert.equal(acceptedFeeRows(legacy, true).length, 0)
+  assert.equal(feeRowSummary(c50, '£'), 'Setup £500 · £2,500/month · 6 months')
+  assert.equal(feeRowSummary({ id: 'd', component: 'Audit', feeType: 'Fixed Fee', fee: 1200, term: '' }, '$'), '$1,200 one-off')
+
+  const choices = buildClientServiceChoices([
+    { code: 'SM', label: 'Sales Management', feeRows: [c50, c90, blank], acceptance: 'accepted' },
+    { code: 'CA', label: 'Confidentiality Agreement', feeRows: [], acceptance: 'declined' },
+  ], '£')
+  assert.equal(choices[0].label, 'SM - Sales Management')
+  assert.equal(choices[0].accepted, true)
+  assert.deepEqual(choices[0].items.map(i => [i.label, i.accepted]), [['50 connects', true], ['90 connects', false]])
+  assert.equal(choices[1].accepted, false)
+  assert.deepEqual(choices[1].items, [])
+})
+
+test('worker fee summary matches the frontend deriveFeeSummary', () => {
+  const { deriveFeeSummary } = require('../lib/serviceCatalog.ts')
+  const { feeSummary } = require('../../worker/src/lib/feeTotals.ts')
+  const rows = [
+    { feeType: 'Monthly Fee', fee: 2000, term: 12, setupFee: 500 },
+    { feeType: 'Retainer', fee: 300, term: 6 },
+    { feeType: 'Fixed Fee', fee: 1000 },
+    { feeType: 'Day Rate', fee: 900 },
+    { feeType: 'Setup Fee', fee: 250 },
+  ]
+  assert.deepEqual(
+    feeSummary(rows.map(r => ({ fee_type: r.feeType, fee: r.fee, term: r.term ?? null, setup_fee: r.setupFee ?? null }))),
+    deriveFeeSummary(rows.map(r => ({ id: 'x', component: 'x', term: '', setupFee: '', ...r }))),
+  )
+})
+
+test('entity-specific defaults: own fees, else all-entities; service lines per entity (NUVCL-159/160)', () => {
+  const { defaultFeesForEntity, isServiceOfferedBy, initFeeRows } = require('../lib/serviceCatalog.ts')
+  const fee = (id, entityCode, fee) => ({ id, name: id, component: id, feeType: 'monthly', setupFee: '', fee, term: 12, active: true, entityCode })
+  const fees = [fee('au', '', 7499), fee('uk', 'NVH-UK-OPS', 4500)]
+  assert.deepEqual(defaultFeesForEntity(fees, 'NVH-UK-OPS').map(f => f.id), ['uk'])
+  assert.deepEqual(defaultFeesForEntity(fees, 'NVH-IE-OPS').map(f => f.id), ['au'])   // no IE fees → all-entities
+  assert.deepEqual(defaultFeesForEntity(fees, '').map(f => f.id), ['au'])
+  assert.deepEqual(defaultFeesForEntity([fee('legacy', undefined, 1)], 'NVH-UK-OPS').map(f => f.id), ['legacy'])
+  assert.equal(initFeeRows('RM', fees, 'NVH-UK-OPS')[0].fee, 4500)
+  assert.equal(initFeeRows('RM', fees)[0].fee, 7499)
+  assert.equal(isServiceOfferedBy({ entityCodes: [] }, 'NVH-UK-OPS'), true)
+  assert.equal(isServiceOfferedBy({}, 'NVH-UK-OPS'), true)
+  assert.equal(isServiceOfferedBy({ entityCodes: ['NVH-AU-OPS'] }, 'NVH-UK-OPS'), false)
+  assert.equal(isServiceOfferedBy({ entityCodes: ['NVH-AU-OPS'] }, 'NVH-AU-OPS'), true)
+  assert.equal(isServiceOfferedBy({ entityCodes: ['NVH-AU-OPS'] }, ''), true)   // no entity chosen yet
+})

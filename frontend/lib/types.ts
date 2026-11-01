@@ -116,6 +116,11 @@ export interface FeeRow {
   // NUVCL-151: the Note column was removed from the wizard, preview and
   // PDF. Kept optional so older saved rows still type-check; never shown.
   note?:     string
+  // Item-level client acceptance (migration 0023). Set by the worker when the
+  // client signs: whether they ticked this package on the signing page.
+  // Absent/null = not signed yet, or signed before item-level acceptance.
+  // Read-only — never sent back on save.
+  acceptance?: 'accepted' | 'declined' | null
 }
 
 // One editable, reorderable footnote / small-print line under a service's pricing table
@@ -211,6 +216,9 @@ export interface ServiceCategory {
   // configurations in mapping order — pre-fills Pricing on new proposals.
   // Absent/empty → the built-in catalog rows (serviceCatalog.initFeeRows).
   defaultFees?:     DefaultFee[]
+  // Migration 0024 (NUVCL-159): entity codes that offer this line on the
+  // wizard's Services step. Empty/absent = every entity.
+  entityCodes?:     string[]
 }
 
 // One reusable default fee row from Settings → Default fees.
@@ -223,6 +231,9 @@ export interface DefaultFee {
   fee:       number | ''
   term:      number | ''
   active:    boolean
+  // Migration 0024 (NUVCL-160): '' / absent = the default for every entity;
+  // set = only for proposals governed by that Master Registry entity.
+  entityCode?: string
 }
 
 // A fee configuration as managed in Settings → Default fees, with the

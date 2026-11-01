@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react'
 import type { FeeConfiguration, ServiceCategory } from '@/lib/types'
 import { FEE_TYPES, feeTypeLabel, normaliseFeeType } from '@/lib/serviceCatalog'
 
+// Entities from GET /settings/entities (Master Registry, proxied by the worker).
+type EntityOption = { entityCode: string; legalName: string; isActive: boolean }
+
 // Settings → Default fees (migration 0021). A library of reusable default fee
 // rows, each linked to any number of service lines through the
 // service_line_fee_configurations mapping table. When a service line is added
@@ -35,6 +38,9 @@ export default function DefaultFeesPage() {
   const [draft, setDraft]           = useState<Draft>(EMPTY)
   const [adding, setAdding]         = useState(false)
   const [addError, setAddError]     = useState('')
+  // NUVCL-160: per-entity default fees. '' = the all-entities default.
+  const [entities, setEntities]     = useState<EntityOption[]>([])
+  const [viewEntity, setViewEntity] = useState('')
 
   async function load() {
     setLoadError('')
@@ -49,6 +55,12 @@ export default function DefaultFeesPage() {
     } catch (e: any) {
       setLoadError(e.message || 'Failed to load default fees')
     }
+    // Entities are optional here: if the registry is unreachable the page
+    // still works with all-entities fees only.
+    try {
+      const list = await call<EntityOption[]>('/settings/entities')
+      setEntities(list.filter(e => e.isActive !== false))
+    } catch { setEntities([]) }
   }
   useEffect(() => { load() }, [])
 
@@ -94,11 +106,13 @@ export default function DefaultFeesPage() {
     }
   }
 
-  async function move(code: string, index: number, dir: -1 | 1) {
+  // Swap two fees in a service line's order. Takes ids, not indexes, because
+  // the list shown is filtered to one entity's fees.
+  async function move(code: string, idA: string, idB: string) {
     const ids = [...(mapping[code] || [])]
-    const target = index + dir
-    if (target < 0 || target >= ids.length) return
-    ;[ids[index], ids[target]] = [ids[target], ids[index]]
+    const a = ids.indexOf(idA), b = ids.indexOf(idB)
+    if (a < 0 || b < 0) return
+    ;[ids[a], ids[b]] = [ids[b], ids[a]]
     setMapping(prev => ({ ...prev, [code]: ids }))
     try {
       await call(`/settings/service-categories/${code}/fee-configurations/order`, { method: 'PUT', body: JSON.stringify({ ids }) })
@@ -117,7 +131,7 @@ export default function DefaultFeesPage() {
         body: JSON.stringify({
           name: draft.name.trim() || draft.component.trim(), component: draft.component.trim(),
           feeType: normaliseFeeType(draft.feeType), setupFee: toNum(draft.setupFee), fee: toNum(draft.fee),
-          term: toNum(draft.term), serviceCodes: draft.serviceCodes,
+          term: toNum(draft.term), serviceCodes: draft.serviceCodes, entityCode: viewEntity,
         }),
       })
       setConfigs(prev => [...(prev || []), created].sort((a, b) => a.name.localeCompare(b.name)))
@@ -131,16 +145,104 @@ export default function DefaultFeesPage() {
     }
   }
 
+  // Copy a fee — the quickest way to give an entity its own version of an
+  // existing default (copy, then change Entity and the amounts).
+  async function duplicate(cfg: FeeConfiguration) {
+    setSavingId(cfg.id)
+    try {
+      const created = await call<FeeConfiguration>('/settings/fee-configurations', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: `${cfg.name} (copy)`, component: cfg.component, feeType: cfg.feeType, setupFee: cfg.setupFee,
+          fee: cfg.fee, term: cfg.term, serviceCodes: cfg.serviceCodes, entityCode: cfg.entityCode || '', active: cfg.active,
+        }),
+      })
+      setConfigs(prev => [...(prev || []), created].sort((a, b) => a.name.localeCompare(b.name)))
+      const fees = await call<{ configurations: FeeConfiguration[]; mapping: Record<string, string[]> }>('/settings/fee-configurations')
+      setMapping(fees.mapping)
+    } catch (e: any) {
+      setRowError(err => ({ ...err, [cfg.id]: e.message || 'Failed to duplicate' }))
+    } finally {
+      setSavingId(null)
+    }
+  }
+
+  // Give an entity its own fee set: copy every All-entities fee to it (same
+  // service lines, same order), ready for its own amounts.
+  const [copying, setCopying] = useState(false)
+  async function copyDefaultsToEntity() {
+    if (!viewEntity || !configs) return
+    const sources = configs.filter(c => !c.entityCode)
+    if (!sources.length) return
+    setCopying(true)
+    setLoadError('')
+    try {
+      const copyOf = new Map<string, string>()   // source id → copy id
+      for (const src of sources) {
+        const created = await call<FeeConfiguration>('/settings/fee-configurations', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: `${src.name} (${viewEntity})`, component: src.component, feeType: src.feeType, setupFee: src.setupFee,
+            fee: src.fee, term: src.term, serviceCodes: src.serviceCodes, entityCode: viewEntity, active: src.active,
+          }),
+        })
+        copyOf.set(src.id, created.id)
+      }
+      // Copies are appended to each line in creation order; put them in the
+      // same order as their originals on every service line.
+      const fees = await call<{ configurations: FeeConfiguration[]; mapping: Record<string, string[]> }>('/settings/fee-configurations')
+      const copies = new Set(copyOf.values())
+      for (const [code, ids] of Object.entries(fees.mapping)) {
+        const ordered = ids.filter(id => copyOf.has(id)).map(id => copyOf.get(id)!).filter(id => ids.includes(id))
+        if (!ordered.length) continue
+        const full = [...ids.filter(id => !copies.has(id)), ...ordered]
+        await call(`/settings/service-categories/${code}/fee-configurations/order`, { method: 'PUT', body: JSON.stringify({ ids: full }) })
+        fees.mapping[code] = full
+      }
+      setConfigs([...fees.configurations].sort((a, b) => a.name.localeCompare(b.name)))
+      setMapping(fees.mapping)
+    } catch (e: any) {
+      setLoadError(e.message || 'Failed to copy the default fees')
+    } finally {
+      setCopying(false)
+    }
+  }
+
   const byId = new Map((configs || []).map(c => [c.id, c]))
+  // NUVCL-160: the page works on one entity's fee set at a time.
+  const shownConfigs = (configs || []).filter(c => (c.entityCode || '') === viewEntity)
+  const entityLabel = (code: string) => {
+    if (!code) return 'All entities'
+    const e = entities.find(x => x.entityCode === code)
+    return e?.legalName ? `${code} — ${e.legalName}` : code
+  }
+  // Entity options, plus any code already used by a fee but no longer listed.
+  const entityCodes = Array.from(new Set([...entities.map(e => e.entityCode), ...(configs || []).map(c => c.entityCode || '').filter(Boolean)]))
+  // A render helper (not a component) so the <select> isn't remounted on every render.
+  const entitySelect = (value: string, onChange: (v: string) => void, disabled?: boolean) => (
+    <select className="nv-input df-entity" value={value} onChange={e => onChange(e.target.value)} disabled={disabled}>
+      <option value="">All entities (default)</option>
+      {entityCodes.map(code => <option key={code} value={code}>{entityLabel(code)}</option>)}
+    </select>
+  )
   const lineLabel = (code: string) => lines.find(l => l.code === code)?.label || code
 
   return (
     <div className="nv-card df-card">
       <h2 className="sync-card__title">Default fees</h2>
+      <label className="df-view">
+        <span>Show defaults for</span>
+        {entitySelect(viewEntity, setViewEntity)}
+      </label>
       <p className="sync-card__desc">
         Reusable fee rows for the Pricing step. Link each one to the service lines it applies to — when a
         service line is added to a new proposal, its Pricing is pre-filled from its linked, active fees in the
         order set under <strong>By service line</strong>. Existing proposals are not changed.
+      </p>
+      <p className="sync-card__desc">
+        Each entity has its own fees. Pick the entity above to see and edit its fees — they are only used on
+        proposals for that entity. <strong>All entities (default)</strong> is the fallback: a service line with no
+        fees for the proposal&apos;s entity starts with these.
       </p>
       <datalist id="df-fee-types">{FEE_TYPES.map(t => <option key={t.value} value={t.label} />)}</datalist>
 
@@ -149,8 +251,19 @@ export default function DefaultFeesPage() {
 
       {configs && (
         <div className="df-list">
-          {configs.length === 0 && <p className="df-empty">No default fees yet — add one below.</p>}
-          {configs.map(cfg => (
+          {shownConfigs.length === 0 && (
+            viewEntity ? (
+              <div className="df-empty-entity">
+                <p className="df-empty">No fees for {entityLabel(viewEntity)} yet — its proposals use the All entities fees.</p>
+                {configs.some(c => !c.entityCode) && (
+                  <button type="button" className="nv-btn nv-btn--outlined nv-btn--sm" onClick={copyDefaultsToEntity} disabled={copying}>
+                    {copying ? 'Copying…' : `Copy the All entities fees to ${viewEntity}`}
+                  </button>
+                )}
+              </div>
+            ) : <p className="df-empty">No default fees yet — add one below.</p>
+          )}
+          {shownConfigs.map(cfg => (
             <div key={cfg.id} className={`df-row ${cfg.active ? '' : 'df-row--inactive'}`}>
               <div className="df-grid">
                 <label className="df-field df-field--wide"><span>Name (Settings only)</span>
@@ -188,6 +301,7 @@ export default function DefaultFeesPage() {
                 <span className="df-spacer" />
                 <label className="df-active"><input type="checkbox" checked={cfg.active}
                   onChange={() => { patchLocal(cfg.id, { active: !cfg.active }); save(cfg.id, { active: !cfg.active }) }} /> Active</label>
+                <button type="button" className="nv-btn nv-btn--ghost nv-btn--sm" onClick={() => duplicate(cfg)} disabled={savingId === cfg.id}>Duplicate</button>
                 <button type="button" className="nv-btn nv-btn--ghost nv-btn--sm df-delete" onClick={() => remove(cfg)} disabled={savingId === cfg.id}>Delete</button>
               </div>
               {rowError[cfg.id] && <div className="df-error">{rowError[cfg.id]}</div>}
@@ -196,7 +310,7 @@ export default function DefaultFeesPage() {
         </div>
       )}
 
-      <h3 className="df-subtitle">Add default fee</h3>
+      <h3 className="df-subtitle">Add default fee for {entityLabel(viewEntity)}</h3>
       <div className="df-row df-row--new">
         <div className="df-grid">
           <label className="df-field df-field--wide"><span>Name (Settings only)</span>
@@ -237,13 +351,19 @@ export default function DefaultFeesPage() {
       </div>
 
       <h3 className="df-subtitle">By service line</h3>
-      <p className="sync-card__desc">The fees each service line starts with on a new proposal, in order. Inactive fees are skipped.</p>
+      <p className="sync-card__desc">The fees each service line starts with on a new proposal for {entityLabel(viewEntity)}, in order. Inactive fees are skipped.</p>
       <div className="df-map">
         {lines.map(l => {
-          const ids = mapping[l.code] || []
+          // Same rule as the wizard (serviceCatalog.defaultFeesForEntity):
+          // the entity's own fees when it has any, otherwise All entities.
+          const all = mapping[l.code] || []
+          const own = viewEntity ? all.filter(id => byId.get(id)?.entityCode === viewEntity) : []
+          const fallingBack = !!viewEntity && own.length === 0
+          const ids = own.length ? own : all.filter(id => !byId.get(id)?.entityCode)
           return (
             <div key={l.code} className="df-map__line">
               <div className="df-map__head"><span className="df-code">{l.code}</span>{lineLabel(l.code)}</div>
+              {fallingBack && ids.length > 0 && <p className="df-empty">No {viewEntity} fees linked — uses the All entities fees:</p>}
               {ids.length === 0
                 ? <p className="df-empty">No default fees linked — new proposals use the built-in defaults.</p>
                 : <ol className="df-map__list">
@@ -253,8 +373,8 @@ export default function DefaultFeesPage() {
                       return (
                         <li key={id} className={cfg.active ? '' : 'df-row--inactive'}>
                           <span className="df-order">
-                            <button type="button" className="df-order-btn" disabled={i === 0} onClick={() => move(l.code, i, -1)} aria-label="Move up">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/angle-up.svg" width={12} height={12} alt="" /></button>
-                            <button type="button" className="df-order-btn" disabled={i === ids.length - 1} onClick={() => move(l.code, i, 1)} aria-label="Move down">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/angle-down.svg" width={12} height={12} alt="" /></button>
+                            <button type="button" className="df-order-btn" disabled={i === 0} onClick={() => move(l.code, id, ids[i - 1])} aria-label="Move up">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/angle-up.svg" width={12} height={12} alt="" /></button>
+                            <button type="button" className="df-order-btn" disabled={i === ids.length - 1} onClick={() => move(l.code, id, ids[i + 1])} aria-label="Move down">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/angle-down.svg" width={12} height={12} alt="" /></button>
                           </span>
                           <span className="df-map__name">{cfg.name}</span>
                           <span className="df-map__meta">{cfg.component || '—'} · {feeTypeLabel(cfg.feeType) || '—'}{cfg.fee !== '' ? ` · ${Number(cfg.fee).toLocaleString()}` : ''}{cfg.term !== '' ? ` · ${cfg.term} mo` : ''}</span>
@@ -279,6 +399,11 @@ export default function DefaultFeesPage() {
         .df-field :global(.nv-input) { padding: 6px 8px; font-size: 12.5px; }
         .df-lines { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
         .df-lines__label { font-size: 12px; color: var(--nv-text-muted); margin-right: 2px; }
+        .df-lines__label--gap { margin-left: 8px; }
+        .df-entity { width: auto; max-width: 260px; padding: 4px 8px; font-size: 12px; }
+        .df-view { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: var(--nv-text-heading); margin: 6px 0 8px; padding: 10px 12px; border: 1px solid var(--nv-border-hair); border-radius: 6px; background: rgba(40,104,127,0.05); }
+        .df-view .df-entity { max-width: 360px; font-size: 13px; }
+        .df-empty-entity { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
         .df-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border: 1px solid var(--nv-border); border-radius: 999px; font-size: 11.5px; font-weight: 600; cursor: pointer; }
         .df-chip--on { background: var(--nv-blue-slate); border-color: var(--nv-blue-slate); color: white; }
         .df-chip input { margin: 0; }

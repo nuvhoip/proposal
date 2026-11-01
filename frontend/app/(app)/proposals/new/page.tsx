@@ -7,7 +7,7 @@ import type {
   PricingFootnote, TermsClause, FeeType, RegionSettings, ServiceCategory,
 } from '@/lib/types'
 import {
-  getServiceLabel, getServiceColor, feeTypeLabel, normaliseFeeType, REGION_META, initScopeItems, initFeeRows,
+  getServiceLabel, getServiceColor, feeTypeLabel, normaliseFeeType, REGION_META, initScopeItems, initFeeRows, isServiceOfferedBy,
   initFootnotes, initTerms, generateRowId, deriveFeeSummary,
 } from '@/lib/serviceCatalog'
 import { buildDocModelFromDraft, parseCoverUrl, buildCoverUrl, buildDefaultIntroMessage, documentSourceKey, savedPagesStale } from '@/lib/documentModel'
@@ -2494,6 +2494,14 @@ function Step1HotelDetails({
    Advisory, or any custom category) start empty and are filled in manually
    on Steps 3–4. */
 function Step2Services({ draft, setDraft, errors, serviceCategories = [], serviceCategoriesLoading }: StepProps) {
+  // NUVCL-159: only the service lines the governing entity offers (Settings →
+  // Body configuration › Entities). A line already on this proposal stays
+  // listed even if its entity no longer offers it, so it can be removed.
+  const entityCode = draft.terms.governingEntityCode || draft.hotel.entityCode || ''
+  const offeredCategories = serviceCategories.filter(c =>
+    isServiceOfferedBy(c, entityCode) || draft.services.some(s => s.code === c.code))
+  const hiddenCount = serviceCategories.length - offeredCategories.length
+
   function toggle(code: ServiceCode) {
     setDraft(d => {
       if (d.services.some(s => s.code === code)) {
@@ -2508,7 +2516,8 @@ function Step2Services({ draft, setDraft, errors, serviceCategories = [], servic
       // liveScope is empty/undefined. Same for Pricing: Settings → Default
       // fees (mapped to this service line) before the built-in rows.
       const category = serviceCategories.find(c => c.code === code)
-      const feeRows = initFeeRows(code, category?.defaultFees)
+      // NUVCL-160: the governing entity's own default fees when it has any.
+      const feeRows = initFeeRows(code, category?.defaultFees, entityCode)
       return {
         ...d,
         services: [...d.services, {
@@ -2527,17 +2536,17 @@ function Step2Services({ draft, setDraft, errors, serviceCategories = [], servic
   // seeding logic as toggle() (fee rows / scope items / footnotes) for any
   // category not already selected, and leaves already-selected lines'
   // configured pricing/scope untouched.
-  const allSelected = serviceCategories.length > 0 &&
-    serviceCategories.every(c => draft.services.some(s => s.code === c.code))
+  const allSelected = offeredCategories.length > 0 &&
+    offeredCategories.every(c => draft.services.some(s => s.code === c.code))
 
   function toggleAll() {
     setDraft(d => {
       if (allSelected) return { ...d, services: [] }
       const existingCodes = new Set(d.services.map(s => s.code))
-      const additions = serviceCategories
+      const additions = offeredCategories
         .filter(c => !existingCodes.has(c.code))
         .map(c => {
-          const feeRows = initFeeRows(c.code, c.defaultFees)
+          const feeRows = initFeeRows(c.code, c.defaultFees, entityCode)
           return {
             code: c.code,
             ...deriveFeeSummary(feeRows),
@@ -2564,7 +2573,13 @@ function Step2Services({ draft, setDraft, errors, serviceCategories = [], servic
         </p>
       )}
 
-      {!serviceCategoriesLoading && serviceCategories.length > 0 && (
+      {!serviceCategoriesLoading && hiddenCount > 0 && (
+        <p className="step-note">
+          Showing the service lines offered by {entityCode}. {hiddenCount} other line{hiddenCount === 1 ? ' is' : 's are'} not offered by this entity.
+        </p>
+      )}
+
+      {!serviceCategoriesLoading && offeredCategories.length > 0 && (
         <label className="services-select-all">
           <input type="checkbox" checked={allSelected} onChange={toggleAll} />
           Select all services
@@ -2572,7 +2587,7 @@ function Step2Services({ draft, setDraft, errors, serviceCategories = [], servic
       )}
 
       <div className="services-grid">
-        {serviceCategories.map(svc => {
+        {offeredCategories.map(svc => {
           const selected = draft.services.find(s => s.code === svc.code)
           return (
             <div key={svc.code}
