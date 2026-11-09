@@ -134,3 +134,38 @@ export async function updateMyProfile(request: Request, env: Env, session: Sessi
 
   return ok({ saved: true, role })
 }
+
+/* ─── Account managers (2026-11-10) ──────────────────────────
+   staff.is_account_manager (migration 0025) decides who appears in the
+   Account Manager picker in Step 1. Only someone who is already an account
+   manager can change the list; while nobody is marked (e.g. straight after
+   the column is added without the seed), anyone signed in can. */
+export async function setAccountManager(staffId: string, request: Request, env: Env, session: Session): Promise<Response> {
+  const body = await request.json().catch(() => ({})) as { isAccountManager?: unknown }
+  if (typeof body.isAccountManager !== 'boolean') return err('isAccountManager must be true or false', 400)
+
+  let anyManagers: { n: number } | null
+  try {
+    anyManagers = await env.DB.prepare('SELECT COUNT(*) AS n FROM staff WHERE is_account_manager = 1').first<{ n: number }>()
+  } catch {
+    return err('Account managers are not set up yet (run migration 0025)', 409)
+  }
+  if ((anyManagers?.n ?? 0) > 0) {
+    const me = session.staffId
+      ? await env.DB.prepare('SELECT is_account_manager FROM staff WHERE id = ?').bind(session.staffId).first<{ is_account_manager: number }>()
+      : null
+    if (!me?.is_account_manager) return err('Only account managers can change this list', 403)
+  }
+
+  const target = await env.DB.prepare('SELECT id FROM staff WHERE id = ?').bind(staffId).first<{ id: string }>()
+  if (!target) return err('Staff member not found', 404)
+  if (!body.isAccountManager && staffId === session.staffId) {
+    const others = await env.DB.prepare('SELECT COUNT(*) AS n FROM staff WHERE is_account_manager = 1 AND id != ?').bind(staffId).first<{ n: number }>()
+    if (!others?.n) return err('At least one account manager must remain', 409)
+  }
+
+  await env.DB.prepare(
+    `UPDATE staff SET is_account_manager = ?, updated_at = datetime('now') WHERE id = ?`
+  ).bind(body.isAccountManager ? 1 : 0, staffId).run()
+  return ok({ id: staffId, isAccountManager: body.isAccountManager })
+}

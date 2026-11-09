@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { NuvhoLogo } from '@/components/ui/NuvhoLogo'
 
@@ -25,7 +25,18 @@ export default function LoginPage() {
   const [email, setEmail]           = useState('')
   const [password, setPassword]     = useState('')
   const [error, setError]           = useState<string | null>(null)
-  const [rememberMe, setRememberMe] = useState(false)
+  // "Remember me" is on by default and the last choice is kept in this
+  // browser, so people aren't asked to sign in every day (2026-11-10).
+  const [rememberMe, setRememberMe] = useState(true)
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('nv_remember_me') === '0') setRememberMe(false)
+    } catch { /* storage blocked: keep the default */ }
+  }, [])
+  function updateRememberMe(value: boolean) {
+    setRememberMe(value)
+    try { localStorage.setItem('nv_remember_me', value ? '1' : '0') } catch { /* ignore */ }
+  }
   const [loadingPassword, setLoadingPassword] = useState(false)
   const [loadingAzure, setLoadingAzure]       = useState(false)
 
@@ -98,7 +109,9 @@ export default function LoginPage() {
         `&redirect_uri=${redirectUri}` +
         `&scope=${scope}` +
         `&state=${state}` +
-        `&prompt=login`
+        // select_account (not login): reuse the Microsoft sign-in the browser
+        // already has instead of asking for the password every time.
+        `&prompt=select_account`
     } catch {
       setError('Unable to initiate sign-in. Please try again.')
       setLoadingAzure(false)
@@ -161,6 +174,16 @@ export default function LoginPage() {
           <span>Staff &amp; Admin</span>
         </div>
 
+        <label className="login-remember">
+          <input
+            type="checkbox"
+            checked={rememberMe}
+            onChange={e => updateRememberMe(e.target.checked)}
+            disabled={loading}
+          />
+          Remember me for 30 days
+        </label>
+
         <button
           type="button"
           className="login-ms-btn"
@@ -171,16 +194,6 @@ export default function LoginPage() {
           {loadingAzure ? <LoadingSpinner tone="teal" /> : <MicrosoftIcon />}
           {loadingAzure ? 'Waiting for Microsoft…' : 'Sign in with Microsoft'}
         </button>
-
-        <label className="login-remember">
-          <input
-            type="checkbox"
-            checked={rememberMe}
-            onChange={e => setRememberMe(e.target.checked)}
-            disabled={loading}
-          />
-          Remember me for 30 days
-        </label>
 
         <p className="login-note">
           Only <strong>@nuvho.com</strong> accounts are authorised.

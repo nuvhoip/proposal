@@ -97,6 +97,7 @@ export async function createSession(
     name,
     staffId: staff?.id,
     expiresAt: Date.now() + ttl * 1000,
+    remember: rememberMe,
   }
   await env.SESSIONS.put(`session:${token}`, JSON.stringify(session), { expirationTtl: ttl })
 
@@ -104,4 +105,41 @@ export async function createSession(
   // session cookie that still expires server-side via SESSION_TTL/KV TTL.
   const maxAge = `; Max-Age=${ttl}`
   return `nuvho_session=${token}; HttpOnly; Secure; SameSite=None${maxAge}; Path=/`
+}
+
+/**
+ * Rolling renewal for "Remember me" sessions (2026-11-10).
+ *
+ * Before this, a remembered session was a fixed 30 days from sign-in, and a
+ * normal one 8 hours, so anyone who missed the checkbox signed in daily.
+ * Now a remembered session is pushed back to 30 days from the latest visit
+ * (at most once every 12 hours, to keep KV writes low), and its cookie is
+ * re-issued with a fresh Max-Age. This also gets past browsers that cap the
+ * lifetime of cookies set by an API on a different host (Safari caps those
+ * at 7 days): any visit within the cap refreshes the cookie.
+ *
+ * Sessions created before this change have no `remember` flag; one with more
+ * than 8 hours left can only have come from "Remember me", so it counts.
+ *
+ * Returns the Set-Cookie value to send, or null when nothing changed.
+ */
+export async function renewRememberedSession(
+  request: Request,
+  env:     Env,
+  session: Session,
+): Promise<string | null> {
+  const now        = Date.now()
+  const remaining  = session.expiresAt - now
+  const remembered = session.remember ?? remaining > SESSION_TTL * 1000
+  if (!remembered) return null
+  // Renew at most every 12 hours.
+  if (remaining > (SESSION_TTL_REMEMBER - 60 * 60 * 12) * 1000) return null
+
+  const match = (request.headers.get('Cookie') || '').match(/nuvho_session=([^;]+)/)
+  const token = match?.[1]
+  if (!token) return null
+
+  const renewed: Session = { ...session, remember: true, expiresAt: now + SESSION_TTL_REMEMBER * 1000 }
+  await env.SESSIONS.put(`session:${token}`, JSON.stringify(renewed), { expirationTtl: SESSION_TTL_REMEMBER })
+  return `nuvho_session=${token}; HttpOnly; Secure; SameSite=None; Max-Age=${SESSION_TTL_REMEMBER}; Path=/`
 }

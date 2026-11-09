@@ -35,7 +35,7 @@ import { sanitizePageHtml, type A4Page } from '@/lib/a4Document'
  * because they close over refs (pageList.current/nodes.current/etc.), not
  * over plain state — see A4DocumentEditor.tsx's own comments on that pattern.
  */
-function TinyMcePageEditorImpl({ page, onNode, onDirty, onFocus, onBreak, onMoveNext, onMovePrev, onAddPage, onRemovePage }: {
+function TinyMcePageEditorImpl({ page, onNode, onDirty, onFocus, onBreak, onMoveNext, onMovePrev, onAddPage, onRemovePage, onUndo, onRedo }: {
   page: A4Page
   onNode: (id: string, node: HTMLElement | null) => void
   onDirty: () => void
@@ -45,6 +45,10 @@ function TinyMcePageEditorImpl({ page, onNode, onDirty, onFocus, onBreak, onMove
   onMovePrev: () => void
   onAddPage: () => void
   onRemovePage: () => void
+  /** Document-wide undo/redo (A4DocumentEditor), replacing TinyMCE's
+   *  per-page history, which can't follow content moved between pages. */
+  onUndo?: () => void
+  onRedo?: () => void
 }) {
   return (
     <Editor
@@ -71,7 +75,7 @@ function TinyMcePageEditorImpl({ page, onNode, onDirty, onFocus, onBreak, onMove
         statusbar: false,
         toolbar_mode: 'wrap',
         plugins: 'lists link autolink table image',
-        toolbar: 'bold italic underline | bullist numlist | table link | pagebreak movePrevPage moveNextPage addPageAfter removePage',
+        toolbar: 'docUndo docRedo | bold italic underline | bullist numlist | table link | pagebreak movePrevPage moveNextPage addPageAfter removePage',
         placeholder: 'Start typing…',
         content_style: `
           body { margin: 0; font-family: 'Raleway', Arial, sans-serif; font-size: 13px; line-height: 1.7; color: #1f2b2c; }
@@ -96,8 +100,26 @@ function TinyMcePageEditorImpl({ page, onNode, onDirty, onFocus, onBreak, onMove
           editor.on('keydown', event => {
             if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
               event.preventDefault(); event.stopImmediatePropagation(); onBreak()
+              return
+            }
+            // Ctrl/⌘+Z, Ctrl/⌘+Shift+Z and Ctrl+Y go to the document-wide history.
+            const mod = event.ctrlKey || event.metaKey
+            const key = event.key.toLowerCase()
+            if (mod && !event.altKey && (key === 'z' || key === 'y') && onUndo && onRedo) {
+              event.preventDefault(); event.stopImmediatePropagation()
+              if (key === 'z' && !event.shiftKey) onUndo(); else onRedo()
             }
           }, true)
+          if (onUndo && onRedo) {
+            editor.ui.registry.addButton('docUndo', {
+              icon: 'undo', tooltip: 'Undo (Ctrl/⌘+Z)',
+              onAction: () => onUndo(),
+            })
+            editor.ui.registry.addButton('docRedo', {
+              icon: 'redo', tooltip: 'Redo (Ctrl/⌘+Shift+Z)',
+              onAction: () => onRedo(),
+            })
+          }
           editor.ui.registry.addButton('pagebreak', {
             icon: 'page-break', tooltip: 'Manual page break at cursor (Ctrl/⌘+Enter)',
             onAction: () => onBreak(),

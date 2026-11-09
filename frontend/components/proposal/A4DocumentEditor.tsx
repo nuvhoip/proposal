@@ -129,6 +129,102 @@ export function A4DocumentEditor({ model, onChange, onReady, onFeeEdits }: {
   // edit.
   const suppressBackwardRef = useRef(false)
 
+  // ── Undo / redo (2026-11-10) ────────────────────────────────────────────
+  // Document-wide history of the whole page list. Each page is its own
+  // TinyMCE editor, so TinyMCE's per-page undo can't follow content that
+  // reflow or the move/break/add/remove page tools carry between pages.
+  // Snapshots are taken after every settled publish(); a run of typing within
+  // HISTORY_GROUP_MS counts as one step, and each page tool is its own step.
+  // Unchanged pages share their html string between snapshots, so history
+  // stays cheap even with inlined images.
+  const HISTORY_LIMIT = 60
+  const HISTORY_GROUP_MS = 800
+  const historyPast = useRef<A4Page[][]>([])
+  const historyFuture = useRef<A4Page[][]>([])
+  const historyCurrent = useRef<A4Page[] | null>(null)
+  // Off until the user first touches the document, so the initial layout
+  // settling (fonts, images, reflow) never becomes an undo step.
+  const historyArmed = useRef(false)
+  const historyBurst = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const restoringRef = useRef(false)
+  const [historyUi, setHistoryUi] = useState({ canUndo: false, canRedo: false })
+
+  function refreshHistoryState() {
+    const canUndo = historyPast.current.length > 0
+    const canRedo = historyFuture.current.length > 0
+    setHistoryUi(previous => previous.canUndo === canUndo && previous.canRedo === canRedo ? previous : { canUndo, canRedo })
+  }
+  function samePage(a: A4Page, b: A4Page) {
+    return a.id === b.id && a.html === b.html && a.kind === b.kind && !!a.breakBefore === !!b.breakBefore
+  }
+  function samePages(a: A4Page[], b: A4Page[]) {
+    return a.length === b.length && a.every((page, i) => samePage(page, b[i]))
+  }
+  function shareUnchanged(next: A4Page[], previous: A4Page[]): A4Page[] {
+    const byId = new Map(previous.map(p => [p.id, p]))
+    return next.map(p => { const old = byId.get(p.id); return old && samePage(old, p) ? old : { ...p } })
+  }
+  function closeHistoryStep() {
+    if (historyBurst.current) clearTimeout(historyBurst.current)
+    historyBurst.current = null
+  }
+  function recordHistory(next: A4Page[]) {
+    const previous = historyCurrent.current
+    const snapshot = previous ? shareUnchanged(next, previous) : next.map(p => ({ ...p }))
+    if (!previous || !historyArmed.current || restoringRef.current) { historyCurrent.current = snapshot; return }
+    if (samePages(snapshot, previous)) return
+    if (!historyBurst.current) {
+      historyPast.current.push(previous)
+      if (historyPast.current.length > HISTORY_LIMIT) historyPast.current.shift()
+      historyFuture.current = []
+    } else clearTimeout(historyBurst.current)
+    historyBurst.current = setTimeout(() => { historyBurst.current = null }, HISTORY_GROUP_MS)
+    historyCurrent.current = snapshot
+    refreshHistoryState()
+  }
+  function armHistory() { historyArmed.current = true }
+  /** Page tools (move, break, add, remove) each become their own undo step. */
+  function beginToolEdit() { armHistory(); closeHistoryStep() }
+  /** Pick up anything typed since the last publish() before moving in history. */
+  function captureLive() {
+    if (!pageList.current.length || !historyArmed.current) return
+    syncFromDom()
+    recordHistory(pageList.current)
+  }
+  function restorePages(target: A4Page[]) {
+    restoringRef.current = true
+    type TinyEditor = { setContent: (html: string, args?: Record<string, unknown>) => void; undoManager?: { clear: () => void } }
+    const tiny = (window as unknown as { tinymce?: { get: (id: string) => TinyEditor | null } }).tinymce
+    for (const page of target) {
+      const node = nodes.current.get(page.id)
+      if (!node || page.kind === 'cover' || readPageHtml(node) === page.html) continue
+      const editor = tiny?.get(page.id)
+      if (editor) { editor.setContent(page.html, { no_events: true }); editor.undoManager?.clear() }
+      else node.innerHTML = page.html
+    }
+    // Pages that no longer exist re-mount from their saved html; pages that
+    // weren't there at that point unmount. publish() (via the [pages] effect)
+    // then saves the restored document and re-syncs the fee rows.
+    historyCurrent.current = target
+    rangeRef.current = null
+    commit(target.map(p => ({ ...p })))
+    refreshHistoryState()
+  }
+  function undo() {
+    captureLive(); closeHistoryStep()
+    const target = historyPast.current.pop()
+    if (!target) return
+    if (historyCurrent.current) historyFuture.current.push(historyCurrent.current)
+    restorePages(target)
+  }
+  function redo() {
+    captureLive(); closeHistoryStep()
+    const target = historyFuture.current.pop()
+    if (!target) return
+    if (historyCurrent.current) historyPast.current.push(historyCurrent.current)
+    restorePages(target)
+  }
+
   function checkOverflow() {
     const ids = pageList.current.filter(p => { const el = nodes.current.get(p.id); return el && el.scrollHeight > el.clientHeight + 2 }).map(p => p.id)
     // Bail out with the SAME array reference when the overflowing-page set is
@@ -309,6 +405,7 @@ export function A4DocumentEditor({ model, onChange, onReady, onFeeEdits }: {
     const next = pageList.current.map(p => { const node = nodes.current.get(p.id); return { ...p, html: node ? readPageHtml(node) : p.html } })
     pageList.current = next
     changeRef.current({ version: 1, pages: next })
+    recordHistory(next)
     checkOverflow()
   }
   function register(id: string, node: HTMLElement | null) {
@@ -456,6 +553,7 @@ export function A4DocumentEditor({ model, onChange, onReady, onFeeEdits }: {
   useEffect(() => {
     if (!pages.length) return
     publish()
+    restoringRef.current = false
     const observer = new ResizeObserver(checkOverflow)
     const mountedNodes = Array.from(nodes.current.values())
     mountedNodes.forEach(node => { observer.observe(node); node.addEventListener('load', checkOverflow, true); node.addEventListener('error', checkOverflow, true) })
@@ -484,8 +582,11 @@ export function A4DocumentEditor({ model, onChange, onReady, onFeeEdits }: {
     return () => document.removeEventListener('selectionchange', rememberSelection)
   }, [])
 
-  function focusPage(id: string) { activeRef.current = id; setActive(id) }
+  useEffect(() => () => closeHistoryStep(), [])
+
+  function focusPage(id: string) { activeRef.current = id; setActive(id); armHistory() }
   function addPage() {
+    beginToolEdit()
     const selected = pageList.current.findIndex(p => p.id === activeRef.current)
     const index = selected < 0 ? pageList.current.length : selected + 1
     syncFromDom()
@@ -493,6 +594,7 @@ export function A4DocumentEditor({ model, onChange, onReady, onFeeEdits }: {
     const next = [...pageList.current]; next.splice(index, 0, page); pendingFocus.current = page.id; commit(next); focusPage(page.id)
   }
   function moveContent(direction: -1 | 1, splitAtCursor = false) {
+    beginToolEdit()
     const id = activeRef.current
     const from = id ? nodes.current.get(id) : null
     const range = rangeRef.current
@@ -555,6 +657,7 @@ export function A4DocumentEditor({ model, onChange, onReady, onFeeEdits }: {
     commit(next); focusPage(page.id); rangeRef.current = null
   }
   function removeEmptyPage() {
+    beginToolEdit()
     const id = activeRef.current; const node = id ? nodes.current.get(id) : null
     if (!node || node.textContent?.trim() || node.querySelector('img,svg,table') || pageList.current.length <= 1) return
     syncFromDom()
@@ -562,7 +665,21 @@ export function A4DocumentEditor({ model, onChange, onReady, onFeeEdits }: {
   }
 
   return <div className="a4-editor">
-    <div className="a4-editor__document" style={pageHeaderVars(initialModel.hotelGroupName || initialModel.hotelName, initialModel.dateIssued) as React.CSSProperties}>
+    <div className="a4-editor__history" role="toolbar" aria-label="Undo and redo">
+      <button type="button" className="nv-btn nv-btn--secondary nv-btn--sm" onClick={undo} disabled={!historyUi.canUndo}
+        title="Undo (Ctrl/⌘+Z)" aria-label="Undo">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+        Undo
+      </button>
+      <button type="button" className="nv-btn nv-btn--secondary nv-btn--sm" onClick={redo} disabled={!historyUi.canRedo}
+        title="Redo (Ctrl/⌘+Shift+Z or Ctrl+Y)" aria-label="Redo">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>
+        Redo
+      </button>
+    </div>
+    <div className="a4-editor__document"
+      onKeyDownCapture={armHistory} onPointerDownCapture={armHistory} onPasteCapture={armHistory} onDropCapture={armHistory}
+      style={pageHeaderVars(initialModel.hotelGroupName || initialModel.hotelName, initialModel.dateIssued) as React.CSSProperties}>
       {error && <p role="alert">{error}</p>}
       {!pages.length && !error && (
         <p>{estimatedPages ? `Estimated ~${estimatedPages} A4 page${estimatedPages === 1 ? '' : 's'} — laying out your editable pages…` : 'Estimating pages…'}</p>
@@ -578,6 +695,8 @@ export function A4DocumentEditor({ model, onChange, onReady, onFeeEdits }: {
           onMovePrev={() => moveContent(-1)}
           onAddPage={addPage}
           onRemovePage={removeEmptyPage}
+          onUndo={undo}
+          onRedo={redo}
         />
         <div className="a4-editor__caption">
           Page {index + 1}{overflow.includes(page.id) ? <span className="a4-editor__warning"> — content exceeds A4, move some to another page</span> : null}
@@ -586,6 +705,12 @@ export function A4DocumentEditor({ model, onChange, onReady, onFeeEdits }: {
     </div>
     <div ref={sourceRef} className="a4-editor__source" aria-hidden="true"><ProposalDocument model={initialModel} ignorePageLayout /></div>
     <style jsx>{`
+      /* Sticky so Undo/Redo stay in reach while scrolling the pages. The bar
+         itself lets clicks through (only its buttons take them), so it never
+         blocks the page toolbar TinyMCE docks at the top of the screen. */
+      .a4-editor__history { position: sticky; top: 8px; z-index: 5; display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 8px; pointer-events: none; }
+      .a4-editor__history :global(.nv-btn) { pointer-events: auto; background: var(--nv-surface-card, #fff); box-shadow: var(--nv-shadow-sm); }
+      .a4-editor__history :global(.nv-btn:disabled) { opacity: 0.55; cursor: not-allowed; }
       .a4-editor__document { min-width: 0; overflow-x: auto; background: #e5e7eb; padding: 24px 16px; border-radius: 12px; }
       .a4-editor__page { width: 210mm; margin: 0 auto 24px; }
       .a4-editor__caption { text-align: center; padding: 10px; font-size: 12px; color: #6b7280; }

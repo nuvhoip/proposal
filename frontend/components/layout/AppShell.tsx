@@ -46,6 +46,7 @@ const navItems: NavItem[] = [
       { href: '/settings/entities',            label: 'Entities'            },
       { href: '/settings/body-configuration',  label: 'Body configuration'  },
       { href: '/settings/default-fees',        label: 'Default fees'        },
+      { href: '/settings/account-managers',    label: 'Account managers'    },
       { href: '/settings/teams-channels',      label: 'Teams channels'      },
       { href: '/settings/user-settings',       label: 'User settings'       },
     ],

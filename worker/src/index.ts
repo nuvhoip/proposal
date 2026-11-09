@@ -26,7 +26,7 @@ import {
   uploadCoverPhoto,
   getCoverPhoto,
 } from './routes/proposals'
-import { syncM365Staff, getMySignature, updateMySignature, getMyProfile, updateMyProfile } from './routes/staff'
+import { syncM365Staff, getMySignature, updateMySignature, getMyProfile, updateMyProfile, setAccountManager } from './routes/staff'
 import { submitFeedback } from './routes/feedback'
 import {
   getRegionSettings, getEntitySettings, updateEntitySettings,
@@ -309,6 +309,12 @@ async function route(
     return updateMyProfile(request, env, session)
   }
 
+  // 2026-11-10: who can be picked as Account Manager (Settings › Account managers)
+  const accountManagerMatch = path.match(/^\/staff\/([^/]+)\/account-manager$/)
+  if (accountManagerMatch && method === 'PATCH') {
+    return setAccountManager(decodeURIComponent(accountManagerMatch[1]), request, env, session)
+  }
+
   // Platform feedback / report an issue — emails odysseus.ambut@nuvho.com
   // (cc jude.bolger@nuvho.com) via the same Graph sendMail path proposals
   // use; see routes/feedback.ts. Nothing is persisted to D1.
@@ -567,10 +573,21 @@ async function route(
 
 /* ── Staff list helper ───────────────────────────────────────── */
 async function listStaff(env: Env): Promise<Response> {
-  const { results } = await env.DB.prepare(
-    `SELECT id, name, email, role, role_type, m365_upn, m365_user_id
-     FROM staff ORDER BY name`
-  ).all()
+  // is_account_manager comes from migration 0025; fall back to the old
+  // column list so the staff list keeps working if the worker is deployed
+  // before the migration has run.
+  let results: Record<string, unknown>[]
+  try {
+    ({ results } = await env.DB.prepare(
+      `SELECT id, name, email, role, role_type, m365_upn, m365_user_id, is_account_manager
+       FROM staff ORDER BY name`
+    ).all())
+  } catch {
+    ({ results } = await env.DB.prepare(
+      `SELECT id, name, email, role, role_type, m365_upn, m365_user_id
+       FROM staff ORDER BY name`
+    ).all())
+  }
   return new Response(JSON.stringify({ ok: true, data: results }), {
     headers: { 'Content-Type': 'application/json' },
   })

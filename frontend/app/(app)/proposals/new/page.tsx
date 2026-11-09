@@ -2118,9 +2118,16 @@ function Step1HotelDetails({
             <option value="">
               {staffLoading ? 'Loading Microsoft 365 users…' : 'Select account manager… (optional)'}
             </option>
-            {staff.map(s => (
+            {/* 2026-11-10: team leaders only (Settings › Account managers).
+                A proposal's existing manager stays listed so an older
+                proposal still shows who it was; if nobody is marked yet
+                (before migration 0025), everyone is listed as before. */}
+            {(staff.some(s => s.is_account_manager)
+              ? staff.filter(s => s.is_account_manager || s.id === draft.sender.accountManagerId)
+              : staff
+            ).map(s => (
               <option key={s.id} value={s.id}>
-                {s.name} — {s.role_type}{s.m365_upn ? ` (${s.m365_upn})` : ''}
+                {s.name}{s.role ? ` — ${s.role}` : ''}
               </option>
             ))}
           </select>
@@ -3669,6 +3676,8 @@ interface M365Staff {
   role:       string
   role_type:  string
   m365_upn?:  string
+  /** 1 = can be picked as Account Manager (migration 0025, Settings › Account managers). */
+  is_account_manager?: number
 }
 
 interface StepProps {

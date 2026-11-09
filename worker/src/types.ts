@@ -47,6 +47,8 @@ export interface Session {
   name:      string
   staffId?:  string
   expiresAt: number
+  /** "Remember me" session: renewed on use so it lasts 30 days from last visit. */
+  remember?:  boolean
 }
 
 export interface ProposalRow {

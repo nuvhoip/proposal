@@ -1,6 +1,6 @@
 import type { Env } from '../types'
 import { ok, err } from '../lib/response'
-import { exchangeCode, createSession } from '../lib/auth'
+import { exchangeCode, createSession, renewRememberedSession } from '../lib/auth'
 
 export async function handleAuthCallback(request: Request, env: Env): Promise<Response> {
   const body = await request.json() as { code?: string; state?: string; rememberMe?: boolean }
@@ -50,5 +50,14 @@ export async function handleMe(request: Request, env: Env, session: any): Promis
   const staff = session.staffId
     ? await env.DB.prepare('SELECT * FROM staff WHERE id = ?').bind(session.staffId).first()
     : null
-  return ok({ email: session.email, name: session.name, staffId: session.staffId, staff })
+  const res = ok({ email: session.email, name: session.name, staffId: session.staffId, staff })
+  // AuthGuard calls /auth/me on every app load, so this is where a
+  // "Remember me" session gets its rolling 30-day renewal.
+  try {
+    const cookie = await renewRememberedSession(request, env, session)
+    if (cookie) res.headers.append('Set-Cookie', cookie)
+  } catch (e) {
+    console.error('[auth/me] session renewal failed', e)
+  }
+  return res
 }
