@@ -325,7 +325,7 @@ export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBre
   )
 
   return (
-    <div className="doc-preview" id="proposal-print-root">
+    <div className={model.clientSignedAt ? 'doc-preview doc-preview--signed' : 'doc-preview'} id="proposal-print-root">
       {savedPages ? <>
         {/* NUVCL fix (2026-09-10 / revised 2026-09-25): beforeAppendix (the
             public sign page's "Accept This Proposal" form) and the
@@ -952,8 +952,16 @@ export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBre
           display: flex; align-items: center; justify-content: space-between; gap: 16px;
           margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid var(--nv-border-hair);
         }
+        /* Heading scale (2026-11-10), by tag as well as class: the document's
+           section headings are <h3> (Background, Scope of Works…), service
+           lines <h4>, sub-headings <h5>. Sizes 22 / 18 / 14px over 13px body
+           text (was 16 / 13 / 12). The tag rules also catch an <h3>/<h4>/<h5>
+           that lost its class on an edited A4 page or came from rich text.
+           Signed proposals keep the old sizes (.doc-preview--signed below) so
+           they still look as the client signed them. */
+        :global(#proposal-print-root h3), :global(.a4-sheet h3),
         :global(.doc-heading) {
-          font-family: var(--font-comfortaa); font-size: 16px; font-weight: 700; color: var(--nv-text-heading);
+          font-family: var(--font-comfortaa); font-size: 22px; line-height: 1.3; font-weight: 700; color: var(--nv-text-heading);
         }
         :global(.doc-pagebreak-toggle) {
           display: flex; align-items: center; gap: 8px; flex-shrink: 0;
@@ -967,8 +975,13 @@ export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBre
            browser treats gap next to a bare JSX text/span node. */
         :global(.doc-pagebreak-toggle input) { width: 15px; height: 15px; margin: 0 6px 0 0; cursor: pointer; }
         :global(.doc-pagebreak-toggle__label) { margin-left: 2px; }
-        :global(.doc-subheading)  { font-family: var(--font-comfortaa); font-size: 13px; font-weight: 700; margin: 16px 0 8px; color: var(--nv-blue-slate); }
-        :global(.doc-subheading2) { font-size: 12px; font-weight: 700; margin: 12px 0 6px; }
+        :global(#proposal-print-root h4), :global(.a4-sheet h4),
+        :global(.doc-subheading)  { font-family: var(--font-comfortaa); font-size: 18px; line-height: 1.35; font-weight: 700; margin: 16px 0 8px; color: var(--nv-blue-slate); }
+        :global(#proposal-print-root h5), :global(.a4-sheet h5),
+        :global(.doc-subheading2) { font-size: 14px; line-height: 1.4; font-weight: 700; margin: 12px 0 6px; }
+        :global(#proposal-print-root.doc-preview--signed h3), :global(#proposal-print-root.doc-preview--signed .doc-heading)     { font-size: 16px; line-height: inherit; }
+        :global(#proposal-print-root.doc-preview--signed h4), :global(#proposal-print-root.doc-preview--signed .doc-subheading)  { font-size: 13px; line-height: inherit; }
+        :global(#proposal-print-root.doc-preview--signed h5), :global(#proposal-print-root.doc-preview--signed .doc-subheading2) { font-size: 12px; line-height: inherit; }
         :global(.doc-bullet) { position: relative; padding-left: 14px; margin-bottom: 6px; font-size: 12.5px; }
         :global(.doc-bullet)::before { content: '•'; position: absolute; left: 0; color: var(--nv-blue-slate); }
         :global(.doc-service-block) { margin-bottom: 8px; }
