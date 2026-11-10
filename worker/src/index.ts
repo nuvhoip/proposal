@@ -112,8 +112,19 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders(request) })
     }
 
-    // Rate limiting (skip on OPTIONS)
-    const allowed = await checkRateLimit(request, env)
+    // Rate limiting (skip on OPTIONS). Fails open (2026-11-10): this ran
+    // outside any try/catch, so a KV hiccup here (e.g. several parallel
+    // requests writing the same rl:<ip> key, or a KV write limit) threw out of
+    // fetch(). Cloudflare then answered with its own error page, which has no
+    // CORS headers, so the browser only reported "NetworkError when attempting
+    // to fetch resource" (seen on the Account manager, Cover image and
+    // service line loaders in Step 1/2/5).
+    let allowed = true
+    try {
+      allowed = await checkRateLimit(request, env)
+    } catch (e) {
+      console.error('[rate-limit] KV error, allowing request', e)
+    }
     if (!allowed) {
       return new Response(JSON.stringify({ error: 'Too many requests' }), {
         status: 429,
@@ -127,20 +138,28 @@ export default {
     try {
       response = await route(path, method, request, env, ctx)
     } catch (e: any) {
-      console.error('[Worker Error]', e)
+      console.error('[Worker Error]', path, e)
       response = err('Internal server error', 500)
     }
 
-    // Merge CORS headers into response
-    const headers = new Headers(response.headers)
-    for (const [k, v] of Object.entries(corsHeaders(request))) {
-      headers.set(k, v)
+    // Merge CORS headers into response. Guarded too, so even a broken
+    // response object still reaches the browser as a readable JSON 500.
+    try {
+      const headers = new Headers(response.headers)
+      for (const [k, v] of Object.entries(corsHeaders(request))) {
+        headers.set(k, v)
+      }
+      return new Response(response.body, {
+        status:  response.status,
+        headers,
+      })
+    } catch (e) {
+      console.error('[Worker Error] while finishing response', path, e)
+      return new Response(JSON.stringify({ success: false, error: 'Internal server error' }), {
+        status:  500,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders(request) },
+      })
     }
-
-    return new Response(response.body, {
-      status:  response.status,
-      headers,
-    })
   },
 
   /* ── Cron trigger ──────────────────────────────────────────────

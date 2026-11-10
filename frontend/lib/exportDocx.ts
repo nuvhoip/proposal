@@ -80,9 +80,9 @@ export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
   }
 
   // Cover / title block
-  // NUVCL-157: cover title without the trailing "Services".
-  children.push(new Paragraph({ text: coverTitle(model.title), heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER, spacing: { after: 100 } }))
-  children.push(new Paragraph({ text: model.hotelName || '[Property Name]', alignment: AlignmentType.CENTER, spacing: { after: 40 } }))
+  // 2026-11-10: no service-line title on the cover (was coverTitle, NUVCL-157);
+  // the property name is the cover's title now.
+  children.push(new Paragraph({ text: model.hotelName || '[Property Name]', heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER, spacing: { after: 40 } }))
   children.push(new Paragraph({ text: model.dateIssued, alignment: AlignmentType.CENTER, spacing: { after: 400 } }))
 
   // Letter

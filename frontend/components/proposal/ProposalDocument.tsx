@@ -204,6 +204,9 @@ export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBre
           shown on the cover is removed per the ticket so the cover is pure
           branding/title, with the print-only full-page sizing handled in
           globals.css. */}
+      {/* 2026-11-10: the service-line title ("Sales Representation &
+          Revenue Management & …") is no longer shown on any cover — the
+          cover is logo + property only. It stays on the letter's "RE:" line. */}
       {brandedTemplate === 'circles' && (
         <div className="doc-page doc-cover doc-cover--circles">
           <span className="doc-cover-circles__arc" />
@@ -212,7 +215,6 @@ export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBre
             <NuvhoLogo variant="white" height={58} />
           </div>
           <div className="doc-cover-circles__body">
-            <div className="doc-cover-circles__category">{coverTitle(model.title)}</div>
             <div {...field("hotel", "name")} className="doc-cover-circles__heading">{model.hotelName || '[Property Name]'}</div>
             <div className="doc-cover-circles__meta">
               <span>Issued</span>
@@ -244,7 +246,6 @@ export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBre
             <NuvhoLogo variant="white" height={61} />
           </div>
           <div className="doc-cover-brand__body">
-            <div className="doc-cover-brand__category">{coverTitle(model.title)}</div>
             <div {...field("hotel", "name")} className="doc-cover-brand__heading">{model.hotelName || '[Property Name]'}</div>
             <div className="doc-cover-brand__meta">
               <span>Issued</span>
@@ -267,7 +268,6 @@ export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBre
             {!brandedPhotoUrl && <span className="doc-cover-split__hero-placeholder" />}
           </div>
           <div className="doc-cover-split__content">
-            <div className="doc-cover-split__category">{coverTitle(model.title)}</div>
             <div {...field("hotel", "name")} className="doc-cover-split__heading">{model.hotelName || '[Property Name]'}</div>
             <div className="doc-cover-split__divider" />
             <div className="doc-cover-split__meta">
@@ -290,7 +290,6 @@ export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBre
           <div className="doc-cover-editorial__spine" />
           <div className="doc-cover-editorial__body">
             <NuvhoLogo variant="primary" height={70} />
-            <div className="doc-cover-editorial__title">{coverTitle(model.title)}</div>
             <div {...field("hotel", "name")} className="doc-cover-editorial__hotel">{model.hotelName || '[Property Name]'}</div>
             {tocItems.length > 0 && (
               <ul className="doc-cover-editorial__toc">
@@ -308,7 +307,6 @@ export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBre
             <span className="doc-cover-sidebar__badge">Confidential</span>
           </div>
           <div className="doc-cover-sidebar__main">
-            <div className="doc-cover-editorial__title">{coverTitle(model.title)}</div>
             <div {...field("hotel", "name")} className="doc-cover-editorial__hotel">{model.hotelName || '[Property Name]'}</div>
           </div>
         </div>
@@ -319,7 +317,6 @@ export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBre
           style={model.coverUrl ? ({ '--doc-cover-url': `url(${model.coverUrl})` } as React.CSSProperties) : undefined}>
           <div className="doc-cover__scrim">
             <NuvhoLogo variant="white" height={120} />
-            <div className="doc-cover__title">{coverTitle(model.title)}</div>
             <div {...field("hotel", "name")} className="doc-cover__hotel">{model.hotelName || '[Property Name]'}</div>
           </div>
         </div>

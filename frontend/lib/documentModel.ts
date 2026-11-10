@@ -73,9 +73,20 @@ export function resolvePlaceholders(html: string, serviceLabel: string, hotelNam
 // taken while the bug above was live still shows the literal tokens. Resolve
 // them at render/export time too. Signed documents are left exactly as signed.
 export function resolveSavedPagePlaceholders(value: A4Document, model: Pick<ProposalDocModel, 'title' | 'hotelName' | 'clientSignedAt'>): A4Document {
-  if (model.clientSignedAt) return value
+  const withCovers = { ...value, pages: value.pages.map(p => p.kind === 'cover' ? { ...p, html: stripCoverServiceTitle(p.html) } : p) }
+  if (model.clientSignedAt) return withCovers
   const serviceLabel = model.title.toLowerCase()
-  return { ...value, pages: value.pages.map(p => p.kind === 'body' ? { ...p, html: resolvePlaceholders(p.html, serviceLabel, model.hotelName) } : p) }
+  return { ...withCovers, pages: withCovers.pages.map(p => p.kind === 'body' ? { ...p, html: resolvePlaceholders(p.html, serviceLabel, model.hotelName) } : p) }
+}
+
+// 2026-11-10: the cover no longer shows the service-line title ("Sales
+// Representation & Revenue Management & …"). Saved A4 pages hold a frozen
+// copy of the cover, so remove that title from them when they're shown or
+// exported (the editor also swaps in the live cover, which no longer has it).
+// Branding only, so signed documents get it too.
+const COVER_TITLE_DIV = /<div\b[^>]*\bclass="[^"]*\b(?:doc-cover-(?:circles|brand|split)__category|doc-cover-editorial__title|doc-cover__title)\b[^"]*"[^>]*>[^<]*<\/div>/g
+export function stripCoverServiceTitle(html: string): string {
+  return html.replace(COVER_TITLE_DIV, '')
 }
 
 export interface DocServiceGroup {
