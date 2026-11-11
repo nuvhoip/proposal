@@ -954,14 +954,14 @@ export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBre
         }
         /* Heading scale (2026-11-10), by tag as well as class: the document's
            section headings are <h3> (Background, Scope of Works…), service
-           lines <h4>, sub-headings <h5>. Sizes 22 / 18 / 14px over 13px body
+           lines <h4>, sub-headings <h5>. Sizes 20 / 18 / 14px over 13px body
            text (was 16 / 13 / 12). The tag rules also catch an <h3>/<h4>/<h5>
            that lost its class on an edited A4 page or came from rich text.
            Signed proposals keep the old sizes (.doc-preview--signed below) so
            they still look as the client signed them. */
         :global(#proposal-print-root h3), :global(.a4-sheet h3),
         :global(.doc-heading) {
-          font-family: var(--font-comfortaa); font-size: 22px; line-height: 1.3; font-weight: 700; color: var(--nv-text-heading);
+          font-family: var(--font-comfortaa); font-size: 20px; line-height: 1.3; font-weight: 700; color: var(--nv-text-heading);
         }
         :global(.doc-pagebreak-toggle) {
           display: flex; align-items: center; gap: 8px; flex-shrink: 0;
