@@ -55,6 +55,7 @@ const EMPTY_DRAFT: ProposalDraft = {
     hubspotDealId: '', hubspotCompanyId: '', hubspotContactId: '',
   },
   regionSettings: { address: '', companyName: '', aboutNuvho: '', footerText: '', currency: REGION_META.au.currency },
+  documentText: { background: '', scopeIntro: '' },
   services:     [],
   sender:       { staffId: '', accountManagerId: '', message: '', cc: '', bcc: '' },
   cover:        { coverUrl: '' },
@@ -404,6 +405,9 @@ export default function NewProposalPage() {
             bcc: p.sender_bcc || '',
           },
           cover:   { coverUrl: p.cover_url || '' },
+          // Migration 0026 snapshot — '' (older proposals) renders the
+          // built-in wording, exactly as those proposals always have.
+          documentText: { background: p.background_text || '', scopeIntro: p.scope_intro_text || '' },
           // Spread over initTerms() defaults, not just `p.terms || initTerms(...)`,
           // so proposals saved before signatureMethod/signatureDataUrl existed
           // (or before the Worker migration adding those D1 columns has run)
@@ -439,6 +443,32 @@ export default function NewProposalPage() {
   // in. Never runs on an edit-mode load, and only while the field is still
   // at its initial empty state, so it doesn't clobber a manual edit made
   // afterwards — same guard as the staffId effect above.
+  // Migration 0026: pre-fill the document's Background / Scope of Works
+  // intro from Settings → Body Configuration for a NEW proposal. Snapshotted
+  // onto the proposal at create time (the worker also fills any blank from
+  // the same defaults), so editing Settings later never changes it. If the
+  // fetch fails the fields stay '' and the built-in wording is used.
+  React.useEffect(() => {
+    if (editId) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/settings/document-text`, { credentials: 'include', cache: 'no-store' })
+        const data = await res.json()
+        if (!res.ok || cancelled) return
+        const t = data.data as { background?: string; scopeIntro?: string }
+        setDraft(d => ({
+          ...d,
+          documentText: {
+            background: d.documentText.background || t.background || '',
+            scopeIntro: d.documentText.scopeIntro || t.scopeIntro || '',
+          },
+        }))
+      } catch { /* built-in wording is used */ }
+    })()
+    return () => { cancelled = true }
+  }, [editId])
+
   React.useEffect(() => {
     if (editId) return
     setDraft(d => d.sender.message ? d : ({

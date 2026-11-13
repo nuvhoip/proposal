@@ -319,6 +319,17 @@ export interface ProposalDraft {
     currency:    string
   }
 
+  // Migration 0026: the document's Background paragraph and Scope of Works
+  // intro. Pre-filled from Settings → Body Configuration when a new proposal
+  // is started and snapshotted onto the proposal (background_text /
+  // scope_intro_text), so later Settings edits never change it. May contain
+  // [Property Name] / [service] tokens — resolved by documentModel.ts. ''
+  // falls back to the built-in wording (DEFAULT_BACKGROUND_TEXT etc.).
+  documentText: {
+    background: string
+    scopeIntro: string
+  }
+
   // Step 2 — Service Lines
   services: DraftServiceLine[]
 

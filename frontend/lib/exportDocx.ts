@@ -143,17 +143,13 @@ export async function buildDocxFile(model: ProposalDocModel): Promise<Blob> {
   startBlock('background')
   children.push(heading('Background'))
   startBlock('block:background')
-  children.push(body(
-    `${model.hotelName || 'The property'} has engaged Nuvho to deliver ${model.title.toLowerCase()}, with a strong ` +
-    `focus on maximising commercial performance and elevating the guest experience. This proposal outlines our ` +
-    `recommended scope of works, fee structure and terms of engagement.`
-  ))
+  model.backgroundText.split(/\n+/).filter(t => t.trim()).forEach(t => children.push(body(t)))
 
   // Scope of Works
   startBlock('scope')
   children.push(heading('Scope of Works'))
   startBlock('block:scope-intro')
-  children.push(body('We develop a long-term and collaborative partnership with our clients, delivering services and value across the spectrum of hotel operations.'))
+  model.scopeIntroText.split(/\n+/).filter(t => t.trim()).forEach(t => children.push(body(t)))
   model.services.forEach(s => {
     if (multiSvc) children.push(subheading(s.label))
     let lastSection: string | null = null

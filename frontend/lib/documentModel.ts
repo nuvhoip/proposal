@@ -69,6 +69,27 @@ export function resolvePlaceholders(html: string, serviceLabel: string, hotelNam
   return out
 }
 
+// Migration 0026 — built-in Background / Scope of Works intro wording, used
+// when a proposal has no snapshot of its own (created before the defaults
+// became editable in Settings → Body Configuration) or the text is blank.
+// Must match BUILTIN_DOCUMENT_TEXT in worker/src/routes/settings.ts.
+export const DEFAULT_BACKGROUND_TEXT =
+  '[Property Name] has engaged Nuvho to deliver [service], with a strong focus on maximising commercial ' +
+  'performance and elevating the guest experience. This proposal outlines our recommended scope of works, ' +
+  'fee structure and terms of engagement.'
+export const DEFAULT_SCOPE_INTRO_TEXT =
+  'We develop a long-term and collaborative partnership with our clients, delivering services and value ' +
+  'across the spectrum of hotel operations.'
+
+/** Plain-text twin of resolvePlaceholders (no HTML escaping — the result is
+ *  rendered as a React text node / docx run). Blank text → built-in fallback. */
+export function resolveDocumentText(text: string | null | undefined, fallback: string, serviceLabel: string, hotelName: string): string {
+  const raw = (text || '').trim() || fallback
+  return raw
+    .replace(SERVICE_TOKEN, () => serviceLabel)
+    .replace(PROPERTY_TOKEN, () => hotelName)
+}
+
 // Saved A4 pages hold a frozen HTML snapshot of the letter, so a snapshot
 // taken while the bug above was live still shows the literal tokens. Resolve
 // them at render/export time too. Signed documents are left exactly as signed.
@@ -120,6 +141,8 @@ export interface ProposalDocModel {
   dateIssued:        string   // pre-formatted display date, e.g. "23 July 2026"
   coverUrl:          string
   introMessage:      string
+  backgroundText:    string   // Background paragraph, tokens resolved (migration 0026)
+  scopeIntroText:    string   // Scope of Works intro, tokens resolved (migration 0026)
   senderName:        string
   senderRoleLabel:   string
   senderEmail:       string
@@ -299,6 +322,8 @@ export function buildDocModelFromDraft(
     // The fallback default is wrapped in <p> so introMessage is always valid
     // HTML either way (see ProposalDocument.tsx / exportDocx.ts renderers).
     introMessage:      resolveIntroMessage(draft.sender.message, title.toLowerCase(), draft.hotel.name || 'your property'),
+    backgroundText:    resolveDocumentText(draft.documentText?.background, DEFAULT_BACKGROUND_TEXT, title.toLowerCase(), draft.hotel.name || 'The property'),
+    scopeIntroText:    resolveDocumentText(draft.documentText?.scopeIntro, DEFAULT_SCOPE_INTRO_TEXT, title.toLowerCase(), draft.hotel.name || 'The property'),
     senderName:        sender?.name || '',
     // Their actual job title (staff.role, self-editable in Settings → User
     // Settings), not the generic ROLE_LABELS[role_type] bucket (e.g. plain
@@ -359,6 +384,8 @@ export function buildDocModelFromProposal(p: any): ProposalDocModel {
     dateIssued:        p.created_at ? new Date(p.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' }) : formatToday(),
     coverUrl:          p.cover_url || '',
     introMessage:      resolveIntroMessage(p.sender_message || '', title.toLowerCase(), p.hotel_name || 'your property'),
+    backgroundText:    resolveDocumentText(p.background_text, DEFAULT_BACKGROUND_TEXT, title.toLowerCase(), p.hotel_name || 'The property'),
+    scopeIntroText:    resolveDocumentText(p.scope_intro_text, DEFAULT_SCOPE_INTRO_TEXT, title.toLowerCase(), p.hotel_name || 'The property'),
     senderName:        sender?.name || '',
     // See the matching comment in buildDocModelFromDraft above — same
     // switch from the generic role_type label to the sender's actual title.

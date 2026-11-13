@@ -132,6 +132,69 @@ export async function getRegionSettings(env: Env, session: Session): Promise<Res
   return ok(data)
 }
 
+/* ─── Document text defaults (Settings → Body Configuration) ─────────
+ * Migration 0026. Staff-editable default wording for the proposal
+ * document's Background paragraph and Scope of Works intro. A new proposal
+ * snapshots these onto proposals.background_text / scope_intro_text when it
+ * is created (createProposal → loadDocumentTextDefaults), so editing them
+ * here only affects proposals created afterward. [Property Name] and
+ * [service] tokens are resolved when the document renders.
+ */
+export const BUILTIN_DOCUMENT_TEXT = {
+  background:
+    '[Property Name] has engaged Nuvho to deliver [service], with a strong focus on maximising commercial ' +
+    'performance and elevating the guest experience. This proposal outlines our recommended scope of works, ' +
+    'fee structure and terms of engagement.',
+  scopeIntro:
+    'We develop a long-term and collaborative partnership with our clients, delivering services and value ' +
+    'across the spectrum of hotel operations.',
+}
+const DOC_TEXT_KEYS = { background: 'background', scopeIntro: 'scope_intro' } as const
+const DOC_TEXT_MAX = 5000
+
+export async function loadDocumentTextDefaults(env: Env): Promise<{ background: string; scopeIntro: string }> {
+  const out = { ...BUILTIN_DOCUMENT_TEXT }
+  try {
+    const { results } = await env.DB.prepare('SELECT key, value FROM document_text_defaults')
+      .all<{ key: string; value: string }>()
+    for (const r of results) {
+      if (r.key === DOC_TEXT_KEYS.background  && r.value.trim()) out.background = r.value
+      if (r.key === DOC_TEXT_KEYS.scopeIntro && r.value.trim()) out.scopeIntro = r.value
+    }
+  } catch (e) {
+    // Table missing (migration 0026 not yet run) — fall back to built-in text.
+    console.error('[document_text_defaults] read failed, using built-in text:', e)
+  }
+  return out
+}
+
+export async function getDocumentTextDefaults(env: Env, session: Session): Promise<Response> {
+  return ok({ ...(await loadDocumentTextDefaults(env)), builtin: BUILTIN_DOCUMENT_TEXT })
+}
+
+export async function updateDocumentTextDefaults(request: Request, env: Env, session: Session): Promise<Response> {
+  const body = await request.json().catch(() => ({})) as { background?: unknown; scopeIntro?: unknown }
+  const updates: [string, string][] = []
+  for (const field of ['background', 'scopeIntro'] as const) {
+    if (body[field] === undefined) continue
+    if (typeof body[field] !== 'string') return err(`${field} must be a string`)
+    const value = (body[field] as string).trim()
+    if (value.length > DOC_TEXT_MAX) return err(`${field} is too long (max ${DOC_TEXT_MAX} characters)`)
+    updates.push([DOC_TEXT_KEYS[field], value])
+  }
+  if (!updates.length) return err('Nothing to update')
+
+  for (const [key, value] of updates) {
+    await env.DB.prepare(`
+      INSERT INTO document_text_defaults (key, value, updated_by, updated_at)
+      VALUES (?, ?, ?, datetime('now'))
+      ON CONFLICT(key) DO UPDATE SET
+        value = excluded.value, updated_by = excluded.updated_by, updated_at = excluded.updated_at
+    `).bind(key, value, session.email).run()
+  }
+  return ok(await loadDocumentTextDefaults(env))
+}
+
 /* ─── Service Categories (Settings → Body Configuration) ─────────────
  * Main service-line categories offered on Step 2 (Services) of the proposal
  * wizard. Fully staff-editable (add/rename/reorder/deactivate/delete) —

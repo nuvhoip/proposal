@@ -504,10 +504,8 @@ export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBre
           node: (
             <div className={`doc-section${breakClass('background')}`} id="doc-section-background">
               <SectionHeading text="Background" sectionKey="background" />
-              <p {...block("block:background", "Background paragraph")}>
-                {model.hotelName || 'The property'} has engaged Nuvho to deliver {model.title.toLowerCase()}, with a
-                strong focus on maximising commercial performance and elevating the guest experience. This proposal
-                outlines our recommended scope of works, fee structure and terms of engagement.
+              <p {...block("block:background", "Background paragraph")} style={{ whiteSpace: 'pre-line' }}>
+                {model.backgroundText}
               </p>
             </div>
           ),
@@ -521,9 +519,8 @@ export function ProposalDocument({ model, beforeAppendix, afterDocument, pageBre
           node: (
             <div className={`doc-section${breakClass('scope')}`} id="doc-section-scope">
               <SectionHeading text="Scope of Works" sectionKey="scope" />
-              <p {...block("block:scope-intro", "Scope introduction")}>
-                We develop a long-term and collaborative partnership with our clients, delivering services and value
-                across the spectrum of hotel operations.
+              <p {...block("block:scope-intro", "Scope introduction")} style={{ whiteSpace: 'pre-line' }}>
+                {model.scopeIntroText}
               </p>
               {model.services.map(s => {
                 let lastSection: string | null = null

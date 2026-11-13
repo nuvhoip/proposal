@@ -71,6 +71,11 @@ CREATE TABLE IF NOT EXISTS proposals (
   -- (see sendProposalEmail() in routes/proposals.ts). Added to an already-
   -- deployed database via migrations/0010_proposal_sender_subject.sql.
   sender_subject       TEXT,
+  -- Migration 0026: Background paragraph + Scope of Works intro, snapshotted
+  -- from document_text_defaults at create time. NULL = built-in wording.
+  -- May contain [Property Name] / [service] tokens, resolved at render time.
+  background_text      TEXT,
+  scope_intro_text     TEXT,
   cover_url            TEXT,
   pdf_url              TEXT,
   signed_pdf_url       TEXT,
@@ -279,6 +284,22 @@ CREATE TABLE IF NOT EXISTS service_categories (
 );
 
 CREATE INDEX IF NOT EXISTS idx_service_categories_sort ON service_categories(sort_order);
+
+-- ── Document text defaults (Settings › Body configuration) — migration 0026 ──
+-- Staff-editable default wording for the document's Background paragraph and
+-- Scope of Works intro. Snapshotted onto proposals.background_text /
+-- scope_intro_text when a proposal is created; editing it later only affects
+-- proposals created afterward.
+CREATE TABLE IF NOT EXISTS document_text_defaults (
+  key         TEXT PRIMARY KEY,           -- 'background' | 'scope_intro'
+  value       TEXT NOT NULL DEFAULT '',
+  updated_by  TEXT,
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+INSERT OR IGNORE INTO document_text_defaults (key, value) VALUES
+  ('background',  '[Property Name] has engaged Nuvho to deliver [service], with a strong focus on maximising commercial performance and elevating the guest experience. This proposal outlines our recommended scope of works, fee structure and terms of engagement.'),
+  ('scope_intro', 'We develop a long-term and collaborative partnership with our clients, delivering services and value across the spectrum of hotel operations.');
 
 -- Seed: the 6 main categories, in the requested order. Codes for the first
 -- four match the pre-existing SERVICE_CATALOG/proposal_services codes so

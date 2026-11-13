@@ -28,6 +28,48 @@ export default function BodyConfigurationPage() {
   // for each line's "Offered by" chips. Optional — empty if unreachable.
   const [entities, setEntities]     = useState<{ entityCode: string; legalName: string; isActive: boolean }[]>([])
 
+  // Default document text (migration 0026) — the Background paragraph and
+  // Scope of Works intro every NEW proposal starts with. Snapshotted onto
+  // each proposal at create time, so saving here never changes an existing
+  // proposal. `docTextBuiltin` is the original wording, for "Reset".
+  type DocText = { background: string; scopeIntro: string }
+  const [docText, setDocText]               = useState<DocText>({ background: '', scopeIntro: '' })
+  const [docTextBuiltin, setDocTextBuiltin] = useState<DocText | null>(null)
+  const [docTextLoaded, setDocTextLoaded]   = useState(false)
+  const [docTextSaving, setDocTextSaving]   = useState(false)
+  const [docTextError, setDocTextError]     = useState('')
+  const [docTextSaved, setDocTextSaved]     = useState(false)
+
+  function updateDocText(patch: Partial<DocText>) {
+    setDocText(prev => ({ ...prev, ...patch }))
+    setDocTextSaved(false)
+  }
+
+  async function saveDocText() {
+    if (!docText.background.trim() || !docText.scopeIntro.trim()) {
+      setDocTextError('Both texts are required — use Reset to restore the original wording.')
+      return
+    }
+    setDocTextSaving(true)
+    setDocTextError('')
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/settings/document-text`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(docText),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to save document text')
+      setDocText({ background: data.data.background, scopeIntro: data.data.scopeIntro })
+      setDocTextSaved(true)
+    } catch (e: any) {
+      setDocTextError(e.message || 'Failed to save document text')
+    } finally {
+      setDocTextSaving(false)
+    }
+  }
+
   // Scope of Work editor — fully editable per category (add/edit/remove/
   // reorder both sections and the bullets within a section). Only one
   // category's editor is expanded at a time; `scopeDraft` holds the local
@@ -210,6 +252,16 @@ export default function BodyConfigurationPage() {
       setLoading(false)
     }
     try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/settings/document-text`, { credentials: 'include', cache: 'no-store' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to load document text')
+      setDocText({ background: data.data.background || '', scopeIntro: data.data.scopeIntro || '' })
+      if (data.data.builtin) setDocTextBuiltin(data.data.builtin)
+      setDocTextLoaded(true)
+    } catch (e: any) {
+      setDocTextError(e.message || 'Failed to load document text')
+    }
+    try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL}/settings/entities`, { credentials: 'include' })
       const data = await res.json()
       if (res.ok) setEntities(((data.data ?? []) as { entityCode: string; legalName: string; isActive: boolean }[]).filter(e => e.isActive !== false))
@@ -323,11 +375,61 @@ export default function BodyConfigurationPage() {
     <div className="nv-card bc-card">
       <h2 className="sync-card__title">Body configuration</h2>
       <p className="sync-card__desc">
-        Configure the main service-line categories offered on Step 2 (Services) when creating a new
-        proposal. Rename, reorder, deactivate, or delete a category — deactivated categories stop
+        Set the default Background and Scope of Works wording for new proposals, and configure the
+        main service-line categories offered on Step 2 (Services) when creating a new proposal. Rename, reorder, deactivate, or delete a category — deactivated categories stop
         appearing as options on new proposals but existing proposals are unaffected.
       </p>
 
+      <h3 className="bc-add-title">Default document text</h3>
+      <p className="scope-panel__hint">
+        Wording every new proposal starts with. Use <code>[Property Name]</code> and <code>[service]</code> to
+        insert the hotel name and the proposal&apos;s service lines. Each proposal keeps the text it was created
+        with — saving here only affects proposals created afterward.
+      </p>
+      <div className="dt-panel">
+        <div className="dt-field">
+          <span className="dt-field__label">
+            Background
+            {docTextBuiltin && (
+              <button type="button" className="nv-btn nv-btn--ghost nv-btn--sm"
+                onClick={() => updateDocText({ background: docTextBuiltin.background })}
+                disabled={!docTextLoaded || docText.background === docTextBuiltin.background}>
+                Reset to original
+              </button>
+            )}
+          </span>
+          <textarea className="nv-input dt-field__text" rows={4} value={docText.background} aria-label="Background default text"
+            disabled={!docTextLoaded}
+            onChange={e => updateDocText({ background: e.target.value })}
+            placeholder="[Property Name] has engaged Nuvho to deliver [service]…" />
+        </div>
+        <div className="dt-field">
+          <span className="dt-field__label">
+            Scope of Works — introduction
+            {docTextBuiltin && (
+              <button type="button" className="nv-btn nv-btn--ghost nv-btn--sm"
+                onClick={() => updateDocText({ scopeIntro: docTextBuiltin.scopeIntro })}
+                disabled={!docTextLoaded || docText.scopeIntro === docTextBuiltin.scopeIntro}>
+                Reset to original
+              </button>
+            )}
+          </span>
+          <textarea className="nv-input dt-field__text" rows={3} value={docText.scopeIntro} aria-label="Scope of Works introduction default text"
+            disabled={!docTextLoaded}
+            onChange={e => updateDocText({ scopeIntro: e.target.value })}
+            placeholder="Paragraph shown above the service lines' scope items" />
+        </div>
+        <div className="scope-panel__actions">
+          <button type="button" className="nv-btn nv-btn--solid nv-btn--sm"
+            onClick={saveDocText} disabled={!docTextLoaded || docTextSaving}>
+            {docTextSaving ? 'Saving…' : 'Save document text'}
+          </button>
+          {docTextSaved && <span className="scope-panel__saved">{/* eslint-disable-next-line @next/next/no-img-element */}<img src="/icons/check.svg" width={12} height={12} alt="" className="nv-icon-inline" /> Saved</span>}
+        </div>
+        {docTextError && <div className="bc-row__error" style={{ position: 'static' }}>{docTextError}</div>}
+      </div>
+
+      <h3 className="bc-add-title">Service lines</h3>
       {loading && <p className="sync-card__desc">Loading service lines…</p>}
       {loadError && <div className="sync-card__result sync-card__result--error">{loadError}</div>}
 
@@ -673,6 +775,23 @@ export default function BodyConfigurationPage() {
           gap: 12px;
         }
         .footnotes-items { display: flex; flex-direction: column; gap: 8px; }
+
+        .dt-panel {
+          border: 1px solid var(--nv-border-hair);
+          border-radius: 6px;
+          background: rgba(40,104,127,0.03);
+          padding: 12px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          margin: 6px 0 8px;
+        }
+        .dt-field { display: flex; flex-direction: column; gap: 6px; }
+        .dt-field__label {
+          display: flex; align-items: center; justify-content: space-between; gap: 8px;
+          font-size: 12.5px; font-weight: 600; color: var(--nv-text-heading);
+        }
+        .dt-field__text { font-size: 12.5px; resize: vertical; }
         .footnotes-item { display: flex; align-items: flex-start; gap: 8px; }
         .footnotes-item__text { flex: 1; font-size: 12.5px; resize: vertical; }
       `}</style>

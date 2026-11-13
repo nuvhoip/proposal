@@ -34,6 +34,7 @@ import {
   deleteServiceCategory, reorderServiceCategories,
   listFeeConfigurations, createFeeConfiguration, updateFeeConfiguration,
   deleteFeeConfiguration, reorderServiceLineFees,
+  getDocumentTextDefaults, updateDocumentTextDefaults,
 } from './routes/settings'
 import {
   handleHotelGroupTypeahead,
@@ -357,6 +358,15 @@ async function route(
   const entitySettingsMatch = path.match(/^\/settings\/entities\/([A-Za-z0-9_-]+)$/)
   if (entitySettingsMatch && method === 'PUT') {
     return updateEntitySettings(entitySettingsMatch[1], request, env, session)
+  }
+
+  // Document text defaults (Settings → Body Configuration) — default
+  // Background + Scope of Works intro wording (migration 0026).
+  if (path === '/settings/document-text' && method === 'GET') {
+    return getDocumentTextDefaults(env, session)
+  }
+  if (path === '/settings/document-text' && method === 'PUT') {
+    return updateDocumentTextDefaults(request, env, session)
   }
 
   // Service Categories (Settings → Service Lines) — main service-line

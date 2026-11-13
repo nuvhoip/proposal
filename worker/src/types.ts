@@ -76,6 +76,8 @@ export interface ProposalRow {
   sender_cc:           string | null
   sender_bcc:          string | null
   sender_subject:      string | null
+  background_text?:   string | null  // migration 0026
+  scope_intro_text?:  string | null  // migration 0026
   cover_url:           string | null
   pdf_url:             string | null
   signed_pdf_url:      string | null

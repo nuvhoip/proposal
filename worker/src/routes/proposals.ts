@@ -12,6 +12,7 @@ import {
 } from '../lib/registry'
 import { formatNpIdLocal } from '../lib/npId'
 import { ensureProposalDeal, syncDealForProposalEvent } from './hubspot'
+import { loadDocumentTextDefaults } from './settings'
 import {
   sendMailViaGraph, createClientTeam, findTeamByName, addExistingTeamMember,
   createOrUpdateHotelGroupChannel,
@@ -311,6 +312,17 @@ export async function createProposal(request: Request, env: Env, session: Sessio
   })
   const hubspotDealId = dealResult.dealId
 
+  // Migration 0026: snapshot the Background / Scope of Works intro wording
+  // onto the proposal. The wizard sends what it pre-filled from Settings →
+  // Body Configuration; anything blank/missing (older client, failed fetch)
+  // takes the current saved defaults, so every new proposal gets a snapshot.
+  const textDefaults = await loadDocumentTextDefaults(env)
+  const sentText = (body.documentText || {}) as { background?: unknown; scopeIntro?: unknown }
+  const documentText = {
+    background: (typeof sentText.background === 'string' && sentText.background.trim()) || textDefaults.background,
+    scopeIntro: (typeof sentText.scopeIntro === 'string' && sentText.scopeIntro.trim()) || textDefaults.scopeIntro,
+  }
+
   // Insert proposal
   await env.DB.prepare(`
     INSERT INTO proposals (
@@ -318,8 +330,8 @@ export async function createProposal(request: Request, env: Env, session: Sessio
       property_address, region, nuvho_address, company_name, about_nuvho, footer_text, currency,
       status, sender_staff_id, account_manager_stf_id, sender_message, sender_cc, sender_bcc,
       sender_subject, cover_url, hubspot_deal_id, signing_token, expires_at, valid_until,
-      property_address_json, pids_json, hotel_group_name
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      property_address_json, pids_json, hotel_group_name, background_text, scope_intro_text
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     proposalId, npId,
     hotel.name, hotel.contactName, hotel.contactEmail,
@@ -335,6 +347,7 @@ export async function createProposal(request: Request, env: Env, session: Sessio
     signingToken, expiresAt, expiresAt,
     address ? JSON.stringify(address) : null, pids.length ? JSON.stringify(pids) : null,
     (typeof hotel.hotelGroupName === 'string' && hotel.hotelGroupName.trim()) || null,
+    documentText.background, documentText.scopeIntro,
   ).run()
 
   // Insert services (+ per-service scope items, fee rows, and footnotes from
@@ -962,6 +975,7 @@ const FULL_EDIT_FIELDS = [
   'sender_staff_id', 'account_manager_stf_id', 'sender_message', 'sender_cc', 'sender_bcc', 'sender_subject', 'cover_url',
   'hubspot_deal_id',
   'property_address_json', 'pids_json', 'hotel_group_name',  // migration 0019
+  'background_text', 'scope_intro_text',                      // migration 0026
 ]
 const ALWAYS_ALLOWED_FIELDS = ['sender_message', 'sender_cc', 'sender_bcc', 'sender_subject', 'cover_url', 'hubspot_deal_id']
 
